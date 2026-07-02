@@ -1,0 +1,696 @@
+import { useEffect, useState } from 'react';
+import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
+import { TIMEFRAMES, LINE_COLORS, type Position, type PendingOrder, type TimeframeSec, type LineDash, type LineWidth, type LineSelection, type OrderType } from '../types';
+import { currencySymbol } from '../lib/currency';
+import { inferPipSize, pricePrecision } from '../lib/pips';
+
+// "YYYY-MM-DD" + "HH:mm" を UTC 前提で Unix秒に変換
+function parseDateTimeAsUTC(dateStr: string, timeStr: string): number | null {
+  const dm = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!dm) return null;
+  const tm = (timeStr || '00:00').match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
+  if (!tm) return null;
+  const [, y, mo, d] = dm;
+  const [, h, mi] = tm;
+  return Math.floor(Date.UTC(+y, +mo - 1, +d, +h, +mi) / 1000);
+}
+
+// Unix秒 → "YYYY-MM-DD"（UTC基準、datetime input の min/max 用）
+function toDateUTC(sec: number): string {
+  const d = new Date(sec * 1000);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  return `${y}-${mo}-${day}`;
+}
+
+// Unix秒 → "M/D HH:mm"（UTC基準、垂直線チップ表示用）
+function fmtVTime(sec: number): string {
+  const d = new Date(sec * 1000);
+  const M = d.getUTCMonth() + 1;
+  const D = d.getUTCDate();
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${M}/${D} ${hh}:${mm}`;
+}
+
+const fmt  = (n: number) => Math.round(n).toLocaleString('ja-JP');
+const fmtp = (n: number, sym: string) => (n >= 0 ? `+${sym}${fmt(n)}` : `-${sym}${fmt(Math.abs(n))}`);
+
+const LOT_OPTIONS = [1_000, 3_000, 5_000, 10_000, 20_000, 50_000, 100_000];
+const DASH_OPTIONS: { v: LineDash; label: string }[] = [
+  { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
+];
+const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
+
+const pnlColor = (n: number) => n > 0 ? '#26a69a' : n < 0 ? '#ef5350' : '#444';
+
+const DEFAULT_TP_SL_PIPS = 50;
+
+const miniBtn = (color: string): React.CSSProperties => ({
+  background: 'none', border: `1px solid ${color}55`, color,
+  borderRadius: '3px', padding: '1px 6px', cursor: 'pointer', fontSize: '12px',
+});
+
+// チャートクリックで値を取得するボタン（押すとピッキングモードに入る）
+const pickBtn = (color: string, active: boolean, disabled: boolean): React.CSSProperties => ({
+  backgroundColor: disabled ? '#141414' : active ? `${color}33` : '#1a1a1a',
+  border: `1px solid ${disabled ? '#222' : active ? color : '#2a2a2a'}`,
+  borderRadius: '3px', padding: '6px 8px', cursor: disabled ? 'not-allowed' : 'pointer', fontSize: '14px',
+});
+
+// ── ポジション1行 ──────────────────────────────────────────────────────────
+function PositionRow({
+  pos, pnl, sym, onClose, onAddTP, onAddSL, onRemoveTP, onRemoveSL,
+}: {
+  pos: Position; pnl: number; sym: string; onClose: () => void;
+  onAddTP: () => void; onAddSL: () => void; onRemoveTP: () => void; onRemoveSL: () => void;
+}) {
+  const prec = pricePrecision(pos.openPrice);
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '10px',
+      padding: '5px 16px', borderTop: '1px solid #1a1a1a', fontSize: '16px',
+      fontVariantNumeric: 'tabular-nums',
+    }}>
+      <span style={{
+        color: pos.side === 'BUY' ? '#26a69a' : '#ef5350',
+        fontWeight: 700, minWidth: '32px',
+      }}>{pos.side}</span>
+      <span style={{ color: '#888' }}>{pos.lots.toLocaleString()}</span>
+      <span style={{ color: '#555' }}>@ {pos.openPrice.toFixed(prec)}</span>
+      {pos.tp !== undefined ? (
+        <span style={{ color: '#26a69a', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+          TP {pos.tp.toFixed(prec)}
+          <button onClick={onRemoveTP} style={{ background: 'none', border: 'none', color: '#26a69a', cursor: 'pointer', fontSize: '13px' }}>×</button>
+        </span>
+      ) : (
+        <button onClick={onAddTP} style={miniBtn('#26a69a')}>+TP</button>
+      )}
+      {pos.sl !== undefined ? (
+        <span style={{ color: '#ef5350', fontSize: '13px', display: 'flex', alignItems: 'center', gap: '3px' }}>
+          SL {pos.sl.toFixed(prec)}
+          <button onClick={onRemoveSL} style={{ background: 'none', border: 'none', color: '#ef5350', cursor: 'pointer', fontSize: '13px' }}>×</button>
+        </span>
+      ) : (
+        <button onClick={onAddSL} style={miniBtn('#ef5350')}>+SL</button>
+      )}
+      <span style={{ color: pnlColor(pnl), flex: 1, textAlign: 'right' }}>{fmtp(pnl, sym)}</span>
+      <button onClick={onClose} style={{
+        backgroundColor: '#2a1010', color: '#c62828', border: '1px solid #3a1818',
+        borderRadius: '3px', padding: '3px 10px', cursor: 'pointer', fontSize: '15px',
+      }}>決済</button>
+    </div>
+  );
+}
+
+// ── 未約定注文1行 ──────────────────────────────────────────────────────────
+function OrderRow({ order, onCancel }: { order: PendingOrder; onCancel: () => void }) {
+  const prec = pricePrecision(order.price);
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '10px',
+      padding: '5px 16px', borderTop: '1px solid #1a1a1a', fontSize: '16px',
+      fontVariantNumeric: 'tabular-nums',
+    }}>
+      <span style={{
+        color: order.side === 'BUY' ? '#42a5f5' : '#ab47bc',
+        fontWeight: 700, minWidth: '88px',
+      }}>{order.side} {order.type === 'limit' ? 'LIMIT' : 'STOP'}</span>
+      <span style={{ color: '#888' }}>{order.lots.toLocaleString()}</span>
+      <span style={{ color: '#555' }}>@ {order.price.toFixed(prec)}</span>
+      {order.tp !== undefined && <span style={{ color: '#26a69a', fontSize: '13px' }}>TP {order.tp.toFixed(prec)}</span>}
+      {order.sl !== undefined && <span style={{ color: '#ef5350', fontSize: '13px' }}>SL {order.sl.toFixed(prec)}</span>}
+      <span style={{ flex: 1 }} />
+      <button onClick={onCancel} style={{
+        backgroundColor: '#2a1010', color: '#c62828', border: '1px solid #3a1818',
+        borderRadius: '3px', padding: '3px 10px', cursor: 'pointer', fontSize: '15px',
+      }}>取消</button>
+    </div>
+  );
+}
+
+// ── メインコントロール ──────────────────────────────────────────────────────
+export function Controls() {
+  const advance       = useTraderStore(s => s.advance);
+  const jumpToTime    = useTraderStore(s => s.jumpToTime);
+  const fitToScreen   = useTraderStore(s => s.fitToScreen);
+  const centerOnTime  = useTraderStore(s => s.centerOnTime);
+  const submitOrder   = useTraderStore(s => s.submitOrder);
+  const closePosition = useTraderStore(s => s.closePosition);
+  const closeAll      = useTraderStore(s => s.closeAll);
+  const cancelOrder   = useTraderStore(s => s.cancelOrder);
+  const setPositionTP = useTraderStore(s => s.setPositionTP);
+  const setPositionSL = useTraderStore(s => s.setPositionSL);
+  const setOrderType  = useTraderStore(s => s.setOrderType);
+  const setDraftPrice = useTraderStore(s => s.setDraftPrice);
+  const setDraftTP    = useTraderStore(s => s.setDraftTP);
+  const setDraftSL    = useTraderStore(s => s.setDraftSL);
+  const togglePickTarget = useTraderStore(s => s.togglePickTarget);
+  const pickTarget    = useTraderStore(s => s.pickTarget);
+  const setLots       = useTraderStore(s => s.setLots);
+  const setSpeed      = useTraderStore(s => s.setSpeed);
+  const setTimeframe  = useTraderStore(s => s.setTimeframe);
+  const toggleDrawLine = useTraderStore(s => s.toggleDrawLine);
+  const removeLine    = useTraderStore(s => s.removeLine);
+  const toggleDrawVLine = useTraderStore(s => s.toggleDrawVLine);
+  const removeVLine   = useTraderStore(s => s.removeVLine);
+  const selectLine    = useTraderStore(s => s.selectLine);
+  const setLineDraft  = useTraderStore(s => s.setLineDraft);
+  const toggleEMA     = useTraderStore(s => s.toggleEMA);
+  const toggleWeekLines = useTraderStore(s => s.toggleWeekLines);
+  const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
+  const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
+  const toggleMeasure = useTraderStore(s => s.toggleMeasure);
+  const toggleFullHistory = useTraderStore(s => s.toggleFullHistory);
+  const lines          = useTraderStore(s => s.lines);
+  const vlines          = useTraderStore(s => s.vlines);
+  const isDrawingLine = useTraderStore(s => s.isDrawingLine);
+  const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
+  const isMeasuring = useTraderStore(s => s.isMeasuring);
+  const selected        = useTraderStore(s => s.selected);
+  const lineDraft      = useTraderStore(s => s.lineDraft);
+  const showEMA       = useTraderStore(s => s.showEMA);
+  const showWeekLines = useTraderStore(s => s.showWeekLines);
+  const showFullHistory = useTraderStore(s => s.showFullHistory);
+  const balance       = useTraderStore(s => s.balance);
+  const initialBalance = useTraderStore(s => s.initialBalance);
+  const setInitialBalance = useTraderStore(s => s.setInitialBalance);
+  const resetAccount  = useTraderStore(s => s.resetAccount);
+  const quoteCurrency = useTraderStore(s => s.quoteCurrency);
+  const positions     = useTraderStore(s => s.positions);
+  const pendingOrders = useTraderStore(s => s.pendingOrders);
+  const orderType     = useTraderStore(s => s.orderType);
+  const draftPrice    = useTraderStore(s => s.draftPrice);
+  const draftTP       = useTraderStore(s => s.draftTP);
+  const draftSL       = useTraderStore(s => s.draftSL);
+  const lots          = useTraderStore(s => s.lots);
+  const lotMode       = useTraderStore(s => s.lotMode);
+  const setLotMode    = useTraderStore(s => s.setLotMode);
+  const riskPercent   = useTraderStore(s => s.riskPercent);
+  const setRiskPercent = useTraderStore(s => s.setRiskPercent);
+  const candles       = useTraderStore(s => s.candles);
+  const timeframeSec  = useTraderStore(s => s.timeframeSec);
+  const cursor        = useTraderStore(s => s.cursor);
+  const isLoaded      = useTraderStore(s => s.isLoaded);
+  const isLoading     = useTraderStore(s => s.isLoading);
+  const isPlaying     = useTraderStore(s => s.isPlaying);
+  const speed         = useTraderStore(s => s.speed);
+  const totalPnl      = useTraderStore(selectUnrealizedPnL);
+
+  const timeframeLabel = TIMEFRAMES.find(t => t.sec === timeframeSec)?.label ?? '';
+  const sym = currencySymbol(quoteCurrency);
+  const priceStep = candles.length > 0 ? 1 / 10 ** pricePrecision(candles[0].close) : 0.00001;
+
+  // ポジション別含み損益
+  const current = candles[cursor];
+
+  // リスク%モードのロット数プレビュー（成行=現在値、指値/逆指値=draftPrice をエントリー価格として使う）
+  const entryPriceForRisk = orderType === 'market' ? current?.close ?? null : draftPrice;
+  const riskLotsPreview = (lotMode === 'risk' && draftSL !== null && entryPriceForRisk !== null && entryPriceForRisk !== draftSL)
+    ? Math.round((balance * (riskPercent / 100)) / Math.abs(entryPriceForRisk - draftSL))
+    : null;
+  const posPnlMap = new Map(positions.map(pos => {
+    const dir = pos.side === 'BUY' ? 1 : -1;
+    const pnl = current ? (current.close - pos.openPrice) * pos.lots * dir : 0;
+    return [pos.id, pnl];
+  }));
+
+  const timeStr = current ? (() => {
+    const d = new Date(current.time * 1000);
+    const M = d.getUTCMonth() + 1;
+    const D = d.getUTCDate();
+    const hh = String(d.getUTCHours()).padStart(2, '0');
+    const mm = String(d.getUTCMinutes()).padStart(2, '0');
+    return `${M}/${D} ${hh}:${mm}`;
+  })() : '—';
+
+  const [jumpDate, setJumpDate] = useState('');
+  const [jumpTime, setJumpTime] = useState('00:00');
+  const handleJump = () => {
+    const sec = parseDateTimeAsUTC(jumpDate, jumpTime);
+    if (sec !== null) jumpToTime(sec);
+  };
+  const minDate = candles.length > 0 ? toDateUTC(candles[0].time) : undefined;
+  const maxDate = candles.length > 0 ? toDateUTC(candles[candles.length - 1].time) : undefined;
+
+  // 選択中のライン（水平線 or 垂直線）があればその設定を、なければ draft（次に引く線の設定）を表示
+  const selectedLine  = selected?.kind === 'h' ? lines.find(l => l.id === selected.id) : undefined;
+  const selectedVLine = selected?.kind === 'v' ? vlines.find(v => v.id === selected.id) : undefined;
+  const activeStyle = selectedLine ?? selectedVLine ?? lineDraft;
+
+  // rAF 自動再生
+  useEffect(() => {
+    if (!isPlaying) return;
+    const msPerCandle = Math.round(500 / speed);
+    let lastTick = performance.now();
+    let rafId: number;
+    const loop = (now: number) => {
+      if (now - lastTick >= msPerCandle) {
+        lastTick = now;
+        if (!advance()) return;
+      }
+      rafId = requestAnimationFrame(loop);
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [isPlaying, speed, advance]);
+
+  return (
+    <div style={{ borderTop: '1px solid #1e1e1e', backgroundColor: '#0d0d0d' }}>
+
+      {/* ── 描画ツール ─────────────────────────────────────────────── */}
+      <div style={{ borderBottom: '1px solid #1a1a1a' }}>
+        <div style={{
+          display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '6px 16px',
+        }}>
+          <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
+          <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>週区切り</button>
+          <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
+          <button
+            onClick={toggleDrawLine}
+            disabled={!isLoaded}
+            style={tfBtn(isDrawingLine, !isLoaded)}
+          >{isDrawingLine ? 'クリックで配置...' : '+ 水平線'}</button>
+          <button
+            onClick={toggleDrawVLine}
+            disabled={!isLoaded}
+            style={tfBtn(isDrawingVLine, !isLoaded)}
+          >{isDrawingVLine ? 'クリックで配置...' : '+ 垂直線'}</button>
+          <button
+            onClick={toggleMeasure}
+            disabled={!isLoaded}
+            style={tfBtn(isMeasuring, !isLoaded)}
+          >{isMeasuring ? 'ドラッグで計測...' : 'ものさし'}</button>
+
+          <span style={{ width: '1px', height: '18px', backgroundColor: '#222', margin: '0 4px' }} />
+
+          {lines.map(line => {
+            const isSel = selected?.kind === 'h' && selected.id === line.id;
+            const sel: LineSelection = { kind: 'h', id: line.id };
+            return (
+              <span
+                key={`h${line.id}`}
+                onClick={() => selectLine(isSel ? null : sel)}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+                  backgroundColor: isSel ? '#222' : '#161616',
+                  border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
+                  borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
+                {line.price.toFixed(pricePrecision(line.price))}
+                <button
+                  onClick={e => { e.stopPropagation(); removeLine(line.id); }}
+                  style={{
+                    background: 'none', border: 'none', color: '#555',
+                    cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+                  }}
+                >×</button>
+              </span>
+            );
+          })}
+
+          {vlines.map(v => {
+            const isSel = selected?.kind === 'v' && selected.id === v.id;
+            const sel: LineSelection = { kind: 'v', id: v.id };
+            return (
+              <span
+                key={`v${v.id}`}
+                onClick={() => { selectLine(isSel ? null : sel); centerOnTime(v.time); }}
+                style={{
+                  display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+                  backgroundColor: isSel ? '#222' : '#161616',
+                  border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
+                  borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              >
+                <span style={{ width: '8px', height: '8px', backgroundColor: v.color, flexShrink: 0 }} />
+                {fmtVTime(v.time)}
+                <button
+                  onClick={e => { e.stopPropagation(); removeVLine(v.id); }}
+                  style={{
+                    background: 'none', border: 'none', color: '#555',
+                    cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+                  }}
+                >×</button>
+              </span>
+            );
+          })}
+        </div>
+
+        {/* スタイルピッカー: 選択中のラインがあればそれを編集、なければ次に引く線の既定値 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 16px 8px 16px', flexWrap: 'wrap' }}>
+          <span style={{ color: '#444', fontSize: '14px' }}>
+            {selectedLine ? `編集中: ${selectedLine.price.toFixed(pricePrecision(selectedLine.price))}`
+              : selectedVLine ? `編集中: ${fmtVTime(selectedVLine.time)}`
+              : '次の線:'}
+          </span>
+          <div style={{ display: 'flex', gap: '4px' }}>
+            {LINE_COLORS.map(c => (
+              <button
+                key={c}
+                onClick={() => setLineDraft({ color: c })}
+                style={{
+                  width: '16px', height: '16px', borderRadius: '50%', backgroundColor: c,
+                  border: activeStyle.color === c ? '2px solid #fff' : '2px solid transparent',
+                  cursor: 'pointer', padding: 0,
+                }}
+              />
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '3px' }}>
+            {DASH_OPTIONS.map(d => (
+              <button
+                key={d.v}
+                onClick={() => setLineDraft({ dash: d.v })}
+                style={tfBtn(activeStyle.dash === d.v, false)}
+              >{d.label}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '3px' }}>
+            {WIDTH_OPTIONS.map(w => (
+              <button
+                key={w}
+                onClick={() => setLineDraft({ width: w })}
+                style={tfBtn(activeStyle.width === w, false)}
+              >{w}px</button>
+            ))}
+          </div>
+        </div>
+      </div>
+
+      {/* ── 発注パネル ─────────────────────────────────────────────── */}
+      <div style={{
+        display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
+        padding: '8px 16px', borderBottom: '1px solid #1a1a1a',
+      }}>
+        <div style={{ display: 'flex', gap: '3px' }}>
+          <button
+            onClick={() => setLotMode('fixed')}
+            disabled={!isLoaded || showFullHistory}
+            style={tfBtn(lotMode === 'fixed', !isLoaded || showFullHistory)}
+          >固定</button>
+          <button
+            onClick={() => setLotMode('risk')}
+            disabled={!isLoaded || showFullHistory}
+            style={tfBtn(lotMode === 'risk', !isLoaded || showFullHistory)}
+          >リスク%</button>
+        </div>
+
+        {lotMode === 'fixed' ? (
+          <select
+            value={lots}
+            onChange={e => setLots(Number(e.target.value))}
+            disabled={!isLoaded || showFullHistory}
+            style={{
+              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+              borderRadius: '3px', padding: '6px 8px', fontSize: '15px', cursor: 'pointer',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            {LOT_OPTIONS.map(v => (
+              <option key={v} value={v}>{v.toLocaleString()}</option>
+            ))}
+          </select>
+        ) : (
+          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+            <input
+              type="number"
+              value={riskPercent}
+              onChange={e => setRiskPercent(Number(e.target.value))}
+              min={0.1} step={0.1}
+              disabled={!isLoaded || showFullHistory}
+              style={{
+                backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+                borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '60px',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            />
+            <span style={{ color: '#555', fontSize: '14px' }}>%</span>
+            <span style={{ color: '#666', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
+              {riskLotsPreview !== null ? `→ ${riskLotsPreview.toLocaleString()}通貨` : '→ SLを設定'}
+            </span>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '3px' }}>
+          {([['market', '成行'], ['limit', '指値'], ['stop', '逆指値']] as [OrderType, string][]).map(([t, label]) => (
+            <button
+              key={t}
+              onClick={() => setOrderType(t)}
+              disabled={!isLoaded || showFullHistory}
+              style={tfBtn(orderType === t, !isLoaded || showFullHistory)}
+            >{label}</button>
+          ))}
+        </div>
+
+        {orderType !== 'market' && (
+          <div style={{ display: 'flex', gap: '3px' }}>
+            <input
+              type="number"
+              placeholder="価格"
+              value={draftPrice ?? ''}
+              onChange={e => setDraftPrice(e.target.value === '' ? null : Number(e.target.value))}
+              step={priceStep}
+              style={{
+                backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+                borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '100px',
+                fontVariantNumeric: 'tabular-nums',
+              }}
+            />
+            <button
+              onClick={() => togglePickTarget('price')}
+              disabled={!isLoaded}
+              style={pickBtn('#888', pickTarget === 'price', !isLoaded)}
+            >📍</button>
+          </div>
+        )}
+
+        <div style={{ display: 'flex', gap: '3px' }}>
+          <input
+            type="number"
+            placeholder="TP"
+            value={draftTP ?? ''}
+            onChange={e => setDraftTP(e.target.value === '' ? null : Number(e.target.value))}
+            step={priceStep}
+            style={{
+              backgroundColor: '#1a1a1a', color: '#26a69a', border: '1px solid #1a3a35',
+              borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '90px',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          />
+          <button
+            onClick={() => togglePickTarget('tp')}
+            disabled={!isLoaded}
+            style={pickBtn('#26a69a', pickTarget === 'tp', !isLoaded)}
+          >📍</button>
+        </div>
+        <div style={{ display: 'flex', gap: '3px' }}>
+          <input
+            type="number"
+            placeholder="SL"
+            value={draftSL ?? ''}
+            onChange={e => setDraftSL(e.target.value === '' ? null : Number(e.target.value))}
+            step={priceStep}
+            style={{
+              backgroundColor: '#1a1a1a', color: '#ef5350', border: '1px solid #3a1a1a',
+              borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '90px',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          />
+          <button
+            onClick={() => togglePickTarget('sl')}
+            disabled={!isLoaded}
+            style={pickBtn('#ef5350', pickTarget === 'sl', !isLoaded)}
+          >📍</button>
+        </div>
+        <button onClick={() => submitOrder('BUY')}  disabled={!isLoaded || showFullHistory} style={orderBtn('#0d47a1', !isLoaded || showFullHistory)}>BUY</button>
+        <button onClick={() => submitOrder('SELL')} disabled={!isLoaded || showFullHistory} style={orderBtn('#b71c1c', !isLoaded || showFullHistory)}>SELL</button>
+        {positions.length > 1 && (
+          <button onClick={closeAll} style={orderBtn('#333', false)}>全決済</button>
+        )}
+      </div>
+
+      {/* ── 未約定注文一覧 ──────────────────────────────────────── */}
+      {pendingOrders.length > 0 && (
+        <div style={{ maxHeight: '80px', overflowY: 'auto', borderBottom: '1px solid #1a1a1a' }}>
+          {pendingOrders.map(order => (
+            <OrderRow key={order.id} order={order} onCancel={() => cancelOrder(order.id)} />
+          ))}
+        </div>
+      )}
+
+      {/* ── ポジション一覧（常にメイン行の上）─ スクロール可 ────── */}
+      {positions.length > 0 && (
+        <div style={{ maxHeight: '80px', overflowY: 'auto', borderBottom: '1px solid #1a1a1a' }}>
+          {positions.map(pos => {
+            const pip = inferPipSize(pos.openPrice);
+            const dir = pos.side === 'BUY' ? 1 : -1;
+            return (
+              <PositionRow
+                key={pos.id}
+                pos={pos}
+                pnl={posPnlMap.get(pos.id) ?? 0}
+                sym={sym}
+                onClose={() => closePosition(pos.id)}
+                onAddTP={() => setPositionTP(pos.id, pos.openPrice + dir * DEFAULT_TP_SL_PIPS * pip)}
+                onAddSL={() => setPositionSL(pos.id, pos.openPrice - dir * DEFAULT_TP_SL_PIPS * pip)}
+                onRemoveTP={() => setPositionTP(pos.id, undefined)}
+                onRemoveSL={() => setPositionSL(pos.id, undefined)}
+              />
+            );
+          })}
+        </div>
+      )}
+
+      {/* ── メイン行（常に最下部・固定）───────────────────────────── */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0', height: '72px' }}>
+
+        {/* 口座情報 */}
+        <div style={{ flex: 1, padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+            <span style={{ color: '#555', fontSize: '16px' }}>残高</span>
+            <span style={{ color: '#e0e0e0', fontSize: '20px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
+              {sym}{fmt(balance)}
+            </span>
+          </div>
+          <div style={{ display: 'flex', gap: '12px' }}>
+            <span style={{ color: pnlColor(totalPnl), fontSize: '17px', fontVariantNumeric: 'tabular-nums' }}>
+              {positions.length === 0 ? <span style={{ color: '#333' }}>含み損益: —</span> : `含み ${fmtp(totalPnl, sym)}`}
+            </span>
+            <span style={{ color: '#2a2a2a', fontSize: '16px' }}>{timeStr} · {timeframeLabel}</span>
+          </div>
+        </div>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
+
+        {/* 初期残高設定 */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '0 8px', flexShrink: 0 }}>
+          <span style={{ color: '#555', fontSize: '13px' }}>初期残高</span>
+          <input
+            type="number"
+            value={initialBalance}
+            onChange={e => setInitialBalance(Number(e.target.value))}
+            min={0}
+            step={10000}
+            style={{
+              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+              borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          />
+          <button
+            onClick={resetAccount}
+            disabled={!isLoaded}
+            style={tfBtn(false, !isLoaded)}
+          >リセット</button>
+        </div>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
+
+        {/* 時間軸 */}
+        <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
+          {TIMEFRAMES.map(tf => (
+            <button
+              key={tf.sec}
+              onClick={() => setTimeframe(tf.sec as TimeframeSec)}
+              disabled={!isLoaded || isLoading}
+              style={tfBtn(tf.sec === timeframeSec, !isLoaded || isLoading)}
+            >{tf.label}</button>
+          ))}
+        </div>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
+
+        {/* 表示モード */}
+        <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
+          <button
+            onClick={toggleFullHistory}
+            disabled={!isLoaded}
+            style={tfBtn(showFullHistory, !isLoaded)}
+          >{showFullHistory ? '全表示中' : '全体を見る'}</button>
+          <button
+            onClick={fitToScreen}
+            disabled={!isLoaded}
+            style={tfBtn(false, !isLoaded)}
+          >画面にフィット</button>
+        </div>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
+
+        {/* 日時ジャンプ */}
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '0 8px', flexShrink: 0 }}>
+          <input
+            type="date"
+            value={jumpDate}
+            onChange={e => setJumpDate(e.target.value)}
+            min={minDate}
+            max={maxDate}
+            disabled={!isLoaded}
+            style={{
+              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+              borderRadius: '3px', padding: '8px 8px', fontSize: '20px',
+              colorScheme: 'dark',
+            }}
+          />
+          <input
+            type="time"
+            value={jumpTime}
+            onChange={e => setJumpTime(e.target.value)}
+            disabled={!isLoaded}
+            style={{
+              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+              borderRadius: '3px', padding: '8px 8px', fontSize: '20px',
+              colorScheme: 'dark',
+            }}
+          />
+          <button
+            onClick={handleJump}
+            disabled={!isLoaded || !jumpDate}
+            style={tfBtn(false, !isLoaded || !jumpDate)}
+          >移動</button>
+        </div>
+
+
+        {/* 速度（再生・1コマ送り/戻りはチャート上のフロートボタンへ） */}
+        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px', gap: '4px', flexShrink: 0 }}>
+          <span style={{ color: '#555', fontSize: '14px' }}>
+            速度 <span style={{ color: '#777', fontVariantNumeric: 'tabular-nums' }}>{speed}x</span>
+          </span>
+          <input
+            type="range" min={1} max={20} step={1} value={speed}
+            onChange={e => setSpeed(Number(e.target.value))}
+            disabled={showFullHistory}
+            style={{ width: '72px', accentColor: '#444' }}
+          />
+        </div>
+
+      </div>
+
+    </div>
+  );
+}
+
+const tfBtn = (active: boolean, disabled: boolean): React.CSSProperties => ({
+  backgroundColor: disabled ? '#141414' : active ? '#2a2a2a' : '#161616',
+  color: disabled ? '#333' : active ? '#e0e0e0' : '#666',
+  border: active ? '1px solid #3a3a3a' : '1px solid #222',
+  borderRadius: '3px',
+  padding: '6px 10px',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  fontSize: '15px',
+  fontWeight: 700,
+});
+
+const orderBtn = (bg: string, disabled: boolean): React.CSSProperties => ({
+  backgroundColor: disabled ? '#1a1a1a' : bg,
+  color: disabled ? '#333' : '#fff',
+  border: 'none', borderRadius: '3px',
+  padding: '8px 14px', cursor: disabled ? 'not-allowed' : 'pointer',
+  fontSize: '17px', fontWeight: 700, letterSpacing: '0.05em',
+});
+
