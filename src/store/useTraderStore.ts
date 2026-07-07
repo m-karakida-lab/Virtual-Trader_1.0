@@ -237,7 +237,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       const newInitialBalance = isInitialBalanceCustom ? initialBalance : defaultBalanceFor(quoteCurrency);
       set({
         candles, cursor: 0, isLoaded: true,
-        isLoading: false, loadingMsg: '',
+        isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,
         balance: newInitialBalance, initialBalance: newInitialBalance,
         positions: [], pendingOrders: [], nextOrderId: 1,
         closedTrades: [], nextId: 1,
@@ -245,6 +245,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         lines: [], nextLineId: 1, vlines: [], nextVLineId: 1, selected: null,
         showFullHistory: false, quoteCurrency,
       });
+      setTimeout(() => {
+        if (get().loadingMsg.startsWith('✓')) set({ loadingMsg: '' });
+      }, 5000);
     } catch (e) {
       set({ error: String(e), isLoading: false, loadingMsg: '' });
     }
