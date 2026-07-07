@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
 import {
-  isFileSystemAccessSupported, pickAndSaveFolder, loadSavedFolder,
+  isFileSystemAccessSupported, pickAndAddFolder, loadSavedFolders, removeFolder,
   hasReadPermission, requestReadPermission, listCsvFiles,
 } from '../lib/folderBookmark';
 
@@ -11,17 +11,20 @@ export function FileLoader() {
   const loadingMsg  = useTraderStore(s => s.loadingMsg);
 
   const supported = isFileSystemAccessSupported();
-  const [folderHandle, setFolderHandle] = useState<FileSystemDirectoryHandle | null>(null);
-  const [needsPermission, setNeedsPermission] = useState(false);
+  const [folders, setFolders] = useState<FileSystemDirectoryHandle[]>([]);
+  const [needsPermission, setNeedsPermission] = useState<Set<FileSystemDirectoryHandle>>(new Set());
 
   // 起動時にブックマーク済みフォルダがあれば復元を試みる（読み込みはせず、ボタンを出すだけ）
   useEffect(() => {
     if (!supported) return;
     (async () => {
-      const handle = await loadSavedFolder();
-      if (!handle) return;
-      setFolderHandle(handle);
-      setNeedsPermission(!(await hasReadPermission(handle)));
+      const saved = await loadSavedFolders();
+      setFolders(saved);
+      const needy = new Set<FileSystemDirectoryHandle>();
+      for (const h of saved) {
+        if (!(await hasReadPermission(h))) needy.add(h);
+      }
+      setNeedsPermission(needy);
     })();
   }, [supported]);
 
@@ -38,29 +41,35 @@ export function FileLoader() {
     loadFiles(files);
   };
 
-  const pickFolder = async () => {
+  const addFolder = async () => {
     try {
-      const handle = await pickAndSaveFolder();
+      const handle = await pickAndAddFolder();
       if (!handle) return;
-      setFolderHandle(handle);
-      setNeedsPermission(false);
+      setFolders(await loadSavedFolders());
       await loadFromFolder(handle);
     } catch {
       // ユーザーがピッカーをキャンセルした場合など
     }
   };
 
-  const quickLoad = async () => {
-    if (!folderHandle) return;
-    await loadFromFolder(folderHandle);
+  const quickLoad = async (handle: FileSystemDirectoryHandle) => {
+    await loadFromFolder(handle);
   };
 
-  const grantAccess = async () => {
-    if (!folderHandle) return;
-    if (await requestReadPermission(folderHandle)) {
-      setNeedsPermission(false);
-      await loadFromFolder(folderHandle);
+  const grantAccess = async (handle: FileSystemDirectoryHandle) => {
+    if (await requestReadPermission(handle)) {
+      setNeedsPermission(prev => {
+        const next = new Set(prev);
+        next.delete(handle);
+        return next;
+      });
+      await loadFromFolder(handle);
     }
+  };
+
+  const unbookmark = async (handle: FileSystemDirectoryHandle) => {
+    await removeFolder(handle);
+    setFolders(await loadSavedFolders());
   };
 
   return (
@@ -95,33 +104,45 @@ export function FileLoader() {
         <>
           <span style={{ width: '1px', height: '18px', backgroundColor: '#2a2a2a' }} />
 
-          {folderHandle && !needsPermission && (
-            <button
-              onClick={quickLoad}
-              disabled={isLoading}
-              style={{
-                backgroundColor: '#0d47a1', color: '#fff', border: 'none',
-                borderRadius: '3px', padding: '4px 10px', fontSize: '13px',
-                cursor: isLoading ? 'not-allowed' : 'pointer', fontWeight: 700,
-              }}
-            >⚡ {folderHandle.name} から読み込む</button>
-          )}
-
-          {needsPermission && (
-            <button onClick={grantAccess} style={{
-              backgroundColor: '#3a2a0d', color: '#ffb74d', border: '1px solid #5a4a1d',
-              borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
-            }}>🔓 アクセスを許可</button>
-          )}
+          {folders.map((h, i) => (
+            needsPermission.has(h) ? (
+              <button key={h.name + i} onClick={() => grantAccess(h)} style={{
+                backgroundColor: '#3a2a0d', color: '#ffb74d', border: '1px solid #5a4a1d',
+                borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
+              }}>🔓 {h.name}</button>
+            ) : (
+              <span key={h.name + i} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
+                <button
+                  onClick={() => quickLoad(h)}
+                  disabled={isLoading}
+                  style={{
+                    backgroundColor: '#0d47a1', color: '#fff', border: 'none',
+                    borderRadius: '3px 0 0 3px', padding: '4px 10px', fontSize: '13px',
+                    cursor: isLoading ? 'not-allowed' : 'pointer', fontWeight: 700,
+                  }}
+                >⚡ {h.name}</button>
+                <button
+                  onClick={() => unbookmark(h)}
+                  title="ブックマーク解除"
+                  disabled={isLoading}
+                  style={{
+                    backgroundColor: '#0d47a1', color: '#9fc0ea', border: 'none',
+                    borderRadius: '0 3px 3px 0', padding: '4px 8px', fontSize: '13px',
+                    cursor: isLoading ? 'not-allowed' : 'pointer', borderLeft: '1px solid #1565c0',
+                  }}
+                >✕</button>
+              </span>
+            )
+          ))}
 
           <button
-            onClick={pickFolder}
+            onClick={addFolder}
             disabled={isLoading}
             style={{
               backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
               borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
             }}
-          >📁 {folderHandle ? 'フォルダを変更' : 'フォルダを記憶'}</button>
+          >📁 フォルダを追加</button>
         </>
       )}
     </div>
