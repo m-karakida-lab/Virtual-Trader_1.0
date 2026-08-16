@@ -1,17 +1,23 @@
 import { useEffect } from 'react';
 import { FileLoader } from './components/FileLoader';
 import { CandleChart } from './components/CandleChart';
+import { MiniChart } from './components/MiniChart';
 import { Controls } from './components/Controls';
 import { HistoryPanel } from './components/HistoryPanel';
 import { FloatingControls } from './components/FloatingControls';
 import { useTraderStore } from './store/useTraderStore';
 import { initDuckDB } from './lib/duckdb';
+import { TIMEFRAMES } from './types';
 
 export default function App() {
   const error      = useTraderStore(s => s.error);
   const clearError = useTraderStore(s => s.clearError);
   const isLoaded   = useTraderStore(s => s.isLoaded);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
+  const chartLayout   = useTraderStore(s => s.chartLayout);
+  const timeframeSec  = useTraderStore(s => s.timeframeSec);
+  const otherTimeframes = TIMEFRAMES.filter(tf => tf.sec !== timeframeSec);
+  const mainTimeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
 
   // 画面表示時点で DuckDB WASM を先読み（ファイル選択前に初期化を済ませる）
   useEffect(() => { initDuckDB().catch(() => {}); }, []);
@@ -35,7 +41,26 @@ export default function App() {
       <FileLoader />
 
       <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-        <CandleChart />
+        {chartLayout === '4' ? (
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
+          }}>
+            <div style={{ position: 'relative', minWidth: 0, minHeight: 0 }}>
+              <CandleChart />
+              <span style={{
+                position: 'absolute', top: 4, left: 8, zIndex: 2,
+                color: '#555', fontSize: '12px', fontWeight: 700, pointerEvents: 'none',
+              }}>{mainTimeframeLabel}</span>
+            </div>
+            {otherTimeframes.map(tf => (
+              <MiniChart key={tf.sec} timeframeSec={tf.sec} label={tf.label} />
+            ))}
+          </div>
+        ) : (
+          <CandleChart />
+        )}
+        <FloatingControls />
         {error && (
           <div style={{
             position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)',
@@ -57,7 +82,6 @@ export default function App() {
           </div>
         )}
         {showHistoryPanel && <HistoryPanel />}
-        <FloatingControls />
       </div>
 
       <Controls />

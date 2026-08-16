@@ -56,6 +56,8 @@ interface TraderState {
   fitSignal: number;  // fitToScreen が呼ばれるたびに増える（チャート側の fitContent 起動トリガ用）
   centerSignal: number; // centerOnTime が呼ばれるたびに増える
   centerTarget: number;  // centerOnTime の移動先（Unix秒）
+  chartLayout: '1' | '4'; // 1画面 / 4画面（時間軸別マルチチャート）
+  dataVersion: number; // CSV読み込みが完了するたびに増える（ミニチャートの再集計トリガ用）
 
   setInitialBalance: (v: number) => void;
   resetAccount: () => void;
@@ -102,6 +104,7 @@ interface TraderState {
   toggleFullHistory: () => void;
   toggleHistoryPanel: () => void;
   setChartMargins: (right: number, bottom: number) => void;
+  setChartLayout: (layout: '1' | '4') => void;
   clearError: () => void;
 }
 
@@ -218,6 +221,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   fitSignal: 0,
   centerSignal: 0,
   centerTarget: 0,
+  chartLayout: '1',
+  dataVersion: 0,
 
   loadFiles: async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -244,6 +249,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         isPlaying: false,
         lines: [], nextLineId: 1, vlines: [], nextVLineId: 1, selected: null,
         showFullHistory: false, quoteCurrency,
+        dataVersion: get().dataVersion + 1,
       });
       setTimeout(() => {
         if (get().loadingMsg.startsWith('✓')) set({ loadingMsg: '' });
@@ -549,6 +555,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   toggleFullHistory: () => set(s => ({ showFullHistory: !s.showFullHistory, isPlaying: false })),
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),
   setChartMargins: (right: number, bottom: number) => set({ chartRightMargin: right, chartBottomMargin: bottom }),
+  setChartLayout: (layout: '1' | '4') => set({ chartLayout: layout }),
   clearError: () => set({ error: null }),
 }));
 

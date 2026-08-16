@@ -44,6 +44,7 @@ export interface ClosedTrade {
 
 // 表示時間軸（秒）
 export const TIMEFRAMES = [
+  { sec: 900,   label: '15m' },
   { sec: 3600,  label: '1H' },
   { sec: 14400, label: '4H' },
   { sec: 86400, label: '1D' },

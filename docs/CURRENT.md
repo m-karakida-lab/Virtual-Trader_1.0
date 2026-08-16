@@ -21,7 +21,7 @@
 - Axiory MT4形式 1分足 CSV の読み込み（複数ファイル対応、ファイル名昇順で結合）
 - **フォルダブックマーク**（Chrome/Edgeのみ、File System Access API）: 複数フォルダを登録可能。「📁 フォルダを追加」で選んだフォルダを IndexedDB に配列で保存し、配下のCSVを全件自動読み込み。登録済みフォルダは「⚡ {フォルダ名}」チップでワンクリック再読み込み、「✕」でブックマーク解除（個別ファイル選択UIはなし）
 - 読み込み完了時は「✓ N本 読み込み完了」を5秒間表示してから消える
-- 1分足 → 任意時間軸への自動集計（DuckDB SQL）。**1H / 4H / 1D を切替可能**
+- 1分足 → 任意時間軸への自動集計（DuckDB SQL）。**15m / 1H / 4H / 1D を切替可能**
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
 
 ### チャート表示・描画
@@ -30,6 +30,7 @@
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁、TradingViewと同じ`1.17471`形式）
 - **全体を見る**（全期間一括表示）/ **画面にフィット**（ズームリセット）/ **日時ジャンプ**（カレンダー、縮尺維持で中心移動）
+- **1画面 / 4画面レイアウト切替**: 4画面時はメイン時間軸（操作可能・発注/描画ツールあり）+ 残り3つの時間軸を表示専用ミニチャートとして2×2グリッド表示。ミニチャートはメインのカーソル時刻まで自動で切り詰められ連動する。全パネルの左上に時間軸ラベルを表示
 
 ### 再生
 - ▶（自動再生・1〜20倍速、`requestAnimationFrame`実装）/ ⏭（1コマ進む）/ ⏮（1コマ戻る、表示のみ・約定は取り消さない）
@@ -61,7 +62,7 @@ ClosedTrade  { id, side, openPrice, closePrice, openTime, closeTime, lots, pnl: 
 DrawnLine    { id, price, color, dash: 'solid'|'dashed'|'dotted', width: 1|2|3|4 }
 DrawnVLine   { id, time, color, dash, width }  // 構造はDrawnLineと同じでpriceがtimeに変わる
 LineSelection: { kind: 'h'|'v', id: number } | null
-TIMEFRAMES: [{sec:3600,label:'1H'}, {sec:14400,label:'4H'}, {sec:86400,label:'1D'}]
+TIMEFRAMES: [{sec:900,label:'15m'}, {sec:3600,label:'1H'}, {sec:14400,label:'4H'}, {sec:86400,label:'1D'}]
 ```
 
 DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, volume: BIGINT）— 集計元の生データとして保持し続ける
@@ -82,6 +83,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal` を increment → CandleChart の useEffect が検知）
 - `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・週区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画
+- `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインのカーソル時刻までに切り詰めて描画するだけ（発注・描画ツールなし）
 - `src/components/Controls.tsx` — 時間軸/表示モード/描画ツール/発注パネル/ポジション・注文一覧/口座情報
 - `src/components/FloatingControls.tsx` — ドラッグ移動可能な再生ボタン群（チャート領域内にクランプ）
 - `src/components/HistoryPanel.tsx` — エクイティカーブ + 取引履歴テーブル（オーバーレイパネル）
@@ -102,6 +104,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - CSV再読込で `lines`/`vlines`/`closedTrades`/`positions`/`pendingOrders` は全リセット。時間軸切替では保持
 - フォルダブックマークは Chrome/Edge のみ対応（File System Access API）。Safari/Firefoxでは機能自体が非表示になる
 - フロートパネルの位置クランプは `chart.priceScale('right').width()` / `chart.timeScale().height()` の実測値をストア経由で共有している。チャートのリサイズ・精度変更時に更新される
+- `FloatingControls` は `offsetParent`（直近の`position:relative`祖先）基準でクランプする。1画面・4画面どちらでもチャート表示欄全体（`App.tsx`のflex:1コンテナ）が親なので、4画面時もメインパネル以外の領域に自由に移動できる
+- `MiniChart` はカーソル進行のたびに `fitContent()` すると、序盤は本数が少なく1本だけが画面幅いっぱいに拡大されてしまう。新しいデータセット（時間軸切替・CSV再読込）に切り替わった時だけ全期間の時間幅で `setVisibleRange()` し、以降カーソルが進んでもスケールは固定したまま本数だけ増える
 
 ## ビルド / 起動
 

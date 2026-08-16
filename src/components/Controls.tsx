@@ -151,6 +151,8 @@ export function Controls() {
   const setLots       = useTraderStore(s => s.setLots);
   const setSpeed      = useTraderStore(s => s.setSpeed);
   const setTimeframe  = useTraderStore(s => s.setTimeframe);
+  const chartLayout   = useTraderStore(s => s.chartLayout);
+  const setChartLayout = useTraderStore(s => s.setChartLayout);
   const toggleDrawLine = useTraderStore(s => s.toggleDrawLine);
   const removeLine    = useTraderStore(s => s.removeLine);
   const toggleDrawVLine = useTraderStore(s => s.toggleDrawVLine);
@@ -602,6 +604,22 @@ export function Controls() {
               style={tfBtn(tf.sec === timeframeSec, !isLoaded || isLoading)}
             >{tf.label}</button>
           ))}
+        </div>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
+
+        {/* チャートレイアウト */}
+        <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
+          <button
+            onClick={() => setChartLayout('1')}
+            disabled={!isLoaded}
+            style={tfBtn(chartLayout === '1', !isLoaded)}
+          >1画面</button>
+          <button
+            onClick={() => setChartLayout('4')}
+            disabled={!isLoaded}
+            style={tfBtn(chartLayout === '4', !isLoaded)}
+          >4画面</button>
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
