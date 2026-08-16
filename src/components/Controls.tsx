@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
 import { TIMEFRAMES, LINE_COLORS, type Position, type PendingOrder, type TimeframeSec, type LineDash, type LineWidth, type LineSelection, type OrderType } from '../types';
 import { currencySymbol } from '../lib/currency';
@@ -126,6 +126,45 @@ function OrderRow({ order, onCancel }: { order: PendingOrder; onCancel: () => vo
         backgroundColor: '#2a1010', color: '#c62828', border: '1px solid #3a1818',
         borderRadius: '3px', padding: '3px 10px', cursor: 'pointer', fontSize: '15px',
       }}>取消</button>
+    </div>
+  );
+}
+
+// ── クリックで開閉するメニューボタン（下部バーの上方向にポップアップ）───────────
+function MenuButton({
+  label, active = false, disabled = false, children,
+}: {
+  label: string; active?: boolean; disabled?: boolean; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        disabled={disabled}
+        style={tfBtn(active || open, disabled)}
+      >{label} {open ? '▴' : '▾'}</button>
+      {open && (
+        <div style={{
+          position: 'absolute', bottom: 'calc(100% + 6px)', right: 0,
+          backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
+          padding: '12px', boxShadow: '0 -8px 24px rgba(0,0,0,0.5)', zIndex: 60,
+          minWidth: 'max-content', maxWidth: '90vw',
+        }}>
+          {children}
+        </div>
+      )}
     </div>
   );
 }
@@ -260,130 +299,6 @@ export function Controls() {
 
   return (
     <div style={{ borderTop: '1px solid #1e1e1e', backgroundColor: '#0d0d0d' }}>
-
-      {/* ── 描画ツール ─────────────────────────────────────────────── */}
-      <div style={{ borderBottom: '1px solid #1a1a1a' }}>
-        <div style={{
-          display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', padding: '6px 16px',
-        }}>
-          <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
-          <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>週区切り</button>
-          <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
-          <button
-            onClick={toggleDrawLine}
-            disabled={!isLoaded}
-            style={tfBtn(isDrawingLine, !isLoaded)}
-          >{isDrawingLine ? 'クリックで配置...' : '+ 水平線'}</button>
-          <button
-            onClick={toggleDrawVLine}
-            disabled={!isLoaded}
-            style={tfBtn(isDrawingVLine, !isLoaded)}
-          >{isDrawingVLine ? 'クリックで配置...' : '+ 垂直線'}</button>
-          <button
-            onClick={toggleMeasure}
-            disabled={!isLoaded}
-            style={tfBtn(isMeasuring, !isLoaded)}
-          >{isMeasuring ? 'ドラッグで計測...' : 'ものさし'}</button>
-
-          <span style={{ width: '1px', height: '18px', backgroundColor: '#222', margin: '0 4px' }} />
-
-          {lines.map(line => {
-            const isSel = selected?.kind === 'h' && selected.id === line.id;
-            const sel: LineSelection = { kind: 'h', id: line.id };
-            return (
-              <span
-                key={`h${line.id}`}
-                onClick={() => selectLine(isSel ? null : sel)}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                  backgroundColor: isSel ? '#222' : '#161616',
-                  border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
-                  borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
-                {line.price.toFixed(pricePrecision(line.price))}
-                <button
-                  onClick={e => { e.stopPropagation(); removeLine(line.id); }}
-                  style={{
-                    background: 'none', border: 'none', color: '#555',
-                    cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
-                  }}
-                >×</button>
-              </span>
-            );
-          })}
-
-          {vlines.map(v => {
-            const isSel = selected?.kind === 'v' && selected.id === v.id;
-            const sel: LineSelection = { kind: 'v', id: v.id };
-            return (
-              <span
-                key={`v${v.id}`}
-                onClick={() => { selectLine(isSel ? null : sel); centerOnTime(v.time); }}
-                style={{
-                  display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                  backgroundColor: isSel ? '#222' : '#161616',
-                  border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
-                  borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              >
-                <span style={{ width: '8px', height: '8px', backgroundColor: v.color, flexShrink: 0 }} />
-                {fmtVTime(v.time)}
-                <button
-                  onClick={e => { e.stopPropagation(); removeVLine(v.id); }}
-                  style={{
-                    background: 'none', border: 'none', color: '#555',
-                    cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
-                  }}
-                >×</button>
-              </span>
-            );
-          })}
-        </div>
-
-        {/* スタイルピッカー: 選択中のラインがあればそれを編集、なければ次に引く線の既定値 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '10px', padding: '0 16px 8px 16px', flexWrap: 'wrap' }}>
-          <span style={{ color: '#444', fontSize: '14px' }}>
-            {selectedLine ? `編集中: ${selectedLine.price.toFixed(pricePrecision(selectedLine.price))}`
-              : selectedVLine ? `編集中: ${fmtVTime(selectedVLine.time)}`
-              : '次の線:'}
-          </span>
-          <div style={{ display: 'flex', gap: '4px' }}>
-            {LINE_COLORS.map(c => (
-              <button
-                key={c}
-                onClick={() => setLineDraft({ color: c })}
-                style={{
-                  width: '16px', height: '16px', borderRadius: '50%', backgroundColor: c,
-                  border: activeStyle.color === c ? '2px solid #fff' : '2px solid transparent',
-                  cursor: 'pointer', padding: 0,
-                }}
-              />
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: '3px' }}>
-            {DASH_OPTIONS.map(d => (
-              <button
-                key={d.v}
-                onClick={() => setLineDraft({ dash: d.v })}
-                style={tfBtn(activeStyle.dash === d.v, false)}
-              >{d.label}</button>
-            ))}
-          </div>
-          <div style={{ display: 'flex', gap: '3px' }}>
-            {WIDTH_OPTIONS.map(w => (
-              <button
-                key={w}
-                onClick={() => setLineDraft({ width: w })}
-                style={tfBtn(activeStyle.width === w, false)}
-              >{w}px</button>
-            ))}
-          </div>
-        </div>
-      </div>
 
       {/* ── 発注パネル ─────────────────────────────────────────────── */}
       <div style={{
@@ -640,37 +555,176 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 日時ジャンプ */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '0 8px', flexShrink: 0 }}>
-          <input
-            type="date"
-            value={jumpDate}
-            onChange={e => setJumpDate(e.target.value)}
-            min={minDate}
-            max={maxDate}
+        {/* 描画ツール（メニュー） */}
+        <div style={{ padding: '0 8px', flexShrink: 0 }}>
+          <MenuButton
+            label="描画"
+            active={isDrawingLine || isDrawingVLine || isMeasuring}
             disabled={!isLoaded}
-            style={{
-              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-              borderRadius: '3px', padding: '8px 8px', fontSize: '20px',
-              colorScheme: 'dark',
-            }}
-          />
-          <input
-            type="time"
-            value={jumpTime}
-            onChange={e => setJumpTime(e.target.value)}
-            disabled={!isLoaded}
-            style={{
-              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-              borderRadius: '3px', padding: '8px 8px', fontSize: '20px',
-              colorScheme: 'dark',
-            }}
-          />
-          <button
-            onClick={handleJump}
-            disabled={!isLoaded || !jumpDate}
-            style={tfBtn(false, !isLoaded || !jumpDate)}
-          >移動</button>
+          >
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '340px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
+                <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>週区切り</button>
+                <button
+                  onClick={toggleDrawLine}
+                  disabled={!isLoaded}
+                  style={tfBtn(isDrawingLine, !isLoaded)}
+                >{isDrawingLine ? 'クリックで配置...' : '+ 水平線'}</button>
+                <button
+                  onClick={toggleDrawVLine}
+                  disabled={!isLoaded}
+                  style={tfBtn(isDrawingVLine, !isLoaded)}
+                >{isDrawingVLine ? 'クリックで配置...' : '+ 垂直線'}</button>
+                <button
+                  onClick={toggleMeasure}
+                  disabled={!isLoaded}
+                  style={tfBtn(isMeasuring, !isLoaded)}
+                >{isMeasuring ? 'ドラッグで計測...' : 'ものさし'}</button>
+              </div>
+
+              {(lines.length > 0 || vlines.length > 0) && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  {lines.map(line => {
+                    const isSel = selected?.kind === 'h' && selected.id === line.id;
+                    const sel: LineSelection = { kind: 'h', id: line.id };
+                    return (
+                      <span
+                        key={`h${line.id}`}
+                        onClick={() => selectLine(isSel ? null : sel)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+                          backgroundColor: isSel ? '#222' : '#161616',
+                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
+                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
+                        {line.price.toFixed(pricePrecision(line.price))}
+                        <button
+                          onClick={e => { e.stopPropagation(); removeLine(line.id); }}
+                          style={{
+                            background: 'none', border: 'none', color: '#555',
+                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+                          }}
+                        >×</button>
+                      </span>
+                    );
+                  })}
+
+                  {vlines.map(v => {
+                    const isSel = selected?.kind === 'v' && selected.id === v.id;
+                    const sel: LineSelection = { kind: 'v', id: v.id };
+                    return (
+                      <span
+                        key={`v${v.id}`}
+                        onClick={() => { selectLine(isSel ? null : sel); centerOnTime(v.time); }}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+                          backgroundColor: isSel ? '#222' : '#161616',
+                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
+                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        <span style={{ width: '8px', height: '8px', backgroundColor: v.color, flexShrink: 0 }} />
+                        {fmtVTime(v.time)}
+                        <button
+                          onClick={e => { e.stopPropagation(); removeVLine(v.id); }}
+                          style={{
+                            background: 'none', border: 'none', color: '#555',
+                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+                          }}
+                        >×</button>
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {/* スタイルピッカー: 選択中のラインがあればそれを編集、なければ次に引く線の既定値 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ color: '#444', fontSize: '14px' }}>
+                  {selectedLine ? `編集中: ${selectedLine.price.toFixed(pricePrecision(selectedLine.price))}`
+                    : selectedVLine ? `編集中: ${fmtVTime(selectedVLine.time)}`
+                    : '次の線:'}
+                </span>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {LINE_COLORS.map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setLineDraft({ color: c })}
+                      style={{
+                        width: '16px', height: '16px', borderRadius: '50%', backgroundColor: c,
+                        border: activeStyle.color === c ? '2px solid #fff' : '2px solid transparent',
+                        cursor: 'pointer', padding: 0,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '3px' }}>
+                  {DASH_OPTIONS.map(d => (
+                    <button
+                      key={d.v}
+                      onClick={() => setLineDraft({ dash: d.v })}
+                      style={tfBtn(activeStyle.dash === d.v, false)}
+                    >{d.label}</button>
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '3px' }}>
+                  {WIDTH_OPTIONS.map(w => (
+                    <button
+                      key={w}
+                      onClick={() => setLineDraft({ width: w })}
+                      style={tfBtn(activeStyle.width === w, false)}
+                    >{w}px</button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </MenuButton>
+        </div>
+
+        <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0, margin: '0 8px' }} />
+
+        {/* 日時ジャンプ（メニュー） */}
+        <div style={{ padding: '0 8px', flexShrink: 0 }}>
+          <MenuButton label="📅 日時" disabled={!isLoaded}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <input
+                type="date"
+                value={jumpDate}
+                onChange={e => setJumpDate(e.target.value)}
+                min={minDate}
+                max={maxDate}
+                disabled={!isLoaded}
+                style={{
+                  backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+                  borderRadius: '3px', padding: '8px 8px', fontSize: '20px',
+                  colorScheme: 'dark',
+                }}
+              />
+              <input
+                type="time"
+                value={jumpTime}
+                onChange={e => setJumpTime(e.target.value)}
+                disabled={!isLoaded}
+                style={{
+                  backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+                  borderRadius: '3px', padding: '8px 8px', fontSize: '20px',
+                  colorScheme: 'dark',
+                }}
+              />
+              <button
+                onClick={handleJump}
+                disabled={!isLoaded || !jumpDate}
+                style={tfBtn(false, !isLoaded || !jumpDate)}
+              >移動</button>
+            </div>
+          </MenuButton>
         </div>
 
 
