@@ -21,7 +21,10 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
   const isLoaded = useTraderStore(s => s.isLoaded);
   const dataVersion = useTraderStore(s => s.dataVersion);
   const cursorTime = useTraderStore(s => s.candles[s.cursor]?.time);
+  const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
+  // メインの現在足が閉じた時点（=これより先の情報は「未来」として隠す境界）
+  const cursorEnd = cursorTime !== undefined ? cursorTime + mainTimeframeSec : undefined;
 
   // CSV読み込み完了のたびに、この時間軸で自前集計
   useEffect(() => {
@@ -93,12 +96,13 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
   // 新しいデータセットに切り替わった時だけ画面フィットしたか（同じデータ中はスケールを保持する）
   const fittedDataRef = useRef<Candle[] | null>(null);
 
-  // データ・カーソル位置に応じて描画（カーソル時刻までに切り詰め）
+  // データ・カーソル位置に応じて描画。バケット終了時刻がメインの現在足の終了時刻を
+  // 超える（＝まだ閉じていない）足は先出しになるため描画しない
   useEffect(() => {
     if (!seriesRef.current || data.length === 0) return;
-    const visible = showFullHistory || cursorTime === undefined
+    const visible = showFullHistory || cursorEnd === undefined
       ? data
-      : data.filter(c => c.time <= cursorTime);
+      : data.filter(c => c.time + timeframeSec <= cursorEnd);
     if (visible.length === 0) return;
 
     const precision = pricePrecision(visible[visible.length - 1].close);
@@ -116,7 +120,7 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
         to: data[data.length - 1].time as Time,
       });
     }
-  }, [data, cursorTime, showFullHistory]);
+  }, [data, cursorEnd, showFullHistory]);
 
   return (
     <div style={{ position: 'relative', border: '1px solid #1e1e1e', minWidth: 0, minHeight: 0 }}>

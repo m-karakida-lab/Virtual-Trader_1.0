@@ -30,7 +30,7 @@
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁、TradingViewと同じ`1.17471`形式）
 - **全体を見る**（全期間一括表示）/ **画面にフィット**（ズームリセット）/ **日時ジャンプ**（カレンダー、縮尺維持で中心移動）
-- **1画面 / 4画面レイアウト切替**: 4画面時はメイン時間軸（操作可能・発注/描画ツールあり）+ 残り3つの時間軸を表示専用ミニチャートとして2×2グリッド表示。ミニチャートはメインのカーソル時刻まで自動で切り詰められ連動する。全パネルの左上に時間軸ラベルを表示
+- **1画面 / 4画面レイアウト切替**: 4画面時はメイン時間軸（操作可能・発注/描画ツールあり）+ 残り3つの時間軸を表示専用ミニチャートとして2×2グリッド表示。ミニチャートは自分の足が完全に閉じた時点で初めて表示（先出し防止、メインのカーソル進行に連動）。全パネルの左上に時間軸ラベルを表示
 
 ### 再生
 - ▶（自動再生・1〜20倍速、`requestAnimationFrame`実装）/ ⏭（1コマ進む）/ ⏮（1コマ戻る、表示のみ・約定は取り消さない）
@@ -83,7 +83,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal` を increment → CandleChart の useEffect が検知）
 - `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・週区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画
-- `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインのカーソル時刻までに切り詰めて描画するだけ（発注・描画ツールなし）
+- `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインの現在足が閉じた時刻までに切り詰めて描画するだけ（発注・描画ツールなし）
 - `src/components/Controls.tsx` — 時間軸/表示モード/発注パネル/ポジション・注文一覧/口座情報。描画ツール一式と日時ジャンプは`MenuButton`（クリック開閉のポップアップ、下方向に開く）に集約。常時表示は発注パネルと口座・時間軸などの1行のみ
 - `src/components/FloatingControls.tsx` — ドラッグ移動可能な再生ボタン群（チャート領域内にクランプ）
 - `src/components/HistoryPanel.tsx` — エクイティカーブ + 取引履歴テーブル（オーバーレイパネル）
@@ -107,6 +107,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - フロートパネルの位置クランプは `chart.priceScale('right').width()` / `chart.timeScale().height()` の実測値をストア経由で共有している。チャートのリサイズ・精度変更時に更新される
 - `FloatingControls` は `offsetParent`（直近の`position:relative`祖先）基準でクランプする。1画面・4画面どちらでもチャート表示欄全体（`App.tsx`のflex:1コンテナ）が親なので、4画面時もメインパネル以外の領域に自由に移動できる
 - `MiniChart` はカーソル進行のたびに `fitContent()` すると、序盤は本数が少なく1本だけが画面幅いっぱいに拡大されてしまう。新しいデータセット（時間軸切替・CSV再読込）に切り替わった時だけ全期間の時間幅で `setVisibleRange()` し、以降カーソルが進んでもスケールは固定したまま本数だけ増える
+- `MiniChart` は「バケット終了時刻 ≤ メインの現在足の終了時刻（`cursorTime + mainTimeframeSec`）」の足だけを表示する。単純に`足の開始時刻 ≤ cursorTime`で切り詰めると、進行中の上位足バケットがDuckDB側で先に完成集計されているため、まだ閉じていない足の確定値（先出し/lookahead）を見せてしまう
 - `MenuButton`（`Controls.tsx`）のポップアップは下部バーの上方向に開き、`right: 0` 基準で右揃え配置。ボタンが画面右寄りにある前提の実装なので、左寄りのボタンに使う場合は配置を見直すこと
 
 ## ビルド / 起動
