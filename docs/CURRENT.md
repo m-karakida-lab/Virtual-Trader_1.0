@@ -25,7 +25,7 @@
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
 
 ### チャート表示・描画
-- ローソク足 + **200EMA**（増分計算）、**週区切り線**（月曜00:00UTC、控えめなドット線）、ON/OFF切替可
+- ローソク足 + **200EMA**（増分計算）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトOFF）、**週区切り線**（月曜00:00UTC、控えめなドット線）、ON/OFF切替可
 - **水平線・垂直線描画**: クリックで配置、ドラッグで移動、色・線種・太さを個別設定
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁、TradingViewと同じ`1.17471`形式）
@@ -91,6 +91,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 
 ## 不変条件 / 地雷
 
+- ボリンジャーバンドはEMA同様、`showBB`がOFFでも裏で計算を継続し`visible:false`で隠すだけ（ON/OFF切替時の再計算漏れを避けるため）。移動窓の合計・二乗和（`bbSumRef`/`bbSumSqRef`）で差分更新し、`recomputeBBFull`は時間軸切替・日時ジャンプ等の非連続更新時のみ呼ぶ
 - DuckDB-wasm は SharedArrayBuffer を使うため、Vite dev server に `COOP/COEP` ヘッダが必要（`vite.config.ts` に設定済み）
 - `read_csv` に `all_varchar=true` と `ignore_errors=true` が必須
 - P&L 計算は**クオート通貨そのまま**（円換算しない）。EURUSDなら結果はUSD相当

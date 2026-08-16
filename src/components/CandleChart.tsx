@@ -20,6 +20,7 @@ type DragTarget =
   | { kind: 'orderSl'; id: number };
 
 const EMA_PERIOD = 200;
+const BB_PERIOD = 20;
 const DRAG_TOLERANCE_PX = 6;
 
 const DASH_TO_STYLE: Record<LineDash, LineStyle> = {
@@ -121,6 +122,11 @@ export function CandleChart() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const emaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbBasisSeriesRef  = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbUpper1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbLower1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbUpper2SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbLower2SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const priceLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const orderLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const tpLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
@@ -160,6 +166,7 @@ export function CandleChart() {
   const draftTP        = useTraderStore(s => s.draftTP);
   const draftSL        = useTraderStore(s => s.draftSL);
   const showEMA   = useTraderStore(s => s.showEMA);
+  const showBB    = useTraderStore(s => s.showBB);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
   const fitSignal  = useTraderStore(s => s.fitSignal);
@@ -173,6 +180,10 @@ export function CandleChart() {
   const emaValueRef = useRef(0);
   const emaSumRef   = useRef(0);
   const emaCountRef = useRef(0);
+
+  // ボリンジャーバンド（移動窓の合計・二乗和で SMA・標準偏差を差分更新）
+  const bbSumRef   = useRef(0);
+  const bbSumSqRef = useRef(0);
 
   // チャート初期化（マウント時1回のみ）
   useEffect(() => {
@@ -237,10 +248,28 @@ export function CandleChart() {
       lastValueVisible: false,
       crosshairMarkerVisible: false,
     });
+    const bbLineOptions = {
+      lineWidth: 1 as const,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+      visible: false,
+    };
+    const BB_SILVER = '#c0c0c0';
+    const bbBasisSeries  = chart.addLineSeries({ ...bbLineOptions, color: '#42a5f5', lineStyle: LineStyle.Solid });
+    const bbUpper1Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.SparseDotted });
+    const bbLower1Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.SparseDotted });
+    const bbUpper2Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.Solid });
+    const bbLower2Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.Solid });
 
     chartRef.current = chart;
     seriesRef.current = series;
     emaSeriesRef.current = emaSeries;
+    bbBasisSeriesRef.current  = bbBasisSeries;
+    bbUpper1SeriesRef.current = bbUpper1Series;
+    bbLower1SeriesRef.current = bbLower1Series;
+    bbUpper2SeriesRef.current = bbUpper2Series;
+    bbLower2SeriesRef.current = bbLower2Series;
 
     // ── 垂直線の位置を再計算して DOM に反映 ────────────────────────
     const syncVLines = () => {
@@ -1000,6 +1029,11 @@ export function CandleChart() {
     const priceFormat = { type: 'price' as const, precision, minMove };
     seriesRef.current?.applyOptions({ priceFormat });
     emaSeriesRef.current?.applyOptions({ priceFormat });
+    bbBasisSeriesRef.current?.applyOptions({ priceFormat });
+    bbUpper1SeriesRef.current?.applyOptions({ priceFormat });
+    bbLower1SeriesRef.current?.applyOptions({ priceFormat });
+    bbUpper2SeriesRef.current?.applyOptions({ priceFormat });
+    bbLower2SeriesRef.current?.applyOptions({ priceFormat });
     // 精度変更で価格軸の幅が変わるため、再描画後に実測してフロートパネルのクランプに反映
     requestAnimationFrame(() => {
       if (!chartRef.current) return;
@@ -1025,6 +1059,15 @@ export function CandleChart() {
     emaSeriesRef.current?.applyOptions({ visible: showEMA });
   }, [showEMA]);
 
+  // ボリンジャーバンド 表示 ON/OFF（EMA同様、非表示中も裏で計算は継続しておく）
+  useEffect(() => {
+    bbBasisSeriesRef.current?.applyOptions({ visible: showBB });
+    bbUpper1SeriesRef.current?.applyOptions({ visible: showBB });
+    bbLower1SeriesRef.current?.applyOptions({ visible: showBB });
+    bbUpper2SeriesRef.current?.applyOptions({ visible: showBB });
+    bbLower2SeriesRef.current?.applyOptions({ visible: showBB });
+  }, [showBB]);
+
   // エントリー / 決済マーカー
   useEffect(() => {
     seriesRef.current?.setMarkers(buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)));
@@ -1035,6 +1078,7 @@ export function CandleChart() {
     if (!seriesRef.current || candles.length === 0 || !showFullHistory) return;
     seriesRef.current.setData(candles.map(toBar));
     recomputeEmaFull(candles, candles.length - 1);
+    recomputeBBFull(candles, candles.length - 1);
     chartRef.current?.timeScale().fitContent();
     chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
     // fitContent 後の確定した可視範囲で再同期（範囲変更イベントに頼らず確実に揃える）
@@ -1059,10 +1103,12 @@ export function CandleChart() {
     if (isStep) {
       seriesRef.current.update(toBar(candles[cursor]));
       updateEmaStep(candles[cursor]);
+      updateBBStep(candles, cursor);
     } else {
       seriesRef.current.setData(candles.slice(0, cursor + 1).map(toBar));
       chartRef.current?.timeScale().scrollToRealTime();
       recomputeEmaFull(candles, cursor);
+      recomputeBBFull(candles, cursor);
     }
     // 価格軸ドラッグ等で autoScale が無効化されたままだと、再生中にローソク足が
     // 上下にはみ出ても追従しなくなる。毎ステップ明示的に再有効化して縦も自動追従させる
@@ -1131,6 +1177,63 @@ export function CandleChart() {
       emaValueRef.current = newCandle.close * k + emaValueRef.current * (1 - k);
     }
     emaSeriesRef.current?.update({ time: newCandle.time as Time, value: emaValueRef.current });
+  }
+
+  // ボリンジャーバンド: 移動窓(BB_PERIOD)の合計・二乗和から SMA と標準偏差を算出（±1σ・±2σ）
+  function recomputeBBFull(cs: Candle[], uptoIndex: number) {
+    const basisData: LineData[] = [];
+    const upper1Data: LineData[] = [];
+    const lower1Data: LineData[] = [];
+    const upper2Data: LineData[] = [];
+    const lower2Data: LineData[] = [];
+    let sum = 0, sumSq = 0;
+    for (let i = 0; i <= uptoIndex; i++) {
+      const close = cs[i].close;
+      sum += close;
+      sumSq += close * close;
+      if (i >= BB_PERIOD) {
+        const old = cs[i - BB_PERIOD].close;
+        sum -= old;
+        sumSq -= old * old;
+      }
+      if (i >= BB_PERIOD - 1) {
+        const mean = sum / BB_PERIOD;
+        const sd = Math.sqrt(Math.max(sumSq / BB_PERIOD - mean * mean, 0));
+        const time = cs[i].time as Time;
+        basisData.push({ time, value: mean });
+        upper1Data.push({ time, value: mean + sd });
+        lower1Data.push({ time, value: mean - sd });
+        upper2Data.push({ time, value: mean + 2 * sd });
+        lower2Data.push({ time, value: mean - 2 * sd });
+      }
+    }
+    bbBasisSeriesRef.current?.setData(basisData);
+    bbUpper1SeriesRef.current?.setData(upper1Data);
+    bbLower1SeriesRef.current?.setData(lower1Data);
+    bbUpper2SeriesRef.current?.setData(upper2Data);
+    bbLower2SeriesRef.current?.setData(lower2Data);
+    bbSumRef.current = sum;
+    bbSumSqRef.current = sumSq;
+  }
+
+  function updateBBStep(cs: Candle[], idx: number) {
+    const close = cs[idx].close;
+    bbSumRef.current += close;
+    bbSumSqRef.current += close * close;
+    if (idx >= BB_PERIOD) {
+      const old = cs[idx - BB_PERIOD].close;
+      bbSumRef.current -= old;
+      bbSumSqRef.current -= old * old;
+    }
+    if (idx < BB_PERIOD - 1) return;
+    const mean = bbSumRef.current / BB_PERIOD;
+    const sd = Math.sqrt(Math.max(bbSumSqRef.current / BB_PERIOD - mean * mean, 0));
+    const time = cs[idx].time as Time;
+    bbBasisSeriesRef.current?.update({ time, value: mean });
+    bbUpper1SeriesRef.current?.update({ time, value: mean + sd });
+    bbLower1SeriesRef.current?.update({ time, value: mean - sd });
+    bbUpper2SeriesRef.current?.update({ time, value: mean + 2 * sd });
+    bbLower2SeriesRef.current?.update({ time, value: mean - 2 * sd });
   }
 
   return (

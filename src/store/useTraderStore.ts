@@ -48,6 +48,7 @@ interface TraderState {
   selected: LineSelection | null; // 水平線・垂直線どちらかの選択中の1本
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
   showEMA: boolean;
+  showBB: boolean;
   showWeekLines: boolean;
   showFullHistory: boolean;
   showHistoryPanel: boolean; // 取引履歴・損益グラフのパネル表示
@@ -100,6 +101,7 @@ interface TraderState {
   selectLine: (target: LineSelection | null) => void;
   setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   toggleEMA: () => void;
+  toggleBB: () => void;
   toggleWeekLines: () => void;
   toggleFullHistory: () => void;
   toggleHistoryPanel: () => void;
@@ -213,6 +215,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   selected: null,
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
   showEMA: true,
+  showBB: false,
   showWeekLines: true,
   showFullHistory: false,
   showHistoryPanel: false,
@@ -551,6 +554,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     }
   },
   toggleEMA: () => set(s => ({ showEMA: !s.showEMA })),
+  toggleBB: () => set(s => ({ showBB: !s.showBB })),
   toggleWeekLines: () => set(s => ({ showWeekLines: !s.showWeekLines })),
   toggleFullHistory: () => set(s => ({ showFullHistory: !s.showFullHistory, isPlaying: false })),
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),

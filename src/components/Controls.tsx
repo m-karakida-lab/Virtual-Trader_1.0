@@ -199,6 +199,7 @@ export function Controls() {
   const selectLine    = useTraderStore(s => s.selectLine);
   const setLineDraft  = useTraderStore(s => s.setLineDraft);
   const toggleEMA     = useTraderStore(s => s.toggleEMA);
+  const toggleBB      = useTraderStore(s => s.toggleBB);
   const toggleWeekLines = useTraderStore(s => s.toggleWeekLines);
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
@@ -212,6 +213,7 @@ export function Controls() {
   const selected        = useTraderStore(s => s.selected);
   const lineDraft      = useTraderStore(s => s.lineDraft);
   const showEMA       = useTraderStore(s => s.showEMA);
+  const showBB        = useTraderStore(s => s.showBB);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
   const balance       = useTraderStore(s => s.balance);
@@ -565,6 +567,7 @@ export function Controls() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '340px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
+                <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
                 <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>週区切り</button>
                 <button
                   onClick={toggleDrawLine}
