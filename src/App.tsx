@@ -17,7 +17,6 @@ export default function App() {
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const timeframeSec  = useTraderStore(s => s.timeframeSec);
   const otherTimeframes = TIMEFRAMES.filter(tf => tf.sec !== timeframeSec);
-  const mainTimeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
 
   // 画面表示時点で DuckDB WASM を先読み（ファイル選択前に初期化を済ませる）
   useEffect(() => { initDuckDB().catch(() => {}); }, []);
@@ -48,10 +47,6 @@ export default function App() {
           }}>
             <div style={{ position: 'relative', minWidth: 0, minHeight: 0 }}>
               <CandleChart />
-              <span style={{
-                position: 'absolute', top: 4, left: 8, zIndex: 2,
-                color: '#555', fontSize: '12px', fontWeight: 700, pointerEvents: 'none',
-              }}>{mainTimeframeLabel}</span>
             </div>
             {otherTimeframes.map(tf => (
               <MiniChart key={tf.sec} timeframeSec={tf.sec} label={tf.label} />

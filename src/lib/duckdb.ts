@@ -1,5 +1,6 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 import type { Candle } from '../types';
+import { brokerToJST } from './timezone';
 
 let db: duckdb.AsyncDuckDB | null = null;
 
@@ -94,8 +95,9 @@ export async function queryCandles(instance: duckdb.AsyncDuckDB, intervalSec: nu
       GROUP BY floor(ts / ${intervalSec})
       ORDER BY time
     `);
+    // ブローカーのサーバー時間（GMT+2/+3, EU夏時間）→ 日本時間表示に変換
     return result.toArray().map(row => ({
-      time:  Number(row.time),
+      time:  brokerToJST(Number(row.time)),
       open:  Number(row.open),
       high:  Number(row.high),
       low:   Number(row.low),

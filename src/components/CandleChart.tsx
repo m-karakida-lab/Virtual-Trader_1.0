@@ -7,8 +7,11 @@ import {
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, LineDash, Position, ClosedTrade } from '../types';
+import { TIMEFRAMES } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
+import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '../lib/chartTheme';
+import { ChartHeader } from './ChartHeader';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -22,6 +25,12 @@ type DragTarget =
 const EMA_PERIOD = 200;
 const BB_PERIOD = 20;
 const DRAG_TOLERANCE_PX = 6;
+
+// 一目均衡表「雲」（先行スパンA/B）
+const TENKAN_PERIOD = 9;
+const KIJUN_PERIOD = 26;
+const SENKOU_B_PERIOD = 52;
+const CLOUD_SHIFT = 26;
 
 const DASH_TO_STYLE: Record<LineDash, LineStyle> = {
   solid: LineStyle.Solid,
@@ -39,6 +48,27 @@ const toBar = (c: Candle): CandlestickData => ({
   time: c.time as Time,
   open: c.open, high: c.high, low: c.low, close: c.close,
 });
+
+// 直近 period 本（idx を含む）の高値・安値
+function highLowWindow(cs: Candle[], idx: number, period: number): { hi: number; lo: number } {
+  let hi = -Infinity, lo = Infinity;
+  for (let j = Math.max(0, idx - period + 1); j <= idx; j++) {
+    if (cs[j].high > hi) hi = cs[j].high;
+    if (cs[j].low  < lo) lo = cs[j].low;
+  }
+  return { hi, lo };
+}
+
+// 一目均衡表の先行スパンA/B（過去データのみから算出、idx 時点で必要本数が揃っていなければ null）
+function computeCloudPoint(cs: Candle[], idx: number): { a: number; b: number } | null {
+  if (idx < SENKOU_B_PERIOD - 1) return null;
+  const tenkanW  = highLowWindow(cs, idx, TENKAN_PERIOD);
+  const kijunW   = highLowWindow(cs, idx, KIJUN_PERIOD);
+  const senkouBW = highLowWindow(cs, idx, SENKOU_B_PERIOD);
+  const tenkan = (tenkanW.hi + tenkanW.lo) / 2;
+  const kijun  = (kijunW.hi + kijunW.lo) / 2;
+  return { a: (tenkan + kijun) / 2, b: (senkouBW.hi + senkouBW.lo) / 2 };
+}
 
 // 月曜 00:00 UTC（その時刻が属する週の開始）
 function mondayOfWeekUTC(sec: number): number {
@@ -127,6 +157,11 @@ export function CandleChart() {
   const bbLower1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bbUpper2SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bbLower2SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const senkouASeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const senkouBSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const cloudCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cloudDataRef = useRef<{ time: number; a: number; b: number }[]>([]);
+  const syncCloudRef = useRef<() => void>(() => {});
   const priceLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const orderLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const tpLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
@@ -155,6 +190,7 @@ export function CandleChart() {
   const pendingOrders = useTraderStore(s => s.pendingOrders);
   const closedTrades = useTraderStore(s => s.closedTrades);
   const quoteCurrency = useTraderStore(s => s.quoteCurrency);
+  const symbol = useTraderStore(s => s.symbol);
   const lines     = useTraderStore(s => s.lines);
   const vlines    = useTraderStore(s => s.vlines);
   const isDrawingLine  = useTraderStore(s => s.isDrawingLine);
@@ -167,11 +203,14 @@ export function CandleChart() {
   const draftSL        = useTraderStore(s => s.draftSL);
   const showEMA   = useTraderStore(s => s.showEMA);
   const showBB    = useTraderStore(s => s.showBB);
+  const showCloud = useTraderStore(s => s.showCloud);
+  const timeframeSec = useTraderStore(s => s.timeframeSec);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
   const fitSignal  = useTraderStore(s => s.fitSignal);
   const centerSignal = useTraderStore(s => s.centerSignal);
   const centerTarget = useTraderStore(s => s.centerTarget);
+  const timeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
 
   const prevCursorRef  = useRef(-1);
   const prevCandlesRef = useRef<Candle[]>([]);
@@ -193,8 +232,9 @@ export function CandleChart() {
     const chart = createChart(container, {
       layout: {
         background: { color: '#0d0d0d' },
-        textColor: '#888',
-        fontSize: 14,
+        textColor: CHART_AXIS_TEXT_COLOR,
+        fontSize: CHART_AXIS_FONT_SIZE,
+        fontFamily: CHART_FONT_FAMILY,
       },
       grid: {
         vertLines: { color: '#1a1a1a' },
@@ -261,6 +301,15 @@ export function CandleChart() {
     const bbLower1Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.SparseDotted });
     const bbUpper2Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.Solid });
     const bbLower2Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.Solid });
+    const cloudLineOptions = {
+      lineWidth: 1 as const,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+      visible: false,
+    };
+    const senkouASeries = chart.addLineSeries({ ...cloudLineOptions, color: '#26a69a' });
+    const senkouBSeries = chart.addLineSeries({ ...cloudLineOptions, color: '#ef5350' });
 
     chartRef.current = chart;
     seriesRef.current = series;
@@ -270,6 +319,48 @@ export function CandleChart() {
     bbLower1SeriesRef.current = bbLower1Series;
     bbUpper2SeriesRef.current = bbUpper2Series;
     bbLower2SeriesRef.current = bbLower2Series;
+    senkouASeriesRef.current = senkouASeries;
+    senkouBSeriesRef.current = senkouBSeries;
+
+    // ── 雲（先行スパンA/B）の塗りつぶしを canvas に再描画 ────────────────
+    const syncCloud = () => {
+      const canvas = cloudCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      ctx.clearRect(0, 0, w, h);
+
+      const { showCloud: show } = useTraderStore.getState();
+      const points = cloudDataRef.current;
+      if (!show || points.length < 2) return;
+
+      const timeScale = chartRef.current.timeScale();
+      const series = seriesRef.current;
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i], p1 = points[i + 1];
+        const x0 = timeScale.timeToCoordinate(p0.time as Time);
+        const x1 = timeScale.timeToCoordinate(p1.time as Time);
+        if (x0 === null || x1 === null) continue;
+        const ya0 = series.priceToCoordinate(p0.a);
+        const ya1 = series.priceToCoordinate(p1.a);
+        const yb0 = series.priceToCoordinate(p0.b);
+        const yb1 = series.priceToCoordinate(p1.b);
+        if (ya0 === null || ya1 === null || yb0 === null || yb1 === null) continue;
+
+        ctx.fillStyle = (p0.a + p1.a) >= (p0.b + p1.b) ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
+        ctx.beginPath();
+        ctx.moveTo(x0, ya0);
+        ctx.lineTo(x1, ya1);
+        ctx.lineTo(x1, yb1);
+        ctx.lineTo(x0, yb0);
+        ctx.closePath();
+        ctx.fill();
+      }
+    };
+    syncCloudRef.current = syncCloud;
 
     // ── 垂直線の位置を再計算して DOM に反映 ────────────────────────
     const syncVLines = () => {
@@ -422,7 +513,7 @@ export function CandleChart() {
     updateRRPreviewRef.current = updateRRPreview;
     updateRRPreview();
 
-    const onRangeChange = () => { syncVLines(); syncWeekLines(); updateRRPreview(); };
+    const onRangeChange = () => { syncVLines(); syncWeekLines(); updateRRPreview(); syncCloud(); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
@@ -788,6 +879,7 @@ export function CandleChart() {
       syncVLines();
       syncWeekLines();
       updateRRPreview();
+      syncCloud();
       // フロートパネルが価格軸・時間軸に被らないよう、実測サイズをストアに反映
       useTraderStore.getState().setChartMargins(
         chart.priceScale('right').width(),
@@ -1034,6 +1126,8 @@ export function CandleChart() {
     bbLower1SeriesRef.current?.applyOptions({ priceFormat });
     bbUpper2SeriesRef.current?.applyOptions({ priceFormat });
     bbLower2SeriesRef.current?.applyOptions({ priceFormat });
+    senkouASeriesRef.current?.applyOptions({ priceFormat });
+    senkouBSeriesRef.current?.applyOptions({ priceFormat });
     // 精度変更で価格軸の幅が変わるため、再描画後に実測してフロートパネルのクランプに反映
     requestAnimationFrame(() => {
       if (!chartRef.current) return;
@@ -1068,6 +1162,13 @@ export function CandleChart() {
     bbLower2SeriesRef.current?.applyOptions({ visible: showBB });
   }, [showBB]);
 
+  // 雲 表示 ON/OFF（同様に非表示中も裏で計算を継続、canvas側は syncCloud 内で showCloud を判定）
+  useEffect(() => {
+    senkouASeriesRef.current?.applyOptions({ visible: showCloud });
+    senkouBSeriesRef.current?.applyOptions({ visible: showCloud });
+    syncCloudRef.current();
+  }, [showCloud]);
+
   // エントリー / 決済マーカー
   useEffect(() => {
     seriesRef.current?.setMarkers(buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)));
@@ -1079,6 +1180,7 @@ export function CandleChart() {
     seriesRef.current.setData(candles.map(toBar));
     recomputeEmaFull(candles, candles.length - 1);
     recomputeBBFull(candles, candles.length - 1);
+    recomputeCloudFull(candles, candles.length - 1);
     chartRef.current?.timeScale().fitContent();
     chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
     // fitContent 後の確定した可視範囲で再同期（範囲変更イベントに頼らず確実に揃える）
@@ -1104,11 +1206,13 @@ export function CandleChart() {
       seriesRef.current.update(toBar(candles[cursor]));
       updateEmaStep(candles[cursor]);
       updateBBStep(candles, cursor);
+      updateCloudStep(candles, cursor);
     } else {
       seriesRef.current.setData(candles.slice(0, cursor + 1).map(toBar));
       chartRef.current?.timeScale().scrollToRealTime();
       recomputeEmaFull(candles, cursor);
       recomputeBBFull(candles, cursor);
+      recomputeCloudFull(candles, cursor);
     }
     // 価格軸ドラッグ等で autoScale が無効化されたままだと、再生中にローソク足が
     // 上下にはみ出ても追従しなくなる。毎ステップ明示的に再有効化して縦も自動追従させる
@@ -1236,8 +1340,39 @@ export function CandleChart() {
     bbLower2SeriesRef.current?.update({ time, value: mean - 2 * sd });
   }
 
+  // 雲: 先行スパンA/Bを CLOUD_SHIFT 本先の時刻にずらして描画（値自体は過去データのみで算出）
+  function recomputeCloudFull(cs: Candle[], uptoIndex: number) {
+    const aData: LineData[] = [];
+    const bData: LineData[] = [];
+    const points: { time: number; a: number; b: number }[] = [];
+    for (let i = 0; i <= uptoIndex; i++) {
+      const pt = computeCloudPoint(cs, i);
+      if (!pt) continue;
+      const displaced = cs[i].time + CLOUD_SHIFT * timeframeSec;
+      aData.push({ time: displaced as Time, value: pt.a });
+      bData.push({ time: displaced as Time, value: pt.b });
+      points.push({ time: displaced, a: pt.a, b: pt.b });
+    }
+    senkouASeriesRef.current?.setData(aData);
+    senkouBSeriesRef.current?.setData(bData);
+    cloudDataRef.current = points;
+    syncCloudRef.current();
+  }
+
+  function updateCloudStep(cs: Candle[], idx: number) {
+    const pt = computeCloudPoint(cs, idx);
+    if (!pt) return;
+    const displaced = cs[idx].time + CLOUD_SHIFT * timeframeSec;
+    senkouASeriesRef.current?.update({ time: displaced as Time, value: pt.a });
+    senkouBSeriesRef.current?.update({ time: displaced as Time, value: pt.b });
+    cloudDataRef.current = [...cloudDataRef.current, { time: displaced, a: pt.a, b: pt.b }];
+    syncCloudRef.current();
+  }
+
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+      <ChartHeader symbol={symbol} timeframeLabel={timeframeLabel} />
+      <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={overlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />
       <div ref={measureOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 12, display: 'none' }}>

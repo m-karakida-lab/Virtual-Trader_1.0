@@ -22,15 +22,17 @@
 - **フォルダブックマーク**（Chrome/Edgeのみ、File System Access API）: 複数フォルダを登録可能。「📁 フォルダを追加」で選んだフォルダを IndexedDB に配列で保存し、配下のCSVを全件自動読み込み。登録済みフォルダは「⚡ {フォルダ名}」チップでワンクリック再読み込み、「✕」でブックマーク解除（個別ファイル選択UIはなし）
 - 読み込み完了時は「✓ N本 読み込み完了」を5秒間表示してから消える
 - 1分足 → 任意時間軸への自動集計（DuckDB SQL）。**15m / 1H / 4H / 1D を切替可能**
+- **表示は日本時間(JST)に変換済み**: CSV（Axiory MT4形式）のブローカーサーバー時間はEU夏時間ルール（GMT+2冬/GMT+3夏）に従う前提で自動変換。チャート・日時ジャンプ・取引履歴など全表示箇所がJST基準
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
 
 ### チャート表示・描画
-- ローソク足 + **200EMA**（増分計算）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトOFF）、**週区切り線**（月曜00:00UTC、控えめなドット線）、ON/OFF切替可
+- ローソク足 + **200EMA**（増分計算）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトOFF）、**一目均衡表の雲**（先行スパンA/Bのみ、26期間先行、色分け塗りつぶし、デフォルトOFF）、**週区切り線**（月曜00:00UTC、控えめなドット線）、ON/OFF切替可
 - **水平線・垂直線描画**: クリックで配置、ドラッグで移動、色・線種・太さを個別設定
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁、TradingViewと同じ`1.17471`形式）
 - **全体を見る**（全期間一括表示）/ **画面にフィット**（ズームリセット）/ **日時ジャンプ**（カレンダー、縮尺維持で中心移動）
-- **1画面 / 4画面レイアウト切替**: 4画面時はメイン時間軸（操作可能・発注/描画ツールあり）+ 残り3つの時間軸を表示専用ミニチャートとして2×2グリッド表示。ミニチャートは自分の足が完全に閉じた時点で初めて表示（先出し防止、メインのカーソル進行に連動）。全パネルの左上に時間軸ラベルを表示
+- **1画面 / 4画面レイアウト切替**: 4画面時はメイン時間軸（操作可能・発注/描画ツールあり）+ 残り3つの時間軸を表示専用ミニチャートとして2×2グリッド表示。ミニチャートは自分の足が完全に閉じた時点で初めて表示（先出し防止、メインのカーソル進行に連動）
+- **TradingView風パネルヘッダー**: 各チャート左上に「シンボル（ファイル名から検出） + 時間足」を表示。軸フォントもTradingView寄りのサンセリフに統一（`src/lib/chartTheme.ts`）
 
 ### 再生
 - ▶（自動再生・1〜20倍速、`requestAnimationFrame`実装）/ ⏭（1コマ進む）/ ⏮（1コマ戻る、表示のみ・約定は取り消さない）
@@ -77,13 +79,16 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 
 ## 主要コンポーネント / モジュール責務
 
-- `src/lib/duckdb.ts` — DuckDB 初期化・複数CSV読み込み（パイプライン処理）・任意時間軸集計クエリ
-- `src/lib/currency.ts` — ファイル名から通貨ペア検出・通貨記号マッピング
+- `src/lib/duckdb.ts` — DuckDB 初期化・複数CSV読み込み（パイプライン処理）・任意時間軸集計クエリ（`queryCandles`の戻り値は`brokerToJST`でJST変換済み）
+- `src/lib/timezone.ts` — CSVのブローカーサーバー時間（GMT+2冬/GMT+3夏、EU夏時間ルール）→ JSTへの変換
+- `src/lib/currency.ts` — ファイル名から通貨ペア検出（`detectPairSymbol`）・クオート通貨/記号マッピング
+- `src/lib/chartTheme.ts` — TradingView風のチャート共通スタイル定数（フォント・軸文字色/サイズ）
 - `src/lib/pips.ts` — 価格帯から pip単位・表示精度を推定（JPYクロス判定）
 - `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal` を increment → CandleChart の useEffect が検知）
-- `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・週区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画
+- `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・週区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画。雲（先行スパンA/B間）の塗りつぶしは`<canvas>`オーバーレイに自前描画
 - `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインの現在足が閉じた時刻までに切り詰めて描画するだけ（発注・描画ツールなし）
+- `src/components/ChartHeader.tsx` — CandleChart/MiniChart共通のパネルヘッダー（左上に「シンボル + 時間足」）
 - `src/components/Controls.tsx` — 時間軸/表示モード/発注パネル/ポジション・注文一覧/口座情報。描画ツール一式と日時ジャンプは`MenuButton`（クリック開閉のポップアップ、下方向に開く）に集約。常時表示は発注パネルと口座・時間軸などの1行のみ
 - `src/components/FloatingControls.tsx` — ドラッグ移動可能な再生ボタン群（チャート領域内にクランプ）
 - `src/components/HistoryPanel.tsx` — エクイティカーブ + 取引履歴テーブル（オーバーレイパネル）
@@ -95,11 +100,12 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - DuckDB-wasm は SharedArrayBuffer を使うため、Vite dev server に `COOP/COEP` ヘッダが必要（`vite.config.ts` に設定済み）
 - `read_csv` に `all_varchar=true` と `ignore_errors=true` が必須
 - P&L 計算は**クオート通貨そのまま**（円換算しない）。EURUSDなら結果はUSD相当
+- JST変換は`candles_1m`（生の1分足）ではなく`queryCandles`の集計結果（`time`列）に対して事後的に適用している。そのため4H/1D等のバケット境界自体はブローカー時間基準のまま（JST 00:00ちょうど等の切りの良い時刻にはならない）。ラベルの変換のみで再集計はしていない
 - チャートの月境界マークは `tickMarkFormatter` を通らず `localization.dateFormat` が使われる。有効トークンは `yyyy/yy/MMMM/MMM/MM/dd` のみ
 - 自動再生は `requestAnimationFrame` で実装（`setInterval` は高速再生時に描画ノイズが出る）
 - ドラッグ系操作（水平線・垂直線・ものさし・注文・TP/SL・draft）は開始時にチャートの `handleScroll`/`handleScale` を無効化し、終了時に必ず再有効化する。新規ドラッグ操作追加時はこの作法に従う
 - 水平線・垂直線・TP/SL・draft価格は丸めない（量子化するとズーム次第でカクつく）。表示側のみ `toFixed(pricePrecision(price))`
-- DOMオーバーレイ（垂直線・週区切り線・ものさし・RRプレビュー）は `z-index` 10〜13 を使用。新規追加時はこの範囲を踏まえること
+- DOMオーバーレイ（垂直線・週区切り線・ものさし・RRプレビュー）は `z-index` 10〜13 を使用。新規追加時はこの範囲を踏まえること。雲の`<canvas>`は`z-index: 5`（他オーバーレイより背面、ただし実装上lightweight-charts本体の描画canvasより手前になるためローソク足の上に半透明で重なる）
 - `processOrderRange` は1本ずつ順に処理し、同一バーでTP/SL両方ヒット時はSLを優先（保守的判定）。`advance()`は1本、`jumpToTime()`は前進時のみ通過範囲を遡って判定（後退ジャンプは判定しない）
 - チャート操作（`fitToScreen`/`centerOnTime`等）はシグナルincrement + useEffectの実行順に依存。`centerSignal`のeffectはリプレイモードのcursor effectより**後**に置くこと（先に置くと`scrollToRealTime()`に上書きされる）
 - CSV再読込で `lines`/`vlines`/`closedTrades`/`positions`/`pendingOrders` は全リセット。時間軸切替では保持

@@ -19,3 +19,9 @@ export function detectQuoteCurrency(filename: string): string {
   const match = filename.toUpperCase().match(/([A-Z]{6})/);
   return match ? match[1].slice(3) : 'JPY';
 }
+
+// ファイル名から通貨ペアの6文字シンボル（例: "USDJPY"）を抽出。検出できなければ空文字。
+export function detectPairSymbol(filename: string): string {
+  const match = filename.toUpperCase().match(/([A-Z]{6})/);
+  return match ? match[1] : '';
+}

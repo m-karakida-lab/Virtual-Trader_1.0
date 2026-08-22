@@ -4,6 +4,8 @@ import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, TimeframeSec } from '../types';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
 import { pricePrecision } from '../lib/pips';
+import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '../lib/chartTheme';
+import { ChartHeader } from './ChartHeader';
 
 const toBar = (c: Candle) => ({
   time: c.time as Time,
@@ -22,6 +24,7 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
   const dataVersion = useTraderStore(s => s.dataVersion);
   const cursorTime = useTraderStore(s => s.candles[s.cursor]?.time);
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
+  const symbol = useTraderStore(s => s.symbol);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
   // メインの現在足が閉じた時点（=これより先の情報は「未来」として隠す境界）
   const cursorEnd = cursorTime !== undefined ? cursorTime + mainTimeframeSec : undefined;
@@ -44,7 +47,12 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
     const container = containerRef.current;
 
     const chart = createChart(container, {
-      layout: { background: { color: '#0d0d0d' }, textColor: '#666', fontSize: 11 },
+      layout: {
+        background: { color: '#0d0d0d' },
+        textColor: CHART_AXIS_TEXT_COLOR,
+        fontSize: CHART_AXIS_FONT_SIZE,
+        fontFamily: CHART_FONT_FAMILY,
+      },
       grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } },
       crosshair: { vertLine: { color: '#333' }, horzLine: { color: '#333' } },
       rightPriceScale: { borderColor: '#1e1e1e' },
@@ -124,10 +132,7 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
 
   return (
     <div style={{ position: 'relative', border: '1px solid #1e1e1e', minWidth: 0, minHeight: 0 }}>
-      <span style={{
-        position: 'absolute', top: 4, left: 8, zIndex: 2,
-        color: '#555', fontSize: '12px', fontWeight: 700, pointerEvents: 'none',
-      }}>{label}</span>
+      <ChartHeader symbol={symbol} timeframeLabel={label} />
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
     </div>
   );

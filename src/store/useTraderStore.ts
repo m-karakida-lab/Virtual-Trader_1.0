@@ -1,7 +1,7 @@
 import { create } from 'zustand';
 import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, LineDash, LineWidth, LineSelection } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
-import { detectQuoteCurrency } from '../lib/currency';
+import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
 
 const DEFAULT_INITIAL_BALANCE = 1_000_000;
 const DEFAULT_TIMEFRAME: TimeframeSec = 14400; // 4H
@@ -26,6 +26,7 @@ interface TraderState {
   nextOrderId: number;
   closedTrades: ClosedTrade[]; // 決済済みトレード履歴（チャート上のマーカー表示用）
   quoteCurrency: string; // 残高・損益の単位（読み込んだペアのクオート通貨。例: EURUSD→USD）
+  symbol: string; // 読み込んだ通貨ペアのシンボル（例: "USDJPY"）。チャートヘッダー表示用
   lots: number;          // 発注ロット数（固定モード時に使用）
   lotMode: 'fixed' | 'risk'; // ロット指定方法
   riskPercent: number;       // リスクモード時: 残高に対する許容損失の割合（%）
@@ -49,6 +50,7 @@ interface TraderState {
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
   showEMA: boolean;
   showBB: boolean;
+  showCloud: boolean;
   showWeekLines: boolean;
   showFullHistory: boolean;
   showHistoryPanel: boolean; // 取引履歴・損益グラフのパネル表示
@@ -102,6 +104,7 @@ interface TraderState {
   setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   toggleEMA: () => void;
   toggleBB: () => void;
+  toggleCloud: () => void;
   toggleWeekLines: () => void;
   toggleFullHistory: () => void;
   toggleHistoryPanel: () => void;
@@ -193,6 +196,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   nextOrderId: 1,
   closedTrades: [],
   quoteCurrency: 'JPY',
+  symbol: '',
   lots: 10_000,
   lotMode: 'risk',
   riskPercent: 3,
@@ -216,6 +220,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
   showEMA: true,
   showBB: false,
+  showCloud: false,
   showWeekLines: true,
   showFullHistory: false,
   showHistoryPanel: false,
@@ -241,6 +246,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       const { timeframeSec, initialBalance, isInitialBalanceCustom } = get();
       const candles = await queryCandles(db, timeframeSec);
       const quoteCurrency = detectQuoteCurrency(fileArray[0].name);
+      const symbol = detectPairSymbol(fileArray[0].name);
       // ユーザーが初期残高を手動で変更していなければ、クオート通貨に応じたデフォルトに合わせる
       const newInitialBalance = isInitialBalanceCustom ? initialBalance : defaultBalanceFor(quoteCurrency);
       set({
@@ -251,7 +257,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         closedTrades: [], nextId: 1,
         isPlaying: false,
         lines: [], nextLineId: 1, vlines: [], nextVLineId: 1, selected: null,
-        showFullHistory: false, quoteCurrency,
+        showFullHistory: false, quoteCurrency, symbol,
         dataVersion: get().dataVersion + 1,
       });
       setTimeout(() => {
@@ -555,6 +561,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleEMA: () => set(s => ({ showEMA: !s.showEMA })),
   toggleBB: () => set(s => ({ showBB: !s.showBB })),
+  toggleCloud: () => set(s => ({ showCloud: !s.showCloud })),
   toggleWeekLines: () => set(s => ({ showWeekLines: !s.showWeekLines })),
   toggleFullHistory: () => set(s => ({ showFullHistory: !s.showFullHistory, isPlaying: false })),
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),
