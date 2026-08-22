@@ -7,7 +7,16 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { FloatingControls } from './components/FloatingControls';
 import { useTraderStore } from './store/useTraderStore';
 import { initDuckDB } from './lib/duckdb';
-import { TIMEFRAMES } from './types';
+import { TIMEFRAMES, type TimeframeSec } from './types';
+
+// 4画面レイアウトは時間軸ごとに位置を固定する（選択中の時間軸が動いてもパネル位置は変わらない）
+// 左上:15m 左下:1H 右上:4H 右下:1D
+const FIXED_QUAD_LAYOUT: { sec: TimeframeSec; row: number; col: number }[] = [
+  { sec: 900,   row: 1, col: 1 }, // 15m
+  { sec: 3600,  row: 2, col: 1 }, // 1H
+  { sec: 14400, row: 1, col: 2 }, // 4H
+  { sec: 86400, row: 2, col: 2 }, // 1D
+];
 
 export default function App() {
   const error      = useTraderStore(s => s.error);
@@ -16,7 +25,6 @@ export default function App() {
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const timeframeSec  = useTraderStore(s => s.timeframeSec);
-  const otherTimeframes = TIMEFRAMES.filter(tf => tf.sec !== timeframeSec);
 
   // 画面表示時点で DuckDB WASM を先読み（ファイル選択前に初期化を済ませる）
   useEffect(() => { initDuckDB().catch(() => {}); }, []);
@@ -45,11 +53,12 @@ export default function App() {
             position: 'absolute', inset: 0,
             display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
           }}>
-            <div style={{ position: 'relative', minWidth: 0, minHeight: 0 }}>
-              <CandleChart />
-            </div>
-            {otherTimeframes.map(tf => (
-              <MiniChart key={tf.sec} timeframeSec={tf.sec} label={tf.label} />
+            {FIXED_QUAD_LAYOUT.map(pos => (
+              <div key={pos.sec} style={{ gridRow: pos.row, gridColumn: pos.col, position: 'relative', minWidth: 0, minHeight: 0 }}>
+                {pos.sec === timeframeSec
+                  ? <CandleChart />
+                  : <MiniChart timeframeSec={pos.sec} label={TIMEFRAMES.find(tf => tf.sec === pos.sec)!.label} />}
+              </div>
             ))}
           </div>
         ) : (

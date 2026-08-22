@@ -6,6 +6,7 @@ import { initDuckDB, queryCandles } from '../lib/duckdb';
 import { pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
+import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 
 const toBar = (c: Candle) => ({
   time: c.time as Time,
@@ -93,16 +94,32 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
     });
     ro.observe(container);
 
+    // 表示中のズーム/スケールを時間軸ごとに記憶（連続発火するため軽くデバウンス）
+    let saveViewTimer: number | undefined;
+    const onRangeChange = () => {
+      if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
+      saveViewTimer = window.setTimeout(() => {
+        if (!chartRef.current) return;
+        const range = chartRef.current.timeScale().getVisibleLogicalRange();
+        if (!range || visibleCountRef.current <= 0) return;
+        saveChartView(timeframeSec, { span: range.to - range.from, barsFromRight: visibleCountRef.current - range.to });
+      }, 400);
+    };
+    chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
+
     return () => {
       ro.disconnect();
+      chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
+      if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
     };
-  }, []);
+  }, [timeframeSec]);
 
   // 新しいデータセットに切り替わった時だけ画面フィットしたか（同じデータ中はスケールを保持する）
   const fittedDataRef = useRef<Candle[] | null>(null);
+  const visibleCountRef = useRef(0);
 
   // データ・カーソル位置に応じて描画。バケット終了時刻がメインの現在足の終了時刻を
   // 超える（＝まだ閉じていない）足は先出しになるため描画しない
@@ -118,20 +135,27 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
       priceFormat: { type: 'price', precision, minMove: 1 / 10 ** precision },
     });
     seriesRef.current.setData(visible.map(toBar));
+    visibleCountRef.current = visible.length;
 
     // カーソル進行のたびに毎回フィットすると、序盤の少数本だけを見て過剰拡大されるため、
-    // 新規データ読み込み時（全期間の時間幅）だけ一度フィットし、以降は同じスケールを維持する
+    // 新規データ読み込み時（全期間の時間幅）だけ一度フィットし、以降は同じスケールを維持する。
+    // 記憶済みのズーム/スケールがあればそちらを優先して復元する
     if (fittedDataRef.current !== data) {
       fittedDataRef.current = data;
-      chartRef.current?.timeScale().setVisibleRange({
-        from: data[0].time as Time,
-        to: data[data.length - 1].time as Time,
-      });
+      const saved = loadChartView(timeframeSec);
+      if (saved) {
+        chartRef.current?.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, visible.length));
+      } else {
+        chartRef.current?.timeScale().setVisibleRange({
+          from: data[0].time as Time,
+          to: data[data.length - 1].time as Time,
+        });
+      }
     }
   }, [data, cursorEnd, showFullHistory]);
 
   return (
-    <div style={{ position: 'relative', border: '1px solid #1e1e1e', minWidth: 0, minHeight: 0 }}>
+    <div style={{ width: '100%', height: '100%', position: 'relative', border: '1px solid #1e1e1e', minWidth: 0, minHeight: 0 }}>
       <ChartHeader symbol={symbol} timeframeLabel={label} />
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
     </div>

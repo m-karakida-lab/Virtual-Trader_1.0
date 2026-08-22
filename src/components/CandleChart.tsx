@@ -12,6 +12,7 @@ import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
+import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -205,6 +206,7 @@ export function CandleChart() {
   const showBB    = useTraderStore(s => s.showBB);
   const showCloud = useTraderStore(s => s.showCloud);
   const timeframeSec = useTraderStore(s => s.timeframeSec);
+  const dataVersion = useTraderStore(s => s.dataVersion);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
   const fitSignal  = useTraderStore(s => s.fitSignal);
@@ -214,6 +216,8 @@ export function CandleChart() {
 
   const prevCursorRef  = useRef(-1);
   const prevCandlesRef = useRef<Candle[]>([]);
+  const restoredViewKeyRef = useRef<string | null>(null);
+  const saveViewTimerRef = useRef<number | undefined>(undefined);
 
   // EMA 増分計算用の状態
   const emaValueRef = useRef(0);
@@ -513,7 +517,21 @@ export function CandleChart() {
     updateRRPreviewRef.current = updateRRPreview;
     updateRRPreview();
 
-    const onRangeChange = () => { syncVLines(); syncWeekLines(); updateRRPreview(); syncCloud(); };
+    // 表示中のズーム/スケールを時間軸ごとに記憶（連続発火するため軽くデバウンス）
+    const scheduleSaveView = () => {
+      if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
+      saveViewTimerRef.current = window.setTimeout(() => {
+        if (!chartRef.current) return;
+        const range = chartRef.current.timeScale().getVisibleLogicalRange();
+        if (!range) return;
+        const { candles: cs, cursor: cur, showFullHistory: full, timeframeSec: tf } = useTraderStore.getState();
+        const totalBars = full ? cs.length : cur + 1;
+        if (totalBars <= 0) return;
+        saveChartView(tf, { span: range.to - range.from, barsFromRight: totalBars - range.to });
+      }, 400);
+    };
+
+    const onRangeChange = () => { syncVLines(); syncWeekLines(); updateRRPreview(); syncCloud(); scheduleSaveView(); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
@@ -898,6 +916,7 @@ export function CandleChart() {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
+      if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
       vlineElsRef.current.forEach(el => el.remove());
       vlineElsRef.current.clear();
       weekLineElsRef.current.forEach(el => el.remove());
@@ -1224,6 +1243,21 @@ export function CandleChart() {
     prevCursorRef.current  = cursor;
     prevCandlesRef.current = candles;
   }, [candles, cursor, showFullHistory]);
+
+  // 時間軸の切替・新規CSV読み込み時、記憶しておいたズーム/スケールを復元する
+  // （リプレイモード側の setData/scrollToRealTime より後に実行し、その結果を上書きする）
+  useEffect(() => {
+    if (!chartRef.current || candles.length === 0) return;
+    const key = `${timeframeSec}:${dataVersion}`;
+    if (restoredViewKeyRef.current === key) return;
+    restoredViewKeyRef.current = key;
+
+    const saved = loadChartView(timeframeSec);
+    if (!saved) return;
+    const totalBars = showFullHistory ? candles.length : cursor + 1;
+    if (totalBars <= 0) return;
+    chartRef.current.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, totalBars));
+  }, [timeframeSec, dataVersion, candles, cursor, showFullHistory]);
 
   // 指定時刻を中心に表示（縮尺=現在の可視範囲の幅は維持したまま移動）
   // リプレイモード側の setData/scrollToRealTime より後に実行し、最終的な表示位置を確定させる
