@@ -4,11 +4,32 @@ import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
 
 const DEFAULT_INITIAL_BALANCE = 1_000_000;
-const DEFAULT_TIMEFRAME: TimeframeSec = 14400; // 4H
+const DEFAULT_TIMEFRAME: TimeframeSec = 900; // 15m
 
 // クオート通貨ごとの初期残高デフォルト（JPYは100万、それ以外は1万。USD/EUR/GBP等で100万は非現実的なため）
 function defaultBalanceFor(currency: string): number {
   return currency === 'JPY' ? 1_000_000 : 10_000;
+}
+
+// 再生速度は localStorage に記憶し、次回起動時も同じ速度から始める
+const SPEED_STORAGE_KEY = 'vt:speed';
+
+function loadSavedSpeed(): number {
+  try {
+    const raw = localStorage.getItem(SPEED_STORAGE_KEY);
+    const v = raw !== null ? Number(raw) : NaN;
+    return Number.isFinite(v) ? Math.min(20, Math.max(1, v)) : 1;
+  } catch {
+    return 1;
+  }
+}
+
+function saveSpeed(speed: number): void {
+  try {
+    localStorage.setItem(SPEED_STORAGE_KEY, String(speed));
+  } catch {
+    // localStorage が使えない場合は無視
+  }
 }
 
 interface TraderState {
@@ -208,7 +229,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   pickTarget: null,
   error: null,
   isPlaying: false,
-  speed: 1,
+  speed: loadSavedSpeed(),
   lines: [],
   nextLineId: 1,
   isDrawingLine: false,
@@ -229,7 +250,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   fitSignal: 0,
   centerSignal: 0,
   centerTarget: 0,
-  chartLayout: '1',
+  chartLayout: '4',
   dataVersion: 0,
 
   loadFiles: async (files: FileList | File[]) => {
@@ -500,7 +521,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   setLotMode: (m: 'fixed' | 'risk') => set({ lotMode: m }),
   setRiskPercent: (v: number) => set({ riskPercent: Math.max(0, v) }),
   togglePlay: () => set(s => ({ isPlaying: !s.isPlaying })),
-  setSpeed: (speed: number) => set({ speed: Math.min(20, Math.max(1, speed)) }),
+  setSpeed: (speed: number) => {
+    const clamped = Math.min(20, Math.max(1, speed));
+    saveSpeed(clamped);
+    set({ speed: clamped });
+  },
 
   addLine: (price: number) => {
     // 丸めない（表示側で toFixed するだけにし、線の位置は連続値で持つ）
