@@ -27,7 +27,7 @@
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
 
 ### チャート表示・描画
-- ローソク足 + **200EMA**（増分計算、デフォルトOFF）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトON）、**一目均衡表の雲**（先行スパンA/Bのみ、26期間先行、色分け塗りつぶし、デフォルトON）、**区切り線**（15m/1H/4Hは日替わり、1Dは月替わりで最初に出現した足の時刻を境界とする、控えめなドット線、デフォルトON）、ON/OFF切替可。これらはすべて4画面時のミニチャート3枚にも連動して反映される（`src/lib/indicators.ts`・`src/lib/weekLines.ts`を共有）
+- ローソク足 + **200EMA**（増分計算、デフォルトOFF）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトON）、**一目均衡表の雲**（先行スパンA/Bのみ、26期間先行、色分け塗りつぶし、デフォルトON）、**区切り線**（15m/1H/4Hは日替わり、1D/1Wは月替わり、MNは年替わりで最初に出現した足の時刻を境界とする、控えめなドット線、デフォルトON）、ON/OFF切替可。これらはすべて4画面時のミニチャート3枚にも連動して反映される（`src/lib/indicators.ts`・`src/lib/weekLines.ts`を共有）
 - **水平線・垂直線描画**: クリックで配置、ドラッグで移動、色・線種・太さを個別設定
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁、TradingViewと同じ`1.17471`形式）
@@ -88,7 +88,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/chartTheme.ts` — TradingView風のチャート共通スタイル定数（フォント・軸文字色/サイズ）
 - `src/lib/chartViewState.ts` — チャートのズーム/スケールを時間軸ごとにlocalStorageへ保存/復元。絶対時刻ではなく「右端から何本目〜何本分」の相対位置で持つため、別データセットでも同じ拡大率で再現される
 - `src/lib/indicators.ts` — EMA/BB/雲の計算ロジック（全体再計算版）。MiniChartが使用。CandleChartは増分計算の最適化版を別途持つ
-- `src/lib/weekLines.ts` — 区切り線の境界計算（`computeSeparatorBoundaries`。1D足は`computeMonthBoundaries`＝月区切り、それ以外は`computeDayBoundaries`＝日区切り）。CandleChart/MiniChart共通
+- `src/lib/weekLines.ts` — 区切り線の境界計算（`computeSeparatorBoundaries`。MN足は`computeYearBoundaries`＝年区切り、1D/1W足は`computeMonthBoundaries`＝月区切り、それ以外（15m/1H/4H）は`computeDayBoundaries`＝日区切り）。CandleChart/MiniChart共通
 - `src/lib/pips.ts` — 価格帯から pip単位・表示精度を推定（JPYクロス判定）
 - `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal`/`scrollToLatestSignal` を increment → CandleChart の useEffect が検知）

@@ -1,4 +1,5 @@
 import type { Candle } from '../types';
+import { MONTH_SEC } from '../types';
 
 // その時刻が属する日の 00:00 UTC
 function dayOfUTC(sec: number): number {
@@ -10,6 +11,11 @@ function dayOfUTC(sec: number): number {
 function monthKeyOf(sec: number): number {
   const d = new Date(sec * 1000);
   return d.getUTCFullYear() * 12 + d.getUTCMonth();
+}
+
+// その時刻が属する年（キー比較専用）
+function yearKeyOf(sec: number): number {
+  return new Date(sec * 1000).getUTCFullYear();
 }
 
 // 区切り替わり（キーが変わる）を跨いだ最初の足の時刻を境界として使う。
@@ -36,7 +42,13 @@ export function computeMonthBoundaries(candles: Candle[]): number[] {
   return computeBoundaries(candles, monthKeyOf);
 }
 
-// 区切り線の周期は時間軸によって切り替える: 1D足は月区切り、それ以外（15m/1H/4H）は日区切り
+export function computeYearBoundaries(candles: Candle[]): number[] {
+  return computeBoundaries(candles, yearKeyOf);
+}
+
+// 区切り線の周期は時間軸によって切り替える:
+// MN足=年区切り、1D/1W足=月区切り、それ以外（15m/1H/4H）は日区切り
 export function computeSeparatorBoundaries(candles: Candle[], timeframeSec: number): number[] {
+  if (timeframeSec === MONTH_SEC) return computeYearBoundaries(candles);
   return timeframeSec >= 86400 ? computeMonthBoundaries(candles) : computeDayBoundaries(candles);
 }
