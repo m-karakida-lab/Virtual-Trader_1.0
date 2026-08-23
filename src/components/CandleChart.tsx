@@ -1252,7 +1252,8 @@ export function CandleChart() {
     prevCandlesRef.current = candles;
   }, [candles, cursor, showFullHistory]);
 
-  // 時間軸の切替・新規CSV読み込み時、記憶しておいたズーム/スケールを復元する
+  // 時間軸の切替・新規CSV読み込み時、記憶しておいたズーム/スケール（縮尺）を復元したうえで、
+  // 常に最新足に固定する（右端からの位置=barsFromRightではなく、常にrightOffset分の位置に揃える）
   // （リプレイモード側の setData/scrollToRealTime より後に実行し、その結果を上書きする）
   useEffect(() => {
     if (!chartRef.current || candles.length === 0) return;
@@ -1261,10 +1262,13 @@ export function CandleChart() {
     restoredViewKeyRef.current = key;
 
     const saved = loadChartView(timeframeSec);
-    if (!saved) return;
     const totalBars = showFullHistory ? candles.length : cursor + 1;
-    if (totalBars <= 0) return;
-    chartRef.current.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, totalBars));
+    // 記憶したズーム幅（span）が現在の表示可能本数を超える場合（読み込み直後でcursorが
+    // 先頭に戻っている等）は復元すると破綻したlogical rangeになるため復元をスキップする
+    if (saved && totalBars > 0 && saved.span <= totalBars) {
+      chartRef.current.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, totalBars));
+    }
+    chartRef.current.timeScale().scrollToRealTime();
   }, [timeframeSec, dataVersion, candles, cursor, showFullHistory]);
 
   // 指定時刻を中心に表示（縮尺=現在の表示本数は維持したまま移動）
