@@ -27,7 +27,7 @@
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
 
 ### チャート表示・描画
-- ローソク足 + **200EMA**（増分計算）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトOFF）、**一目均衡表の雲**（先行スパンA/Bのみ、26期間先行、色分け塗りつぶし、デフォルトOFF）、**週区切り線**（月曜00:00UTC、控えめなドット線）、ON/OFF切替可
+- ローソク足 + **200EMA**（増分計算）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトOFF）、**一目均衡表の雲**（先行スパンA/Bのみ、26期間先行、色分け塗りつぶし、デフォルトOFF）、**週区切り線**（週替わりで最初に出現した足の時刻を境界とする、控えめなドット線）、ON/OFF切替可。これらはすべて4画面時のミニチャート3枚にも連動して反映される（`src/lib/indicators.ts`・`src/lib/weekLines.ts`を共有）
 - **水平線・垂直線描画**: クリックで配置、ドラッグで移動、色・線種・太さを個別設定
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁、TradingViewと同じ`1.17471`形式）
@@ -86,11 +86,13 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/currency.ts` — ファイル名から通貨ペア検出（`detectPairSymbol`）・クオート通貨/記号マッピング
 - `src/lib/chartTheme.ts` — TradingView風のチャート共通スタイル定数（フォント・軸文字色/サイズ）
 - `src/lib/chartViewState.ts` — チャートのズーム/スケールを時間軸ごとにlocalStorageへ保存/復元。絶対時刻ではなく「右端から何本目〜何本分」の相対位置で持つため、別データセットでも同じ拡大率で再現される
+- `src/lib/indicators.ts` — EMA/BB/雲の計算ロジック（全体再計算版）。MiniChartが使用。CandleChartは増分計算の最適化版を別途持つ
+- `src/lib/weekLines.ts` — 週区切り線の境界計算（`computeWeekBoundaries`）。CandleChart/MiniChart共通
 - `src/lib/pips.ts` — 価格帯から pip単位・表示精度を推定（JPYクロス判定）
 - `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal` を increment → CandleChart の useEffect が検知）
 - `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・週区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画。雲（先行スパンA/B間）の塗りつぶしは`<canvas>`オーバーレイに自前描画
-- `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインの現在足が閉じた時刻までに切り詰めて描画するだけ（発注・描画ツールなし）
+- `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインの現在足が閉じた時刻までに切り詰めて描画するだけ（発注・描画ツールなし）。EMA/BB/雲・週区切り線はメインパネルのON/OFF設定に連動して同じものを表示
 - `src/components/ChartHeader.tsx` — CandleChart/MiniChart共通のパネルヘッダー（左上に「シンボル + 時間足」）
 - `src/components/Controls.tsx` — 時間軸/表示モード/発注パネル/ポジション・注文一覧/口座情報。描画ツール一式と日時ジャンプは`MenuButton`（クリック開閉のポップアップ、下方向に開く）に集約。常時表示は発注パネルと口座・時間軸などの1行のみ
 - `src/components/FloatingControls.tsx` — ドラッグ移動可能な再生ボタン群（チャート領域内にクランプ）
@@ -103,7 +105,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - DuckDB-wasm は SharedArrayBuffer を使うため、Vite dev server に `COOP/COEP` ヘッダが必要（`vite.config.ts` に設定済み）
 - `read_csv` に `all_varchar=true` と `ignore_errors=true` が必須
 - P&L 計算は**クオート通貨そのまま**（円換算しない）。EURUSDなら結果はUSD相当
-- JST変換は`candles_1m`（生の1分足）ではなく`queryCandles`の集計結果（`time`列）に対して事後的に適用している。そのため4H/1D等のバケット境界自体はブローカー時間基準のまま（JST 00:00ちょうど等の切りの良い時刻にはならない）。ラベルの変換のみで再集計はしていない
+- JST変換は`candles_1m`（生の1分足）ではなく`queryCandles`の集計結果（`time`列）に対して事後的に適用している。そのため4H/1D等のバケット境界自体はブローカー時間基準のまま（JST 00:00ちょうど等の切りの良い時刻にはならない）。ラベルの変換のみで再集計はしていない。この影響で「計算上のカレンダー時刻（月曜0時等）」を直接使う機能は実在する足の時刻と一致せず`timeToCoordinate`がnullを返しやすい。週区切り線は「週替わりを跨いだ実際の足」を境界に使うことで回避している（`computeWeekBoundaries`）。同種の機能を追加する際はこのパターンを踏襲すること
 - チャートの月境界マークは `tickMarkFormatter` を通らず `localization.dateFormat` が使われる。有効トークンは `yyyy/yy/MMMM/MMM/MM/dd` のみ
 - 自動再生は `requestAnimationFrame` で実装（`setInterval` は高速再生時に描画ノイズが出る）
 - ドラッグ系操作（水平線・垂直線・ものさし・注文・TP/SL・draft）は開始時にチャートの `handleScroll`/`handleScale` を無効化し、終了時に必ず再有効化する。新規ドラッグ操作追加時はこの作法に従う

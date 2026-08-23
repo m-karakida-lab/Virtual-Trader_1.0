@@ -13,6 +13,7 @@ import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
+import { computeWeekBoundaries } from '../lib/weekLines';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -69,24 +70,6 @@ function computeCloudPoint(cs: Candle[], idx: number): { a: number; b: number } 
   const tenkan = (tenkanW.hi + tenkanW.lo) / 2;
   const kijun  = (kijunW.hi + kijunW.lo) / 2;
   return { a: (tenkan + kijun) / 2, b: (senkouBW.hi + senkouBW.lo) / 2 };
-}
-
-// 月曜 00:00 UTC（その時刻が属する週の開始）
-function mondayOfWeekUTC(sec: number): number {
-  const d = new Date(sec * 1000);
-  const daysSinceMonday = (d.getUTCDay() + 6) % 7; // Mon=0, Tue=1, ..., Sun=6
-  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - daysSinceMonday) / 1000);
-}
-
-function computeWeekBoundaries(candles: Candle[]): number[] {
-  if (candles.length === 0) return [];
-  const last = candles[candles.length - 1].time;
-  const WEEK = 7 * 86400;
-  const boundaries: number[] = [];
-  for (let t = mondayOfWeekUTC(candles[0].time); t <= last; t += WEEK) {
-    boundaries.push(t);
-  }
-  return boundaries;
 }
 
 function fmtDuration(sec: number): string {

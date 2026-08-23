@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, type IChartApi, type ISeriesApi, type Time, type UTCTimestamp } from 'lightweight-charts';
+import { createChart, LineStyle, type IChartApi, type ISeriesApi, type Time, type UTCTimestamp } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, TimeframeSec } from '../types';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
@@ -7,6 +7,8 @@ import { pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
+import { computeEMA, computeBB, computeCloud } from '../lib/indicators';
+import { computeWeekBoundaries } from '../lib/weekLines';
 
 const toBar = (c: Candle) => ({
   time: c.time as Time,
@@ -15,10 +17,26 @@ const toBar = (c: Candle) => ({
 
 // 4画面レイアウトの表示専用サブパネル。発注・描画などの操作はできず、
 // メインチャートのカーソル時刻までに切り詰めて表示するだけ。
+// インジケーター（EMA/BB/雲）はメインパネルのON/OFF設定に連動して同じものを表示する。
 export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec; label: string }) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef  = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
+  const emaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbBasisSeriesRef  = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbUpper1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbLower1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbUpper2SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const bbLower2SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const senkouASeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const senkouBSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const cloudCanvasRef = useRef<HTMLCanvasElement>(null);
+  const cloudDataRef = useRef<{ time: number; a: number; b: number }[]>([]);
+  const syncCloudRef = useRef<() => void>(() => {});
+  const weekOverlayRef = useRef<HTMLDivElement>(null);
+  const weekLineElsRef = useRef<HTMLDivElement[]>([]);
+  const weekBoundariesRef = useRef<number[]>([]);
+  const syncWeekLinesRef = useRef<() => void>(() => {});
   const [data, setData] = useState<Candle[]>([]);
 
   const isLoaded = useTraderStore(s => s.isLoaded);
@@ -27,6 +45,10 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const symbol = useTraderStore(s => s.symbol);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
+  const showEMA = useTraderStore(s => s.showEMA);
+  const showBB = useTraderStore(s => s.showBB);
+  const showCloud = useTraderStore(s => s.showCloud);
+  const showWeekLines = useTraderStore(s => s.showWeekLines);
   // メインの現在足が閉じた時点（=これより先の情報は「未来」として隠す境界）
   const cursorEnd = cursorTime !== undefined ? cursorTime + mainTimeframeSec : undefined;
 
@@ -85,18 +107,132 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
       borderUpColor: '#26a69a', borderDownColor: '#ef5350',
       wickUpColor: '#26a69a', wickDownColor: '#ef5350',
     });
+    const emaSeries = chart.addLineSeries({
+      color: '#ffa726', lineWidth: 2,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      visible: false,
+    });
+    const bbLineOptions = {
+      lineWidth: 1 as const,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      visible: false,
+    };
+    const BB_SILVER = '#c0c0c0';
+    const bbBasisSeries  = chart.addLineSeries({ ...bbLineOptions, color: '#42a5f5', lineStyle: LineStyle.Solid });
+    const bbUpper1Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.SparseDotted });
+    const bbLower1Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.SparseDotted });
+    const bbUpper2Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.Solid });
+    const bbLower2Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.Solid });
+    const cloudLineOptions = {
+      lineWidth: 1 as const,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      visible: false,
+    };
+    const senkouASeries = chart.addLineSeries({ ...cloudLineOptions, color: '#26a69a' });
+    const senkouBSeries = chart.addLineSeries({ ...cloudLineOptions, color: '#ef5350' });
 
     chartRef.current = chart;
     seriesRef.current = series;
+    emaSeriesRef.current = emaSeries;
+    bbBasisSeriesRef.current  = bbBasisSeries;
+    bbUpper1SeriesRef.current = bbUpper1Series;
+    bbLower1SeriesRef.current = bbLower1Series;
+    bbUpper2SeriesRef.current = bbUpper2Series;
+    bbLower2SeriesRef.current = bbLower2Series;
+    senkouASeriesRef.current = senkouASeries;
+    senkouBSeriesRef.current = senkouBSeries;
+
+    // 雲（先行スパンA/B）の塗りつぶしを canvas に再描画
+    const syncCloud = () => {
+      const canvas = cloudCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      ctx.clearRect(0, 0, w, h);
+
+      const { showCloud: show } = useTraderStore.getState();
+      const points = cloudDataRef.current;
+      if (!show || points.length < 2) return;
+
+      const timeScale = chartRef.current.timeScale();
+      const s = seriesRef.current;
+      for (let i = 0; i < points.length - 1; i++) {
+        const p0 = points[i], p1 = points[i + 1];
+        const x0 = timeScale.timeToCoordinate(p0.time as Time);
+        const x1 = timeScale.timeToCoordinate(p1.time as Time);
+        if (x0 === null || x1 === null) continue;
+        const ya0 = s.priceToCoordinate(p0.a);
+        const ya1 = s.priceToCoordinate(p1.a);
+        const yb0 = s.priceToCoordinate(p0.b);
+        const yb1 = s.priceToCoordinate(p1.b);
+        if (ya0 === null || ya1 === null || yb0 === null || yb1 === null) continue;
+
+        ctx.fillStyle = (p0.a + p1.a) >= (p0.b + p1.b) ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
+        ctx.beginPath();
+        ctx.moveTo(x0, ya0);
+        ctx.lineTo(x1, ya1);
+        ctx.lineTo(x1, yb1);
+        ctx.lineTo(x0, yb0);
+        ctx.closePath();
+        ctx.fill();
+      }
+    };
+    syncCloudRef.current = syncCloud;
+
+    // 週区切り線の位置を再計算して DOM に反映（控えめなドット線、固定スタイル）
+    const syncWeekLines = () => {
+      if (!chartRef.current || !weekOverlayRef.current) return;
+      const { showWeekLines: show } = useTraderStore.getState();
+      const overlay = weekOverlayRef.current;
+      overlay.style.display = show ? 'block' : 'none';
+      if (!show) return;
+
+      const boundaries = weekBoundariesRef.current;
+      const els = weekLineElsRef.current;
+
+      while (els.length < boundaries.length) {
+        const el = document.createElement('div');
+        el.style.position = 'absolute';
+        el.style.top = '0';
+        el.style.height = '100%';
+        el.style.width = '0px';
+        el.style.borderLeft = '1px dashed #4a4a4a';
+        el.style.pointerEvents = 'none';
+        overlay.appendChild(el);
+        els.push(el);
+      }
+      while (els.length > boundaries.length) {
+        els.pop()?.remove();
+      }
+
+      boundaries.forEach((t, i) => {
+        const x = chartRef.current!.timeScale().timeToCoordinate(t as Time);
+        const el = els[i];
+        if (x === null) {
+          el.style.display = 'none';
+        } else {
+          el.style.display = 'block';
+          el.style.left = `${x}px`;
+        }
+      });
+    };
+    syncWeekLinesRef.current = syncWeekLines;
 
     const ro = new ResizeObserver(() => {
       chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
+      syncCloud();
+      syncWeekLines();
     });
     ro.observe(container);
 
     // 表示中のズーム/スケールを時間軸ごとに記憶（連続発火するため軽くデバウンス）
     let saveViewTimer: number | undefined;
     const onRangeChange = () => {
+      syncCloud();
+      syncWeekLines();
       if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
       saveViewTimer = window.setTimeout(() => {
         if (!chartRef.current) return;
@@ -111,11 +247,33 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
       ro.disconnect();
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
       if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
+      weekLineElsRef.current.forEach(el => el.remove());
+      weekLineElsRef.current = [];
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
     };
   }, [timeframeSec]);
+
+  // インジケーター ON/OFF（非表示中も裏では計算済みのまま保持、canvasはsyncCloud内で判定）
+  useEffect(() => {
+    emaSeriesRef.current?.applyOptions({ visible: showEMA });
+  }, [showEMA]);
+  useEffect(() => {
+    bbBasisSeriesRef.current?.applyOptions({ visible: showBB });
+    bbUpper1SeriesRef.current?.applyOptions({ visible: showBB });
+    bbLower1SeriesRef.current?.applyOptions({ visible: showBB });
+    bbUpper2SeriesRef.current?.applyOptions({ visible: showBB });
+    bbLower2SeriesRef.current?.applyOptions({ visible: showBB });
+  }, [showBB]);
+  useEffect(() => {
+    senkouASeriesRef.current?.applyOptions({ visible: showCloud });
+    senkouBSeriesRef.current?.applyOptions({ visible: showCloud });
+    syncCloudRef.current();
+  }, [showCloud]);
+  useEffect(() => {
+    syncWeekLinesRef.current();
+  }, [showWeekLines]);
 
   // 新しいデータセットに切り替わった時だけ画面フィットしたか（同じデータ中はスケールを保持する）
   const fittedDataRef = useRef<Candle[] | null>(null);
@@ -131,11 +289,31 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
     if (visible.length === 0) return;
 
     const precision = pricePrecision(visible[visible.length - 1].close);
-    seriesRef.current.applyOptions({
-      priceFormat: { type: 'price', precision, minMove: 1 / 10 ** precision },
-    });
+    const priceFormat = { type: 'price' as const, precision, minMove: 1 / 10 ** precision };
+    seriesRef.current.applyOptions({ priceFormat });
     seriesRef.current.setData(visible.map(toBar));
     visibleCountRef.current = visible.length;
+
+    emaSeriesRef.current?.applyOptions({ priceFormat });
+    emaSeriesRef.current?.setData(computeEMA(visible));
+
+    const bb = computeBB(visible);
+    bbBasisSeriesRef.current?.applyOptions({ priceFormat });
+    bbBasisSeriesRef.current?.setData(bb.basis);
+    bbUpper1SeriesRef.current?.setData(bb.upper1);
+    bbLower1SeriesRef.current?.setData(bb.lower1);
+    bbUpper2SeriesRef.current?.setData(bb.upper2);
+    bbLower2SeriesRef.current?.setData(bb.lower2);
+
+    const cloud = computeCloud(visible, timeframeSec);
+    senkouASeriesRef.current?.applyOptions({ priceFormat });
+    senkouASeriesRef.current?.setData(cloud.senkouA);
+    senkouBSeriesRef.current?.setData(cloud.senkouB);
+    cloudDataRef.current = cloud.points;
+    syncCloudRef.current();
+
+    weekBoundariesRef.current = computeWeekBoundaries(visible);
+    syncWeekLinesRef.current();
 
     // カーソル進行のたびに毎回フィットすると、序盤の少数本だけを見て過剰拡大されるため、
     // 新規データ読み込み時（全期間の時間幅）だけ一度フィットし、以降は同じスケールを維持する。
@@ -151,12 +329,16 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
           to: data[data.length - 1].time as Time,
         });
       }
+      syncCloudRef.current();
+      syncWeekLinesRef.current();
     }
-  }, [data, cursorEnd, showFullHistory]);
+  }, [data, cursorEnd, showFullHistory, timeframeSec]);
 
   return (
     <div style={{ width: '100%', height: '100%', position: 'relative', border: '1px solid #1e1e1e', minWidth: 0, minHeight: 0 }}>
       <ChartHeader symbol={symbol} timeframeLabel={label} />
+      <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
+      <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
     </div>
   );
