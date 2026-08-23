@@ -15,6 +15,8 @@ const toBar = (c: Candle) => ({
   open: c.open, high: c.high, low: c.low, close: c.close,
 });
 
+const CLICK_TOLERANCE_PX = 6; // これ以下の移動ならパン操作ではなくクリックとみなす
+
 // 4画面レイアウトの表示専用サブパネル。発注・描画などの操作はできず、
 // メインチャートのカーソル時刻までに切り詰めて表示するだけ。
 // インジケーター（EMA/BB/雲）はメインパネルのON/OFF設定に連動して同じものを表示する。
@@ -38,6 +40,7 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
   const weekLineElsRef = useRef<HTMLDivElement[]>([]);
   const weekBoundariesRef = useRef<number[]>([]);
   const syncWeekLinesRef = useRef<() => void>(() => {});
+  const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   const [data, setData] = useState<Candle[]>([]);
 
   const isLoaded = useTraderStore(s => s.isLoaded);
@@ -45,6 +48,7 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
   const cursorTime = useTraderStore(s => s.candles[s.cursor]?.time);
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const symbol = useTraderStore(s => s.symbol);
+  const setTimeframe = useTraderStore(s => s.setTimeframe);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
   const showEMA = useTraderStore(s => s.showEMA);
   const showBB = useTraderStore(s => s.showBB);
@@ -343,7 +347,22 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
   }, [data, cursorEnd, showFullHistory, timeframeSec]);
 
   return (
-    <div style={{ width: '100%', height: '100%', position: 'relative', border: '1px solid #1e1e1e', minWidth: 0, minHeight: 0 }}>
+    <div
+      onMouseDown={e => { mouseDownPosRef.current = { x: e.clientX, y: e.clientY }; }}
+      onMouseUp={e => {
+        const start = mouseDownPosRef.current;
+        mouseDownPosRef.current = null;
+        if (!start) return;
+        const dx = e.clientX - start.x, dy = e.clientY - start.y;
+        // パン/ズーム操作（ドラッグ）と区別し、ほぼ動いていない場合だけクリックとみなす
+        if (Math.hypot(dx, dy) <= CLICK_TOLERANCE_PX) setTimeframe(timeframeSec);
+      }}
+      title="クリックでメインパネルに切り替え"
+      style={{
+        width: '100%', height: '100%', position: 'relative',
+        border: '1px solid #1e1e1e', minWidth: 0, minHeight: 0, cursor: 'pointer',
+      }}
+    >
       <ChartHeader symbol={symbol} timeframeLabel={label} />
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />

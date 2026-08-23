@@ -78,6 +78,7 @@ interface TraderState {
   chartRightMargin: number;  // チャート右側の価格軸の実測幅(px)。フロートパネルの配置クランプ用
   chartBottomMargin: number; // チャート下部の時間軸の実測高さ(px)。フロートパネルの配置クランプ用
   fitSignal: number;  // fitToScreen が呼ばれるたびに増える（チャート側の fitContent 起動トリガ用）
+  scrollToLatestSignal: number; // scrollToLatest が呼ばれるたびに増える（最新足を右寄せで表示するトリガ用）
   centerSignal: number; // centerOnTime が呼ばれるたびに増える
   centerTarget: number;  // centerOnTime の移動先（Unix秒）
   chartLayout: '1' | '4'; // 1画面 / 4画面（時間軸別マルチチャート）
@@ -91,6 +92,7 @@ interface TraderState {
   stepBack: () => boolean;
   jumpToTime: (targetSec: number) => void;
   fitToScreen: () => void;
+  scrollToLatest: () => void;
   centerOnTime: (time: number) => void;
   setOrderType: (t: OrderType) => void;
   setDraftPrice: (v: number | null) => void;
@@ -248,6 +250,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   chartRightMargin: 60,
   chartBottomMargin: 28,
   fitSignal: 0,
+  scrollToLatestSignal: 0,
   centerSignal: 0,
   centerTarget: 0,
   chartLayout: '4',
@@ -293,8 +296,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const { isLoaded, isLoading, timeframeSec, candles, cursor } = get();
     if (!isLoaded || isLoading || sec === timeframeSec) return;
 
-    // 現在表示中の時刻を保持し、新しい時間軸でも同じ時刻付近に復元する
-    const currentTime = candles[cursor]?.time;
+    // 現在の足の終了時刻（＝閉じている範囲の境界）を保持し、新しい時間軸でも
+    // その時点までに閉じている足だけを選ぶ（MiniChartの先出し防止条件と揃える。
+    // 開始時刻だけで比較すると、切替先の未確定の足が誤って選ばれ1本先出しになる）
+    const currentClose = candles[cursor] !== undefined ? candles[cursor].time + timeframeSec : undefined;
 
     set({ isLoading: true, loadingMsg: '集計中...', isPlaying: false });
     try {
@@ -302,9 +307,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       const newCandles = await queryCandles(db, sec);
 
       let newCursor = 0;
-      if (currentTime !== undefined) {
+      if (currentClose !== undefined) {
         for (let i = 0; i < newCandles.length; i++) {
-          if (newCandles[i].time <= currentTime) newCursor = i;
+          if (newCandles[i].time + sec <= currentClose) newCursor = i;
           else break;
         }
       }
@@ -375,6 +380,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
 
   fitToScreen: () => set(s => ({ fitSignal: s.fitSignal + 1 })),
+  scrollToLatest: () => set(s => ({ scrollToLatestSignal: s.scrollToLatestSignal + 1 })),
   centerOnTime: (time: number) => set(s => ({ centerTarget: time, centerSignal: s.centerSignal + 1 })),
 
   setInitialBalance: (v: number) => set({ initialBalance: Math.max(0, v), isInitialBalanceCustom: true }),

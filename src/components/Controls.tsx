@@ -174,6 +174,7 @@ export function Controls() {
   const advance       = useTraderStore(s => s.advance);
   const jumpToTime    = useTraderStore(s => s.jumpToTime);
   const fitToScreen   = useTraderStore(s => s.fitToScreen);
+  const scrollToLatest = useTraderStore(s => s.scrollToLatest);
   const centerOnTime  = useTraderStore(s => s.centerOnTime);
   const submitOrder   = useTraderStore(s => s.submitOrder);
   const closePosition = useTraderStore(s => s.closePosition);
@@ -555,6 +556,11 @@ export function Controls() {
             disabled={!isLoaded}
             style={tfBtn(false, !isLoaded)}
           >画面にフィット</button>
+          <button
+            onClick={scrollToLatest}
+            disabled={!isLoaded}
+            style={tfBtn(false, !isLoaded)}
+          >最新足に固定</button>
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />

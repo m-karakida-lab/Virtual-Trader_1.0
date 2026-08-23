@@ -194,6 +194,7 @@ export function CandleChart() {
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
   const fitSignal  = useTraderStore(s => s.fitSignal);
+  const scrollToLatestSignal = useTraderStore(s => s.scrollToLatestSignal);
   const centerSignal = useTraderStore(s => s.centerSignal);
   const centerTarget = useTraderStore(s => s.centerTarget);
   const timeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
@@ -1200,6 +1201,12 @@ export function CandleChart() {
     if (fitSignal === 0 || !chartRef.current) return;
     chartRef.current.timeScale().fitContent();
   }, [fitSignal]);
+
+  // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット(rightOffset)分の位置に来るよう追従
+  useEffect(() => {
+    if (scrollToLatestSignal === 0 || !chartRef.current) return;
+    chartRef.current.timeScale().scrollToRealTime();
+  }, [scrollToLatestSignal]);
 
   // リプレイモード: カーソル変化時にデータ更新（ローソク足 + EMA200）
   useEffect(() => {
