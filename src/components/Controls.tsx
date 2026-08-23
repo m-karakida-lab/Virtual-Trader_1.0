@@ -302,13 +302,9 @@ export function Controls() {
     return () => cancelAnimationFrame(rafId);
   }, [isPlaying, speed, advance]);
 
-  return (
-    <div style={{ borderTop: '1px solid #1e1e1e', backgroundColor: '#0d0d0d' }}>
-
-      {/* ── 発注パネル ─────────────────────────────────────────────── */}
+  const orderPanel = (
       <div style={{
-        display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap',
-        padding: '8px 16px', borderBottom: '1px solid #1a1a1a',
+        display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', maxWidth: '640px',
       }}>
         <div style={{ display: 'flex', gap: '3px' }}>
           <button
@@ -436,6 +432,10 @@ export function Controls() {
           <button onClick={closeAll} style={orderBtn('#333', false)}>全決済</button>
         )}
       </div>
+  );
+
+  return (
+    <div style={{ borderTop: '1px solid #1e1e1e', backgroundColor: '#0d0d0d' }}>
 
       {/* ── 未約定注文一覧 ──────────────────────────────────────── */}
       {pendingOrders.length > 0 && (
@@ -561,6 +561,19 @@ export function Controls() {
             disabled={!isLoaded}
             style={tfBtn(false, !isLoaded)}
           >最新足に固定</button>
+        </div>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
+
+        {/* 発注パネル（メニュー） */}
+        <div style={{ padding: '0 8px', flexShrink: 0 }}>
+          <MenuButton
+            label="発注"
+            active={pickTarget !== null}
+            disabled={!isLoaded}
+          >
+            {orderPanel}
+          </MenuButton>
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />

@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, LineDash, LineWidth, LineSelection } from '../types';
+import { TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
 
@@ -27,6 +28,45 @@ function loadSavedSpeed(): number {
 function saveSpeed(speed: number): void {
   try {
     localStorage.setItem(SPEED_STORAGE_KEY, String(speed));
+  } catch {
+    // localStorage が使えない場合は無視
+  }
+}
+
+// 4画面レイアウトの「どの枠にどの時間軸を表示するか」（枠の位置=左上/左下/右上/右下は固定、
+// 中身の時間軸だけユーザーが選べる）。デフォルトは 左上15m・左下1H・右上4H・右下1D
+const QUAD_STORAGE_KEY = 'vt:quad';
+const DEFAULT_QUAD_TIMEFRAMES: TimeframeSec[] = [900, 3600, 14400, 86400];
+const QUAD_SLOT_COUNT = DEFAULT_QUAD_TIMEFRAMES.length;
+
+function isTimeframeSec(v: unknown): v is TimeframeSec {
+  return typeof v === 'number' && TIMEFRAMES.some(tf => tf.sec === v);
+}
+
+function loadSavedQuad(): { quadTimeframes: TimeframeSec[]; quadMainSlot: number } {
+  try {
+    const raw = localStorage.getItem(QUAD_STORAGE_KEY);
+    if (!raw) throw new Error('no saved quad');
+    const parsed = JSON.parse(raw);
+    const tfs = parsed.quadTimeframes;
+    if (!Array.isArray(tfs) || tfs.length !== QUAD_SLOT_COUNT || !tfs.every(isTimeframeSec)) {
+      throw new Error('invalid quadTimeframes');
+    }
+    const slot = Number(parsed.quadMainSlot);
+    if (!Number.isInteger(slot) || slot < 0 || slot >= QUAD_SLOT_COUNT) throw new Error('invalid quadMainSlot');
+    // メイン時間軸（timeframeSec）自体は再生速度と違い永続化せず常にDEFAULT_TIMEFRAMEで起動するため、
+    // メイン枠（quadMainSlot）が保持する時間軸もそれに揃えておく（揃えないと起動直後だけ
+    // 「メイン枠の見出し」と「実際に表示される時間軸」が食い違う）
+    tfs[slot] = DEFAULT_TIMEFRAME;
+    return { quadTimeframes: tfs, quadMainSlot: slot };
+  } catch {
+    return { quadTimeframes: DEFAULT_QUAD_TIMEFRAMES, quadMainSlot: 0 };
+  }
+}
+
+function saveQuad(quadTimeframes: TimeframeSec[], quadMainSlot: number): void {
+  try {
+    localStorage.setItem(QUAD_STORAGE_KEY, JSON.stringify({ quadTimeframes, quadMainSlot }));
   } catch {
     // localStorage が使えない場合は無視
   }
@@ -82,6 +122,8 @@ interface TraderState {
   centerSignal: number; // centerOnTime が呼ばれるたびに増える
   centerTarget: number;  // centerOnTime の移動先（Unix秒）
   chartLayout: '1' | '4'; // 1画面 / 4画面（時間軸別マルチチャート）
+  quadTimeframes: TimeframeSec[]; // 4画面の各枠（左上/左下/右上/右下）に表示する時間軸
+  quadMainSlot: number; // quadTimeframes のうち、現在メイン（操作可能）になっている枠のインデックス
   dataVersion: number; // CSV読み込みが完了するたびに増える（ミニチャートの再集計トリガ用）
 
   setInitialBalance: (v: number) => void;
@@ -133,6 +175,8 @@ interface TraderState {
   toggleHistoryPanel: () => void;
   setChartMargins: (right: number, bottom: number) => void;
   setChartLayout: (layout: '1' | '4') => void;
+  setQuadTimeframe: (slot: number, sec: TimeframeSec) => void;
+  promoteSlotToMain: (slot: number) => void;
   clearError: () => void;
 }
 
@@ -254,6 +298,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   centerSignal: 0,
   centerTarget: 0,
   chartLayout: '4',
+  ...loadSavedQuad(),
   dataVersion: 0,
 
   loadFiles: async (files: FileList | File[]) => {
@@ -293,7 +338,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
 
   setTimeframe: async (sec: TimeframeSec) => {
-    const { isLoaded, isLoading, timeframeSec, candles, cursor } = get();
+    const { isLoaded, isLoading, timeframeSec, candles, cursor, quadTimeframes, quadMainSlot } = get();
     if (!isLoaded || isLoading || sec === timeframeSec) return;
 
     // 現在の足の終了時刻（＝閉じている範囲の境界）を保持し、新しい時間軸でも
@@ -314,8 +359,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         }
       }
 
+      // メインが表示されている枠（quadMainSlot）の時間軸も、メイン切替に追従させる
+      const newQuadTimeframes = quadTimeframes.slice();
+      newQuadTimeframes[quadMainSlot] = sec;
+      saveQuad(newQuadTimeframes, quadMainSlot);
+
       set({
         candles: newCandles, timeframeSec: sec, cursor: newCursor,
+        quadTimeframes: newQuadTimeframes,
         isLoading: false, loadingMsg: '',
       });
     } catch (e) {
@@ -598,6 +649,25 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),
   setChartMargins: (right: number, bottom: number) => set({ chartRightMargin: right, chartBottomMargin: bottom }),
   setChartLayout: (layout: '1' | '4') => set({ chartLayout: layout }),
+
+  // 4画面のミニ枠（メインでない枠）の表示時間軸を変更。メイン枠が指定された場合は
+  // 通常のメイン時間軸切替として扱う（setTimeframeに委譲、データ再取得を伴うため）
+  setQuadTimeframe: (slot: number, sec: TimeframeSec) => {
+    const { quadTimeframes, quadMainSlot } = get();
+    if (slot === quadMainSlot) { void get().setTimeframe(sec); return; }
+    const next = quadTimeframes.slice();
+    next[slot] = sec;
+    saveQuad(next, quadMainSlot);
+    set({ quadTimeframes: next });
+  },
+
+  // ミニ枠をクリックしてメイン（操作可能パネル）に昇格。枠の時間軸をそのままメインに引き継ぐ
+  promoteSlotToMain: (slot: number) => {
+    const { quadTimeframes } = get();
+    set({ quadMainSlot: slot });
+    saveQuad(quadTimeframes, slot);
+    void get().setTimeframe(quadTimeframes[slot]);
+  },
   clearError: () => set({ error: null }),
 }));
 

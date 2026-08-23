@@ -190,6 +190,8 @@ export function CandleChart() {
   const showBB    = useTraderStore(s => s.showBB);
   const showCloud = useTraderStore(s => s.showCloud);
   const timeframeSec = useTraderStore(s => s.timeframeSec);
+  const setTimeframe = useTraderStore(s => s.setTimeframe);
+  const isLoaded = useTraderStore(s => s.isLoaded);
   const dataVersion = useTraderStore(s => s.dataVersion);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
@@ -911,6 +913,17 @@ export function CandleChart() {
       weekLineElsRef.current.forEach(el => el.remove());
       weekLineElsRef.current = [];
       chart.remove();
+      // chart.remove() で価格ラインも破棄されるため、次のマウント（StrictModeの
+      // 二重実行や、4画面でのメインパネル切替による再マウント）で古い IPriceLine を
+      // 参照し続けないようマップ側もクリアする（残すと applyOptions で
+      // 「Cannot read properties of undefined (reading '_internal_state')」がクラッシュする）
+      priceLineMapRef.current.clear();
+      orderLineMapRef.current.clear();
+      tpLineMapRef.current.clear();
+      slLineMapRef.current.clear();
+      orderTpLineMapRef.current.clear();
+      orderSlLineMapRef.current.clear();
+      draftLineMapRef.current.clear();
     };
   }, []);
 
@@ -1409,7 +1422,13 @@ export function CandleChart() {
 
   return (
     <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
-      <ChartHeader symbol={symbol} timeframeLabel={timeframeLabel} />
+      <ChartHeader
+        symbol={symbol}
+        timeframeLabel={timeframeLabel}
+        timeframeSec={timeframeSec}
+        onSelectTimeframe={sec => setTimeframe(sec)}
+        disabled={!isLoaded}
+      />
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={overlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />

@@ -42,12 +42,19 @@ export interface ClosedTrade {
   pnl: number;
 }
 
-// 表示時間軸（秒）
+// 表示時間軸（秒）。月足は暦月ごとに日数が違うため厳密な秒数ではなく、
+// 平均月長（365.2425日/12）を「おおよその足の長さ」として使う（区切り線の日/月境界計算やDB集計は
+// カレンダー基準の date_trunc を別途使うため、この値のズレが実データに影響することはない）
+export const WEEK_SEC = 604800;
+export const MONTH_SEC = 2629746;
+
 export const TIMEFRAMES = [
-  { sec: 900,   label: '15m' },
-  { sec: 3600,  label: '1H' },
-  { sec: 14400, label: '4H' },
-  { sec: 86400, label: '1D' },
+  { sec: 900,       label: '15m' },
+  { sec: 3600,      label: '1H' },
+  { sec: 14400,     label: '4H' },
+  { sec: 86400,     label: '1D' },
+  { sec: WEEK_SEC,  label: '1W' },
+  { sec: MONTH_SEC, label: 'MN' },
 ] as const;
 
 export type TimeframeSec = typeof TIMEFRAMES[number]['sec'];

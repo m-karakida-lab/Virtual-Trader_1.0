@@ -22,7 +22,7 @@
 - Axiory MT4形式 1分足 CSV の読み込み（複数ファイル対応、ファイル名昇順で結合）
 - **フォルダブックマーク**（Chrome/Edgeのみ、File System Access API）: 複数フォルダを登録可能。「📁 フォルダを追加」で選んだフォルダを IndexedDB に配列で保存し、配下のCSVを全件自動読み込み。登録済みフォルダは「⚡ {フォルダ名}」チップでワンクリック再読み込み、「✕」でブックマーク解除（個別ファイル選択UIはなし）
 - 読み込み完了時は「✓ N本 読み込み完了」を5秒間表示してから消える
-- 1分足 → 任意時間軸への自動集計（DuckDB SQL）。**15m / 1H / 4H / 1D を切替可能**
+- 1分足 → 任意時間軸への自動集計（DuckDB SQL）。**15m / 1H / 4H / 1D / 1W / MN を切替可能**。週足・月足はカレンダー基準（週=月曜始まり、月=1日始まり）で`date_trunc`集計、それ以外は`floor(ts/sec)`の固定長バケット集計
 - **表示は日本時間(JST)に変換済み**: CSV（Axiory MT4形式）のブローカーサーバー時間はEU夏時間ルール（GMT+2冬/GMT+3夏）に従う前提で自動変換。チャート・日時ジャンプ・取引履歴など全表示箇所がJST基準
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
 
@@ -32,7 +32,7 @@
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁、TradingViewと同じ`1.17471`形式）
 - **全体を見る**（全期間一括表示）/ **画面にフィット**（ズームリセット）/ **最新足に固定**（メインパネルの縮尺は維持したまま最新足を右オフセット位置に表示、`scrollToRealTime()`）/ **日時ジャンプ**（カレンダー、縮尺維持で中心移動）
-- **1画面 / 4画面レイアウト切替**: 4画面時は時間軸ごとに位置を固定表示（左上15m・左下1H・右上4H・右下1D）。選択中の時間軸（1H/4H/1D/15mボタンまたはミニチャートのクリック）が操作可能なメインパネル（発注/描画ツールあり）としてその固定位置に表示され、残り3つは表示専用ミニチャート。ミニチャートは自分の足が完全に閉じた時点で初めて表示（先出し防止、メインのカーソル進行に連動）
+- **1画面 / 4画面レイアウト切替**: 4画面時は枠の位置（左上・左下・右上・右下）は固定、各枠に表示する時間軸はユーザーが選べる（デフォルトは左上15m・左下1H・右上4H・右下1D）。各パネル左上のヘッダーの時間軸表示をクリックするとTradingView風のドロップダウンが開き、その場で時間軸を切り替えられる。操作可能なメインパネル（発注/描画ツールあり）の枠は、下部の時間軸ボタン・パネルヘッダーのドロップダウン・ミニチャートのクリックのいずれでも切替可能。ミニパネルのドロップダウンで時間軸を変えても表示専用のままメインには昇格しない（メインへの昇格はパネル本体のクリックのみ）。ミニチャートは自分の足が完全に閉じた時点で初めて表示（先出し防止、メインのカーソル進行に連動）。各枠の時間軸の組み合わせとメイン枠の位置はlocalStorageに記憶（`vt:quad`）。ただしメイン時間軸自体は他の設定と違い再起動時に常にデフォルト15mへ戻るため、メイン枠の中身もそれに揃える
 - **TradingView風パネルヘッダー**: 各チャート左上に「シンボル（ファイル名から検出） + 時間足」を表示。軸フォントもTradingView寄りのサンセリフに統一（`src/lib/chartTheme.ts`）
 - **ズーム/スケールの記憶**: 時間軸（15m/1H/4H/1D）ごとにパン・ズーム位置をlocalStorageに保存し、次回そのCSVに限らずどのデータを読み込んでも同じ相対位置・拡大率で復元。1画面のメインパネルと4画面のミニチャートそれぞれ独立して記憶する
 
@@ -66,7 +66,8 @@ ClosedTrade  { id, side, openPrice, closePrice, openTime, closeTime, lots, pnl: 
 DrawnLine    { id, price, color, dash: 'solid'|'dashed'|'dotted', width: 1|2|3|4 }
 DrawnVLine   { id, time, color, dash, width }  // 構造はDrawnLineと同じでpriceがtimeに変わる
 LineSelection: { kind: 'h'|'v', id: number } | null
-TIMEFRAMES: [{sec:900,label:'15m'}, {sec:3600,label:'1H'}, {sec:14400,label:'4H'}, {sec:86400,label:'1D'}]
+TIMEFRAMES: [{sec:900,label:'15m'}, {sec:3600,label:'1H'}, {sec:14400,label:'4H'}, {sec:86400,label:'1D'}, {sec:604800,label:'1W'}, {sec:2629746,label:'MN'}]
+// MNのsecは平均月長（秒）で近似値。DB集計は実際の暦月でdate_trunc、この値はcursorEnd等の「おおよその足の長さ」計算にのみ使う
 ```
 
 DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, volume: BIGINT）— 集計元の生データとして保持し続ける
@@ -81,7 +82,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 
 ## 主要コンポーネント / モジュール責務
 
-- `src/lib/duckdb.ts` — DuckDB 初期化・複数CSV読み込み（パイプライン処理）・任意時間軸集計クエリ（`queryCandles`の戻り値は`brokerToJST`でJST変換済み）
+- `src/lib/duckdb.ts` — DuckDB 初期化・複数CSV読み込み（パイプライン処理）・任意時間軸集計クエリ（`queryCandles`の戻り値は`brokerToJST`でJST変換済み。週足/月足は`date_trunc`、それ以外は`floor(ts/sec)`で集計）
 - `src/lib/timezone.ts` — CSVのブローカーサーバー時間（GMT+2冬/GMT+3夏、EU夏時間ルール）→ JSTへの変換
 - `src/lib/currency.ts` — ファイル名から通貨ペア検出（`detectPairSymbol`）・クオート通貨/記号マッピング
 - `src/lib/chartTheme.ts` — TradingView風のチャート共通スタイル定数（フォント・軸文字色/サイズ）
@@ -92,9 +93,9 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal`/`scrollToLatestSignal` を increment → CandleChart の useEffect が検知）
 - `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画。雲（先行スパンA/B間）の塗りつぶしは`<canvas>`オーバーレイに自前描画
-- `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインの現在足が閉じた時刻までに切り詰めて描画するだけ（発注・描画ツールなし）。EMA/BB/雲・区切り線はメインパネルのON/OFF設定に連動して同じものを表示。クリックでその時間軸をメインパネルに切り替え可能（`mousedown`/`mouseup`の移動量で判定し、パン/ズームのドラッグとは区別）
-- `src/components/ChartHeader.tsx` — CandleChart/MiniChart共通のパネルヘッダー（左上に「シンボル + 時間足」）
-- `src/components/Controls.tsx` — 時間軸/表示モード/発注パネル/ポジション・注文一覧/口座情報。描画ツール一式と日時ジャンプは`MenuButton`（クリック開閉のポップアップ、下方向に開く）に集約。常時表示は発注パネルと口座・時間軸などの1行のみ
+- `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインの現在足が閉じた時刻までに切り詰めて描画するだけ（発注・描画ツールなし）。EMA/BB/雲・区切り線はメインパネルのON/OFF設定に連動して同じものを表示。パネル本体クリックでその時間軸をメインパネルに切り替え可能（`mousedown`/`mouseup`の移動量で判定し、パン/ズームのドラッグとは区別）。ヘッダーの時間軸ドロップダウン（`ChartHeader`）から選ぶとメインには昇格せず、この枠の表示時間軸だけが変わる
+- `src/components/ChartHeader.tsx` — パネル左上の「シンボル + 時間軸」表示。`onSelectTimeframe`を渡すとTradingView風のクリック開閉ドロップダウンになる（CandleChart/MiniChart共通、選択時の挙動は呼び出し側が決める）
+- `src/components/Controls.tsx` — 時間軸/表示モード/発注パネル/ポジション・注文一覧/口座情報。発注パネル・描画ツール一式・日時ジャンプは`MenuButton`（クリック開閉のポップアップ、下方向に開く）に集約。常時表示は口座・時間軸などの1行のみ（保有ポジション・未約定注文の一覧はある時だけ常時表示）
 - `src/components/FloatingControls.tsx` — ドラッグ移動可能な再生ボタン群（チャート領域内にクランプ）
 - `src/components/HistoryPanel.tsx` — エクイティカーブ + 取引履歴テーブル（オーバーレイパネル）
 - `src/components/FileLoader.tsx` — CSV ファイルピッカー + フォルダブックマーク
@@ -125,6 +126,9 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `MiniChart` はカーソル進行のたびに `fitContent()` すると、序盤は本数が少なく1本だけが画面幅いっぱいに拡大されてしまう。新しいデータセット（時間軸切替・CSV再読込）に切り替わった時だけ全期間の時間幅で `setVisibleRange()` し、以降カーソルが進んでもスケールは固定したまま本数だけ増える
 - `MiniChart` は「バケット終了時刻 ≤ メインの現在足の終了時刻（`cursorTime + mainTimeframeSec`）」の足だけを表示する。単純に`足の開始時刻 ≤ cursorTime`で切り詰めると、進行中の上位足バケットがDuckDB側で先に完成集計されているため、まだ閉じていない足の確定値（先出し/lookahead）を見せてしまう
 - `MenuButton`（`Controls.tsx`）のポップアップは下部バーの上方向に開き、`right: 0` 基準で右揃え配置。ボタンが画面右寄りにある前提の実装なので、左寄りのボタンに使う場合は配置を見直すこと
+- `CandleChart`の`priceLineMapRef`等7つの`IPriceLine`マップ（水平線・注文・TP/SL・draft）は、チャート初期化effectのクリーンアップ（`chart.remove()`）で必ず`.clear()`すること。マップ自体はrefで永続するため、`chart.remove()`だけだと古い`IPriceLine`（破棄済みseriesに属する）が残り、次のマウント（React StrictModeの二重実行や、4画面でメインパネルが切り替わって`CandleChart`が別枠に再マウントする場合）で`applyOptions()`を呼ぶと`Cannot read properties of undefined (reading '_internal_state')`でクラッシュする
+- 4画面の各枠の時間軸（`quadTimeframes`/`quadMainSlot`）は`vt:quad`にlocalStorage保存するが、メイン時間軸（`timeframeSec`）自体は再生速度等と違い永続化せず起動のたびに`DEFAULT_TIMEFRAME`(15m)に戻る。この不整合を防ぐため、保存データ読み込み時に必ず`quadTimeframes[quadMainSlot] = DEFAULT_TIMEFRAME`で上書きしてから使うこと（`loadSavedQuad`内で実施済み）
+- `ChartHeader`のクリック可能領域（時間軸ドロップダウン）は、lightweight-chartsが`containerRef`内に自前で挿入する内部canvasと同じz-index帯（内部canvasはz-index:2）を避けること。同値だとDOM順序（内部canvasの方が後に挿入される）でチャート側が上に来て実クリックを奪う。DevToolsやJSでのdispatchEventは要素へ直接発火するため気づきにくく、`document.elementFromPoint`で実際に最前面の要素を確認すること
 
 ## ビルド / 起動
 

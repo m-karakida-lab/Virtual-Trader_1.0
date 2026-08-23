@@ -1,5 +1,6 @@
 import * as duckdb from '@duckdb/duckdb-wasm';
 import type { Candle } from '../types';
+import { WEEK_SEC, MONTH_SEC } from '../types';
 import { brokerToJST } from './timezone';
 
 let db: duckdb.AsyncDuckDB | null = null;
@@ -81,18 +82,26 @@ export async function loadCSVFiles(
 }
 
 // intervalSec は固定の時間軸選択肢からのみ渡される（ユーザー入力ではないため文字列展開で安全）
+// 週足・月足はカレンダー月/週の日数が一定でないため floor(ts/sec) の等間隔バケットが使えない。
+// DuckDB の date_trunc で暦基準（週=月曜始まり, 月=1日始まり）に集計する
 export async function queryCandles(instance: duckdb.AsyncDuckDB, intervalSec: number): Promise<Candle[]> {
   const conn = await instance.connect();
   try {
+    const bucket =
+      intervalSec === WEEK_SEC  ? `date_trunc('week', to_timestamp(ts))` :
+      intervalSec === MONTH_SEC ? `date_trunc('month', to_timestamp(ts))` :
+      null;
+    const timeExpr = bucket ? `epoch(${bucket})` : `floor(ts / ${intervalSec}) * ${intervalSec}`;
+    const groupBy = bucket ?? `floor(ts / ${intervalSec})`;
     const result = await conn.query(`
       SELECT
-        (floor(ts / ${intervalSec}) * ${intervalSec})::BIGINT AS time,
+        (${timeExpr})::BIGINT AS time,
         arg_min(open,  ts) AS open,
         max(high)          AS high,
         min(low)           AS low,
         arg_max(close, ts) AS close
       FROM candles_1m
-      GROUP BY floor(ts / ${intervalSec})
+      GROUP BY ${groupBy}
       ORDER BY time
     `);
     // ブローカーのサーバー時間（GMT+2/+3, EU夏時間）→ 日本時間表示に変換
