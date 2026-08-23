@@ -27,6 +27,7 @@ type DragTarget =
 const EMA_PERIOD = 200;
 const BB_PERIOD = 20;
 const DRAG_TOLERANCE_PX = 6;
+const MIN_JUMP_SPAN_BARS = 30; // 日時ジャンプ時、表示幅がこの本数分未満にはならないようにする
 
 // 一目均衡表「雲」（先行スパンA/B）
 const TENKAN_PERIOD = 9;
@@ -320,17 +321,21 @@ export function CandleChart() {
       if (canvas.height !== h) canvas.height = h;
       ctx.clearRect(0, 0, w, h);
 
-      const { showCloud: show } = useTraderStore.getState();
+      const { showCloud: show, candles: cs } = useTraderStore.getState();
       const points = cloudDataRef.current;
       if (!show || points.length < 2) return;
 
       const timeScale = chartRef.current.timeScale();
       const series = seriesRef.current;
+      // 表示範囲がローソク足の実データより外側に及んでいても、雲は最初の足より左側には描画しない
+      // （timeToCoordinate は範囲外の時刻も外挿してしまうため）
+      const leftBoundX = cs.length > 0 ? timeScale.timeToCoordinate(cs[0].time as Time) : null;
       for (let i = 0; i < points.length - 1; i++) {
         const p0 = points[i], p1 = points[i + 1];
         const x0 = timeScale.timeToCoordinate(p0.time as Time);
         const x1 = timeScale.timeToCoordinate(p1.time as Time);
         if (x0 === null || x1 === null) continue;
+        if (leftBoundX !== null && x1 <= leftBoundX) continue;
         const ya0 = series.priceToCoordinate(p0.a);
         const ya1 = series.priceToCoordinate(p1.a);
         const yb0 = series.priceToCoordinate(p0.b);
@@ -1242,18 +1247,27 @@ export function CandleChart() {
     chartRef.current.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, totalBars));
   }, [timeframeSec, dataVersion, candles, cursor, showFullHistory]);
 
-  // 指定時刻を中心に表示（縮尺=現在の可視範囲の幅は維持したまま移動）
-  // リプレイモード側の setData/scrollToRealTime より後に実行し、最終的な表示位置を確定させる
+  // 指定時刻を中心に表示（縮尺=現在の表示本数は維持したまま移動）
+  // リプレイモード側の setData/scrollToRealTime より後に実行し、最終的な表示位置を確定させる。
+  // 時刻ベースの座標（getVisibleRange/setVisibleRange）は setData 直後のレイアウト未確定時に
+  // 不安定になることがあるため、足のインデックス（logical range）ベースで計算する。
+  // 読み込み直後など一度もズームしていない状態は表示本数が極端に少ないことがあるため、
+  // 最小表示本数を下回らないようにする
   useEffect(() => {
-    if (centerSignal === 0 || !chartRef.current) return;
-    const range = chartRef.current.timeScale().getVisibleRange();
-    if (!range) return;
-    const span = (range.to as number) - (range.from as number);
+    if (centerSignal === 0 || !chartRef.current || candles.length === 0) return;
+    const chart = chartRef.current;
+    // centerTarget（時刻）に対応する足のインデックスを二分探索
+    let lo = 0, hi = candles.length - 1, targetIdx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (candles[mid].time <= centerTarget) { targetIdx = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    const logicalRange = chart.timeScale().getVisibleLogicalRange();
+    const currentSpan = logicalRange ? logicalRange.to - logicalRange.from : 0;
+    const span = Math.max(currentSpan, MIN_JUMP_SPAN_BARS);
     const half = span / 2;
-    chartRef.current.timeScale().setVisibleRange({
-      from: (centerTarget - half) as Time,
-      to: (centerTarget + half) as Time,
-    });
+    chart.timeScale().setVisibleLogicalRange({ from: targetIdx - half, to: targetIdx + half });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerSignal]);
 

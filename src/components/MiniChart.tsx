@@ -32,6 +32,7 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
   const senkouBSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const cloudCanvasRef = useRef<HTMLCanvasElement>(null);
   const cloudDataRef = useRef<{ time: number; a: number; b: number }[]>([]);
+  const firstVisibleTimeRef = useRef<number | null>(null);
   const syncCloudRef = useRef<() => void>(() => {});
   const weekOverlayRef = useRef<HTMLDivElement>(null);
   const weekLineElsRef = useRef<HTMLDivElement[]>([]);
@@ -159,11 +160,17 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
 
       const timeScale = chartRef.current.timeScale();
       const s = seriesRef.current;
+      // 表示範囲がローソク足の実データより外側に及んでいても、雲は最初の足より左側には描画しない
+      // （timeToCoordinate は範囲外の時刻も外挿してしまうため）
+      const leftBoundX = firstVisibleTimeRef.current !== null
+        ? timeScale.timeToCoordinate(firstVisibleTimeRef.current as Time)
+        : null;
       for (let i = 0; i < points.length - 1; i++) {
         const p0 = points[i], p1 = points[i + 1];
         const x0 = timeScale.timeToCoordinate(p0.time as Time);
         const x1 = timeScale.timeToCoordinate(p1.time as Time);
         if (x0 === null || x1 === null) continue;
+        if (leftBoundX !== null && x1 <= leftBoundX) continue;
         const ya0 = s.priceToCoordinate(p0.a);
         const ya1 = s.priceToCoordinate(p1.a);
         const yb0 = s.priceToCoordinate(p0.b);
@@ -293,6 +300,7 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
     seriesRef.current.applyOptions({ priceFormat });
     seriesRef.current.setData(visible.map(toBar));
     visibleCountRef.current = visible.length;
+    firstVisibleTimeRef.current = visible[0].time;
 
     emaSeriesRef.current?.applyOptions({ priceFormat });
     emaSeriesRef.current?.setData(computeEMA(visible));
