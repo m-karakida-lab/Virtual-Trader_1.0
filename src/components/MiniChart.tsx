@@ -8,7 +8,7 @@ import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeEMA, computeBB, computeCloud } from '../lib/indicators';
-import { computeWeekBoundaries } from '../lib/weekLines';
+import { computeSeparatorBoundaries } from '../lib/weekLines';
 
 const toBar = (c: Candle) => ({
   time: c.time as Time,
@@ -324,7 +324,7 @@ export function MiniChart({ timeframeSec, label }: { timeframeSec: TimeframeSec;
     cloudDataRef.current = cloud.points;
     syncCloudRef.current();
 
-    weekBoundariesRef.current = computeWeekBoundaries(visible);
+    weekBoundariesRef.current = computeSeparatorBoundaries(visible, timeframeSec);
     syncWeekLinesRef.current();
 
     // カーソル進行のたびに毎回フィットすると、序盤の少数本だけを見て過剰拡大されるため、

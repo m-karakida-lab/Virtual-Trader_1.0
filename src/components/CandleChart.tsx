@@ -13,7 +13,7 @@ import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
-import { computeWeekBoundaries } from '../lib/weekLines';
+import { computeSeparatorBoundaries } from '../lib/weekLines';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -1146,11 +1146,11 @@ export function CandleChart() {
     });
   }, [candles]);
 
-  // 週区切り線: candles 変化時に境界を再計算、showWeekLines 変化時は表示トグル
+  // 区切り線: candles 変化時に境界を再計算（1D足は週区切り、それ以外は日区切り）、showWeekLines 変化時は表示トグル
   useEffect(() => {
-    weekBoundariesRef.current = computeWeekBoundaries(candles);
+    weekBoundariesRef.current = computeSeparatorBoundaries(candles, timeframeSec);
     syncWeekLinesRef.current();
-  }, [candles]);
+  }, [candles, timeframeSec]);
 
   useEffect(() => {
     syncWeekLinesRef.current();
