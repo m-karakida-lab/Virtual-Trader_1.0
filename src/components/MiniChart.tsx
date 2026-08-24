@@ -9,6 +9,8 @@ import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeEMA, computeBB, computeCloud } from '../lib/indicators';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
+import { priceAtTime } from '../lib/crosshairSync';
+import { logError } from '../lib/errorLog';
 
 const toBar = (c: Candle) => ({
   time: c.time as Time,
@@ -55,6 +57,9 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const showBB = useTraderStore(s => s.showBB);
   const showCloud = useTraderStore(s => s.showCloud);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
+  const crosshairSourceId = useTraderStore(s => s.crosshairSourceId);
+  const crosshairTime = useTraderStore(s => s.crosshairTime);
+  const mySourceId = String(slot);
   // メインの現在足が閉じた時点（=これより先の情報は「未来」として隠す境界）
   const cursorEnd = cursorTime !== undefined ? cursorTime + mainTimeframeSec : undefined;
 
@@ -147,6 +152,13 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     bbLower2SeriesRef.current = bbLower2Series;
     senkouASeriesRef.current = senkouASeries;
     senkouBSeriesRef.current = senkouBSeries;
+
+    // 実マウス操作で動いた十字カーソルの時刻を他パネルへ共有する
+    const onCrosshairMove: Parameters<typeof chart.subscribeCrosshairMove>[0] = param => {
+      if (!param.sourceEvent) return;
+      useTraderStore.getState().setCrosshair(mySourceId, (param.time as number | undefined) ?? null);
+    };
+    chart.subscribeCrosshairMove(onCrosshairMove);
 
     // 雲（先行スパンA/B）の塗りつぶしを canvas に再描画
     const syncCloud = () => {
@@ -258,6 +270,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     return () => {
       ro.disconnect();
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
+      chart.unsubscribeCrosshairMove(onCrosshairMove);
       if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
       weekLineElsRef.current.forEach(el => el.remove());
       weekLineElsRef.current = [];
@@ -266,6 +279,22 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       seriesRef.current = null;
     };
   }, [timeframeSec]);
+
+  // 他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）
+  useEffect(() => {
+    if (!chartRef.current || !seriesRef.current || crosshairSourceId === mySourceId) return;
+    try {
+      if (crosshairTime === null) {
+        chartRef.current.clearCrosshairPosition();
+        return;
+      }
+      const price = priceAtTime(visibleDataRef.current, crosshairTime, timeframeSec);
+      if (price === null) { chartRef.current.clearCrosshairPosition(); return; }
+      chartRef.current.setCrosshairPosition(price, crosshairTime as Time, seriesRef.current);
+    } catch (e) {
+      logError('MiniChart:crosshairSync', e);
+    }
+  }, [crosshairSourceId, crosshairTime, data, mySourceId]);
 
   // インジケーター ON/OFF（非表示中も裏では計算済みのまま保持、canvasはsyncCloud内で判定）
   useEffect(() => {
@@ -290,6 +319,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   // 新しいデータセットに切り替わった時だけ画面フィットしたか（同じデータ中はスケールを保持する）
   const fittedDataRef = useRef<Candle[] | null>(null);
   const visibleCountRef = useRef(0);
+  const visibleDataRef = useRef<Candle[]>([]);
 
   // データ・カーソル位置に応じて描画。バケット終了時刻がメインの現在足の終了時刻を
   // 超える（＝まだ閉じていない）足は先出しになるため描画しない
@@ -305,6 +335,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     seriesRef.current.applyOptions({ priceFormat });
     seriesRef.current.setData(visible.map(toBar));
     visibleCountRef.current = visible.length;
+    visibleDataRef.current = visible;
     firstVisibleTimeRef.current = visible[0].time;
 
     emaSeriesRef.current?.applyOptions({ priceFormat });
@@ -357,6 +388,10 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         const dx = e.clientX - start.x, dy = e.clientY - start.y;
         // パン/ズーム操作（ドラッグ）と区別し、ほぼ動いていない場合だけクリックとみなす
         if (Math.hypot(dx, dy) <= CLICK_TOLERANCE_PX) promoteSlotToMain(slot);
+      }}
+      onMouseLeave={() => {
+        const s = useTraderStore.getState();
+        if (s.crosshairSourceId === mySourceId) s.setCrosshair(null, null);
       }}
       title="クリックでメインパネルに切り替え"
       style={{

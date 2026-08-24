@@ -35,6 +35,7 @@
 - **1画面 / 4画面レイアウト切替**: 4画面時は枠の位置（左上・左下・右上・右下）は固定、各枠に表示する時間軸はユーザーが選べる（デフォルトは左上15m・左下1H・右上4H・右下1D）。各パネル左上のヘッダーの時間軸表示をクリックするとTradingView風のドロップダウンが開き、その場で時間軸を切り替えられる。操作可能なメインパネル（発注/描画ツールあり）の枠は、下部の時間軸ボタン・パネルヘッダーのドロップダウン・ミニチャートのクリックのいずれでも切替可能。ミニパネルのドロップダウンで時間軸を変えても表示専用のままメインには昇格しない（メインへの昇格はパネル本体のクリックのみ）。ミニチャートは自分の足が完全に閉じた時点で初めて表示（先出し防止、メインのカーソル進行に連動）。各枠の時間軸の組み合わせとメイン枠の位置はlocalStorageに記憶（`vt:quad`）。ただしメイン時間軸自体は他の設定と違い再起動時に常にデフォルト15mへ戻るため、メイン枠の中身もそれに揃える
 - **TradingView風パネルヘッダー**: 各チャート左上に「シンボル（ファイル名から検出） + 時間足」を表示。軸フォントもTradingView寄りのサンセリフに統一（`src/lib/chartTheme.ts`）
 - **ズーム/スケールの記憶**: 時間軸ごとにパン・ズーム位置をlocalStorageに保存し、次回そのCSVに限らずどのデータを読み込んでも同じ拡大率で復元。ただしパン位置（右端からの距離）は復元せず、メインパネルは常に最新足に固定（縮尺だけ記憶を引き継ぎ、表示位置は都度「最新足に固定」を自動実行）。CSV読み込み直後・時間軸切替の両方で自動的に働く。1画面のメインパネルと4画面のミニチャートそれぞれ独立して記憶する
+- **4画面時の十字カーソル同期**: いずれか1枚のパネルを実際にマウスホバーすると、他の3枚にも同じ時刻の位置に十字カーソルを表示する（`chart.setCrosshairPosition`）。価格は各パネル自身のその時刻直前の終値を使う。ホバー元のパネルから外れると全パネルで消える（`src/lib/crosshairSync.ts`・`src/store/useTraderStore.ts`の`crosshairSourceId`/`crosshairTime`を共有）。ホバー中の時刻がそのパネルにまだ存在しない（先出し防止でまだ見えていない未来、または一番古い足より前）場合は、無関係な位置にスナップ表示せず何も表示しない
 
 ### 再生
 - ▶（自動再生・1〜20倍速、`requestAnimationFrame`実装、速度はlocalStorageに記憶して次回起動時も引き継ぐ）/ ⏭（1コマ進む）/ ⏮（1コマ戻る、表示のみ・約定は取り消さない）
@@ -90,6 +91,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/indicators.ts` — EMA/BB/雲の計算ロジック（全体再計算版）。MiniChartが使用。CandleChartは増分計算の最適化版を別途持つ
 - `src/lib/weekLines.ts` — 区切り線の境界計算（`computeSeparatorBoundaries`。MN足は`computeYearBoundaries`＝年区切り、1D/1W足は`computeMonthBoundaries`＝月区切り、それ以外（15m/1H/4H）は`computeDayBoundaries`＝日区切り）。CandleChart/MiniChart共通
 - `src/lib/pips.ts` — 価格帯から pip単位・表示精度を推定（JPYクロス判定）
+- `src/lib/crosshairSync.ts` — 4画面の十字カーソル同期用。`priceAtTime(candles, time, timeframeSec)`で、指定時刻直前に確定している足の終値を返す。時刻が先頭の足より前、または末尾の足の期間（`time + timeframeSec`）を超える場合はnull（そのパネルにはまだ存在しない未来のためクロスヘアを出さない）
 - `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal`/`scrollToLatestSignal` を increment → CandleChart の useEffect が検知）
 - `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画。雲（先行スパンA/B間）の塗りつぶしは`<canvas>`オーバーレイに自前描画
@@ -99,6 +101,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/components/FloatingControls.tsx` — ドラッグ移動可能な再生ボタン群（チャート領域内にクランプ）
 - `src/components/HistoryPanel.tsx` — エクイティカーブ + 取引履歴テーブル（オーバーレイパネル）
 - `src/components/FileLoader.tsx` — CSV ファイルピッカー + フォルダブックマーク
+- `src/components/ErrorBoundary.tsx` — レンダー/エフェクト中の例外を捕捉し、黒画面の代わりにエラー内容と直近のエラー履歴を表示する（`main.tsx`でAppを包む）
+- `src/lib/errorLog.ts` — 例外をlocalStorage（`vt:errorLog`、直近20件）に記録する。`window.onerror`/`unhandledrejection`（`main.tsx`）とErrorBoundaryの両方から書き込む。原因不明の不具合を後から追跡するための仕組み
 
 ## 不変条件 / 地雷
 
@@ -130,6 +134,10 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `CandleChart`の`priceLineMapRef`等7つの`IPriceLine`マップ（水平線・注文・TP/SL・draft）は、チャート初期化effectのクリーンアップ（`chart.remove()`）で必ず`.clear()`すること。マップ自体はrefで永続するため、`chart.remove()`だけだと古い`IPriceLine`（破棄済みseriesに属する）が残り、次のマウント（React StrictModeの二重実行や、4画面でメインパネルが切り替わって`CandleChart`が別枠に再マウントする場合）で`applyOptions()`を呼ぶと`Cannot read properties of undefined (reading '_internal_state')`でクラッシュする
 - 4画面の各枠の時間軸（`quadTimeframes`/`quadMainSlot`）は`vt:quad`にlocalStorage保存するが、メイン時間軸（`timeframeSec`）自体は再生速度等と違い永続化せず起動のたびに`DEFAULT_TIMEFRAME`(15m)に戻る。この不整合を防ぐため、保存データ読み込み時に必ず`quadTimeframes[quadMainSlot] = DEFAULT_TIMEFRAME`で上書きしてから使うこと（`loadSavedQuad`内で実施済み）
 - `ChartHeader`のクリック可能領域（時間軸ドロップダウン）は、lightweight-chartsが`containerRef`内に自前で挿入する内部canvasと同じz-index帯（内部canvasはz-index:2）を避けること。同値だとDOM順序（内部canvasの方が後に挿入される）でチャート側が上に来て実クリックを奪う。DevToolsやJSでのdispatchEventは要素へ直接発火するため気づきにくく、`document.elementFromPoint`で実際に最前面の要素を確認すること
+- 十字カーソル同期（`crosshairSourceId`/`crosshairTime`）で、他パネルが`setCrosshairPosition`をプログラム的に呼んだ際の`subscribeCrosshairMove`コールバックには`param.sourceEvent`が付かない。これを使って「実マウス操作か、同期表示による再発火か」を判定し無限ループを防いでいる。ただしマウスが画面外に抜けた場合の「消える」イベントは`sourceEvent`の有無が信頼できないことがあるため、パネルのルート要素に`onMouseLeave`（Reactの通常のマウスイベント）を別途つけて、自分がホバー元（`crosshairSourceId === 自分のID`）のときだけ明示的にクリアしている
+- `chart.setCrosshairPosition(price, time, series)`に、そのパネルの実データ範囲外の時刻を渡しても例外にはならず、無関係などこかの足へ無言でスナップする（例外もconsole警告も出ない）。4画面で各パネルの時間軸・先出し防止のカバー範囲がバラバラなことと組み合わさると、パネルごとに全く違う日時に十字カーソルが出て「同期がずれている」ように見える。`priceAtTime`側で範囲外ならnullを返し、呼び出し側はnullなら`setCrosshairPosition`を呼ばず`clearCrosshairPosition`するガードが必須
+- `CandleChart`の`series.createPriceLine`/`applyOptions`/`setCrosshairPosition`など、lightweight-chartsのchart/series APIを呼ぶeffectはすべてtry/catchで包み、失敗したら`errorLog.ts`に記録して処理を継続すること（画面全体をクラッシュさせない）。4画面でパネルを連続で素早く切り替える（`promoteSlotToMain`や時間軸ボタン）と、チャートが破棄されかけているタイミングでこれらのAPIが`Cannot read properties of undefined (reading '_internal_state')`を投げることがある。React にはこの種の例外用の公式なガード方法がなく、`ErrorBoundary`が無いと例外1つでアプリ全体が真っ黒になる（Reactツリーがアンマウントされる）。原因を完全には特定できていない前提で、まずクラッシュさせないことを優先している
+- Vite dev serverは、ファイル編集後に`preview_start`していた既存プロセスを使い回すと、依存最適化キャッシュ絡みで編集が反映されない（実際のファイル内容とズレたスタックトレースが出る）ことがある。挙動がおかしいと感じたら、まず`preview_stop`→`preview_start`でプロセスごと再起動して切り分けること
 
 ## ビルド / 起動
 

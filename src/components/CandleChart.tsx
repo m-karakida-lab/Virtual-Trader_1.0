@@ -14,6 +14,8 @@ import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
+import { priceAtTime } from '../lib/crosshairSync';
+import { logError } from '../lib/errorLog';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -199,6 +201,8 @@ export function CandleChart() {
   const scrollToLatestSignal = useTraderStore(s => s.scrollToLatestSignal);
   const centerSignal = useTraderStore(s => s.centerSignal);
   const centerTarget = useTraderStore(s => s.centerTarget);
+  const crosshairSourceId = useTraderStore(s => s.crosshairSourceId);
+  const crosshairTime = useTraderStore(s => s.crosshairTime);
   const timeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
 
   const prevCursorRef  = useRef(-1);
@@ -312,6 +316,14 @@ export function CandleChart() {
     bbLower2SeriesRef.current = bbLower2Series;
     senkouASeriesRef.current = senkouASeries;
     senkouBSeriesRef.current = senkouBSeries;
+
+    // 4画面時、実マウス操作で動いた十字カーソルの時刻を他パネルへ共有する。
+    // sourceEvent が無い場合は setCrosshairPosition による同期側からの発火なので無視する（無限ループ防止）
+    const onCrosshairMove: Parameters<typeof chart.subscribeCrosshairMove>[0] = param => {
+      if (!param.sourceEvent) return;
+      useTraderStore.getState().setCrosshair('main', (param.time as number | undefined) ?? null);
+    };
+    chart.subscribeCrosshairMove(onCrosshairMove);
 
     // ── 雲（先行スパンA/B）の塗りつぶしを canvas に再描画 ────────────────
     const syncCloud = () => {
@@ -907,6 +919,7 @@ export function CandleChart() {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
+      chart.unsubscribeCrosshairMove(onCrosshairMove);
       if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
       vlineElsRef.current.forEach(el => el.remove());
       vlineElsRef.current.clear();
@@ -942,35 +955,41 @@ export function CandleChart() {
   }, [isMeasuring]);
 
   // 水平線の再描画（ドラッグ中の price 更新も含めて毎回フル同期）
+  // パネル切替直後などチャートが破棄されかけているタイミングでの例外は
+  // try/catchで吸収し、画面全体のクラッシュ（黒画面）を防ぐ（errorLogに記録）
   useEffect(() => {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
-    const existing = priceLineMapRef.current;
-    const nextIds = new Set(lines.map(l => l.id));
+    try {
+      const existing = priceLineMapRef.current;
+      const nextIds = new Set(lines.map(l => l.id));
 
-    // 削除されたラインを除去
-    for (const [id, priceLine] of existing) {
-      if (!nextIds.has(id)) {
-        series.removePriceLine(priceLine);
-        existing.delete(id);
+      // 削除されたラインを除去
+      for (const [id, priceLine] of existing) {
+        if (!nextIds.has(id)) {
+          series.removePriceLine(priceLine);
+          existing.delete(id);
+        }
       }
-    }
 
-    // 追加 or 更新（既存ラインは applyOptions で in-place 更新。remove+create だとドラッグ中にカクつく）
-    for (const line of lines) {
-      const opts = {
-        price: line.price,
-        color: line.color,
-        lineWidth: line.width,
-        lineStyle: DASH_TO_STYLE[line.dash],
-        axisLabelVisible: true,
-      };
-      const current = existing.get(line.id);
-      if (current) {
-        current.applyOptions(opts);
-      } else {
-        existing.set(line.id, series.createPriceLine(opts));
+      // 追加 or 更新（既存ラインは applyOptions で in-place 更新。remove+create だとドラッグ中にカクつく）
+      for (const line of lines) {
+        const opts = {
+          price: line.price,
+          color: line.color,
+          lineWidth: line.width,
+          lineStyle: DASH_TO_STYLE[line.dash],
+          axisLabelVisible: true,
+        };
+        const current = existing.get(line.id);
+        if (current) {
+          current.applyOptions(opts);
+        } else {
+          existing.set(line.id, series.createPriceLine(opts));
+        }
       }
+    } catch (e) {
+      logError('CandleChart:hlines', e);
     }
   }, [lines]);
 
@@ -978,25 +997,29 @@ export function CandleChart() {
   useEffect(() => {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
-    const existing = orderLineMapRef.current;
-    const nextIds = new Set(pendingOrders.map(o => o.id));
+    try {
+      const existing = orderLineMapRef.current;
+      const nextIds = new Set(pendingOrders.map(o => o.id));
 
-    for (const [id, pl] of existing) {
-      if (!nextIds.has(id)) { series.removePriceLine(pl); existing.delete(id); }
-    }
+      for (const [id, pl] of existing) {
+        if (!nextIds.has(id)) { series.removePriceLine(pl); existing.delete(id); }
+      }
 
-    for (const o of pendingOrders) {
-      const opts = {
-        price: o.price,
-        color: o.side === 'BUY' ? '#42a5f5' : '#ab47bc',
-        lineWidth: 2 as const,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: `${o.side} ${o.type === 'limit' ? 'LIMIT' : 'STOP'}`,
-      };
-      const cur = existing.get(o.id);
-      if (cur) cur.applyOptions(opts);
-      else existing.set(o.id, series.createPriceLine(opts));
+      for (const o of pendingOrders) {
+        const opts = {
+          price: o.price,
+          color: o.side === 'BUY' ? '#42a5f5' : '#ab47bc',
+          lineWidth: 2 as const,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: `${o.side} ${o.type === 'limit' ? 'LIMIT' : 'STOP'}`,
+        };
+        const cur = existing.get(o.id);
+        if (cur) cur.applyOptions(opts);
+        else existing.set(o.id, series.createPriceLine(opts));
+      }
+    } catch (e) {
+      logError('CandleChart:orderLines', e);
     }
   }, [pendingOrders]);
 
@@ -1004,45 +1027,48 @@ export function CandleChart() {
   useEffect(() => {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
+    try {
+      const tpExisting = orderTpLineMapRef.current;
+      const withTP = pendingOrders.filter(o => o.tp !== undefined);
+      const tpIds = new Set(withTP.map(o => o.id));
+      for (const [id, pl] of tpExisting) {
+        if (!tpIds.has(id)) { series.removePriceLine(pl); tpExisting.delete(id); }
+      }
+      for (const o of withTP) {
+        const opts = {
+          price: o.tp!,
+          color: '#26a69a',
+          lineWidth: 2 as const,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'TP',
+        };
+        const cur = tpExisting.get(o.id);
+        if (cur) cur.applyOptions(opts);
+        else tpExisting.set(o.id, series.createPriceLine(opts));
+      }
 
-    const tpExisting = orderTpLineMapRef.current;
-    const withTP = pendingOrders.filter(o => o.tp !== undefined);
-    const tpIds = new Set(withTP.map(o => o.id));
-    for (const [id, pl] of tpExisting) {
-      if (!tpIds.has(id)) { series.removePriceLine(pl); tpExisting.delete(id); }
-    }
-    for (const o of withTP) {
-      const opts = {
-        price: o.tp!,
-        color: '#26a69a',
-        lineWidth: 2 as const,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'TP',
-      };
-      const cur = tpExisting.get(o.id);
-      if (cur) cur.applyOptions(opts);
-      else tpExisting.set(o.id, series.createPriceLine(opts));
-    }
-
-    const slExisting = orderSlLineMapRef.current;
-    const withSL = pendingOrders.filter(o => o.sl !== undefined);
-    const slIds = new Set(withSL.map(o => o.id));
-    for (const [id, pl] of slExisting) {
-      if (!slIds.has(id)) { series.removePriceLine(pl); slExisting.delete(id); }
-    }
-    for (const o of withSL) {
-      const opts = {
-        price: o.sl!,
-        color: '#ef5350',
-        lineWidth: 2 as const,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'SL',
-      };
-      const cur = slExisting.get(o.id);
-      if (cur) cur.applyOptions(opts);
-      else slExisting.set(o.id, series.createPriceLine(opts));
+      const slExisting = orderSlLineMapRef.current;
+      const withSL = pendingOrders.filter(o => o.sl !== undefined);
+      const slIds = new Set(withSL.map(o => o.id));
+      for (const [id, pl] of slExisting) {
+        if (!slIds.has(id)) { series.removePriceLine(pl); slExisting.delete(id); }
+      }
+      for (const o of withSL) {
+        const opts = {
+          price: o.sl!,
+          color: '#ef5350',
+          lineWidth: 2 as const,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'SL',
+        };
+        const cur = slExisting.get(o.id);
+        if (cur) cur.applyOptions(opts);
+        else slExisting.set(o.id, series.createPriceLine(opts));
+      }
+    } catch (e) {
+      logError('CandleChart:orderTpSlLines', e);
     }
   }, [pendingOrders]);
 
@@ -1050,45 +1076,48 @@ export function CandleChart() {
   useEffect(() => {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
+    try {
+      const tpExisting = tpLineMapRef.current;
+      const withTP = positions.filter(p => p.tp !== undefined);
+      const tpIds = new Set(withTP.map(p => p.id));
+      for (const [id, pl] of tpExisting) {
+        if (!tpIds.has(id)) { series.removePriceLine(pl); tpExisting.delete(id); }
+      }
+      for (const p of withTP) {
+        const opts = {
+          price: p.tp!,
+          color: '#26a69a',
+          lineWidth: 2 as const,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'TP',
+        };
+        const cur = tpExisting.get(p.id);
+        if (cur) cur.applyOptions(opts);
+        else tpExisting.set(p.id, series.createPriceLine(opts));
+      }
 
-    const tpExisting = tpLineMapRef.current;
-    const withTP = positions.filter(p => p.tp !== undefined);
-    const tpIds = new Set(withTP.map(p => p.id));
-    for (const [id, pl] of tpExisting) {
-      if (!tpIds.has(id)) { series.removePriceLine(pl); tpExisting.delete(id); }
-    }
-    for (const p of withTP) {
-      const opts = {
-        price: p.tp!,
-        color: '#26a69a',
-        lineWidth: 2 as const,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'TP',
-      };
-      const cur = tpExisting.get(p.id);
-      if (cur) cur.applyOptions(opts);
-      else tpExisting.set(p.id, series.createPriceLine(opts));
-    }
-
-    const slExisting = slLineMapRef.current;
-    const withSL = positions.filter(p => p.sl !== undefined);
-    const slIds = new Set(withSL.map(p => p.id));
-    for (const [id, pl] of slExisting) {
-      if (!slIds.has(id)) { series.removePriceLine(pl); slExisting.delete(id); }
-    }
-    for (const p of withSL) {
-      const opts = {
-        price: p.sl!,
-        color: '#ef5350',
-        lineWidth: 2 as const,
-        lineStyle: LineStyle.Dashed,
-        axisLabelVisible: true,
-        title: 'SL',
-      };
-      const cur = slExisting.get(p.id);
-      if (cur) cur.applyOptions(opts);
-      else slExisting.set(p.id, series.createPriceLine(opts));
+      const slExisting = slLineMapRef.current;
+      const withSL = positions.filter(p => p.sl !== undefined);
+      const slIds = new Set(withSL.map(p => p.id));
+      for (const [id, pl] of slExisting) {
+        if (!slIds.has(id)) { series.removePriceLine(pl); slExisting.delete(id); }
+      }
+      for (const p of withSL) {
+        const opts = {
+          price: p.sl!,
+          color: '#ef5350',
+          lineWidth: 2 as const,
+          lineStyle: LineStyle.Dashed,
+          axisLabelVisible: true,
+          title: 'SL',
+        };
+        const cur = slExisting.get(p.id);
+        if (cur) cur.applyOptions(opts);
+        else slExisting.set(p.id, series.createPriceLine(opts));
+      }
+    } catch (e) {
+      logError('CandleChart:tpSlLines', e);
     }
   }, [positions]);
 
@@ -1096,31 +1125,35 @@ export function CandleChart() {
   useEffect(() => {
     if (!seriesRef.current) return;
     const series = seriesRef.current;
-    const existing = draftLineMapRef.current;
+    try {
+      const existing = draftLineMapRef.current;
 
-    const wanted: { key: 'price' | 'tp' | 'sl'; price: number; color: string; title: string }[] = [];
-    if (orderType !== 'market' && draftPrice !== null) {
-      wanted.push({ key: 'price', price: draftPrice, color: '#888', title: '指値/逆指値 (draft)' });
-    }
-    if (draftTP !== null) wanted.push({ key: 'tp', price: draftTP, color: '#26a69a', title: 'TP (draft)' });
-    if (draftSL !== null) wanted.push({ key: 'sl', price: draftSL, color: '#ef5350', title: 'SL (draft)' });
+      const wanted: { key: 'price' | 'tp' | 'sl'; price: number; color: string; title: string }[] = [];
+      if (orderType !== 'market' && draftPrice !== null) {
+        wanted.push({ key: 'price', price: draftPrice, color: '#888', title: '指値/逆指値 (draft)' });
+      }
+      if (draftTP !== null) wanted.push({ key: 'tp', price: draftTP, color: '#26a69a', title: 'TP (draft)' });
+      if (draftSL !== null) wanted.push({ key: 'sl', price: draftSL, color: '#ef5350', title: 'SL (draft)' });
 
-    const wantedKeys = new Set(wanted.map(w => w.key));
-    for (const [key, pl] of existing) {
-      if (!wantedKeys.has(key)) { series.removePriceLine(pl); existing.delete(key); }
-    }
-    for (const w of wanted) {
-      const opts = {
-        price: w.price,
-        color: w.color,
-        lineWidth: 1 as const,
-        lineStyle: LineStyle.Dotted,
-        axisLabelVisible: true,
-        title: w.title,
-      };
-      const cur = existing.get(w.key);
-      if (cur) cur.applyOptions(opts);
-      else existing.set(w.key, series.createPriceLine(opts));
+      const wantedKeys = new Set(wanted.map(w => w.key));
+      for (const [key, pl] of existing) {
+        if (!wantedKeys.has(key)) { series.removePriceLine(pl); existing.delete(key); }
+      }
+      for (const w of wanted) {
+        const opts = {
+          price: w.price,
+          color: w.color,
+          lineWidth: 1 as const,
+          lineStyle: LineStyle.Dotted,
+          axisLabelVisible: true,
+          title: w.title,
+        };
+        const cur = existing.get(w.key);
+        if (cur) cur.applyOptions(opts);
+        else existing.set(w.key, series.createPriceLine(opts));
+      }
+    } catch (e) {
+      logError('CandleChart:draftLines', e);
     }
   }, [orderType, draftPrice, draftTP, draftSL]);
 
@@ -1214,6 +1247,24 @@ export function CandleChart() {
     if (fitSignal === 0 || !chartRef.current) return;
     chartRef.current.timeScale().fitContent();
   }, [fitSignal]);
+
+  // 4画面時、他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）。
+  // パネル切替の瞬間にチャートが破棄されかけている可能性があるため try/catch で保護し、
+  // 万一失敗しても画面全体をクラッシュさせない（失敗はerrorLogに記録）
+  useEffect(() => {
+    if (!chartRef.current || !seriesRef.current || crosshairSourceId === 'main') return;
+    try {
+      if (crosshairTime === null) {
+        chartRef.current.clearCrosshairPosition();
+        return;
+      }
+      const price = priceAtTime(candles, crosshairTime, timeframeSec);
+      if (price === null) { chartRef.current.clearCrosshairPosition(); return; }
+      chartRef.current.setCrosshairPosition(price, crosshairTime as Time, seriesRef.current);
+    } catch (e) {
+      logError('CandleChart:crosshairSync', e);
+    }
+  }, [crosshairSourceId, crosshairTime, candles]);
 
   // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット(rightOffset)分の位置に来るよう追従
   useEffect(() => {
@@ -1425,7 +1476,14 @@ export function CandleChart() {
   }
 
   return (
-    <div ref={containerRef} style={{ width: '100%', height: '100%', position: 'relative' }}>
+    <div
+      ref={containerRef}
+      style={{ width: '100%', height: '100%', position: 'relative' }}
+      onMouseLeave={() => {
+        const s = useTraderStore.getState();
+        if (s.crosshairSourceId === 'main') s.setCrosshair(null, null);
+      }}
+    >
       <ChartHeader
         symbol={symbol}
         timeframeLabel={timeframeLabel}

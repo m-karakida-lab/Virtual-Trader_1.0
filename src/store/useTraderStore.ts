@@ -125,6 +125,8 @@ interface TraderState {
   quadTimeframes: TimeframeSec[]; // 4画面の各枠（左上/左下/右上/右下）に表示する時間軸
   quadMainSlot: number; // quadTimeframes のうち、現在メイン（操作可能）になっている枠のインデックス
   dataVersion: number; // CSV読み込みが完了するたびに増える（ミニチャートの再集計トリガ用）
+  crosshairSourceId: string | null; // 4画面時、実際にマウスホバー中のパネルID（'main' またはミニ枠のslot番号文字列）
+  crosshairTime: number | null; // ↑のパネルで十字カーソルが指している時刻（Unix秒）。他パネルはこの時刻に同期表示する
 
   setInitialBalance: (v: number) => void;
   resetAccount: () => void;
@@ -177,6 +179,7 @@ interface TraderState {
   setChartLayout: (layout: '1' | '4') => void;
   setQuadTimeframe: (slot: number, sec: TimeframeSec) => void;
   promoteSlotToMain: (slot: number) => void;
+  setCrosshair: (sourceId: string | null, time: number | null) => void;
   clearError: () => void;
 }
 
@@ -300,6 +303,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   chartLayout: '4',
   ...loadSavedQuad(),
   dataVersion: 0,
+  crosshairSourceId: null,
+  crosshairTime: null,
 
   loadFiles: async (files: FileList | File[]) => {
     const fileArray = Array.from(files);
@@ -668,6 +673,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     saveQuad(quadTimeframes, slot);
     void get().setTimeframe(quadTimeframes[slot]);
   },
+
+  // 4画面時、十字カーソルの同期表示用。実マウス操作しているパネル（sourceId）と時刻を共有し、
+  // 他パネルはこの時刻に`setCrosshairPosition`で追従表示する
+  setCrosshair: (sourceId: string | null, time: number | null) => set({ crosshairSourceId: sourceId, crosshairTime: time }),
   clearError: () => set({ error: null }),
 }));
 
