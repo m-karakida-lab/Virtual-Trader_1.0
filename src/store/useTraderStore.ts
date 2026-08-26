@@ -1,5 +1,6 @@
 import { create } from 'zustand';
-import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, LineDash, LineWidth, LineSelection } from '../types';
+import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, LineDash, LineWidth, LineSelection } from '../types';
+import { RECT_COLORS } from '../types';
 import { TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
@@ -107,8 +108,12 @@ interface TraderState {
   nextVLineId: number;
   isDrawingVLine: boolean;
   isMeasuring: boolean;
-  selected: LineSelection | null; // 水平線・垂直線どちらかの選択中の1本
+  rects: DrawnRect[];
+  nextRectId: number;
+  isDrawingRect: boolean;
+  selected: LineSelection | null; // 水平線・垂直線・四角形のいずれか選択中の1つ
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
+  rectDraft: { color: string; width: LineWidth };
   showEMA: boolean;
   showBB: boolean;
   showCloud: boolean;
@@ -167,8 +172,13 @@ interface TraderState {
   removeVLine: (id: number) => void;
   toggleDrawVLine: () => void;
   toggleMeasure: () => void;
+  addRect: (time1: number, price1: number, time2: number, price2: number) => void;
+  updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => void;
+  removeRect: (id: number) => void;
+  toggleDrawRect: () => void;
   selectLine: (target: LineSelection | null) => void;
   setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
+  setRectDraft: (patch: Partial<{ color: string; width: LineWidth }>) => void;
   toggleEMA: () => void;
   toggleBB: () => void;
   toggleCloud: () => void;
@@ -286,8 +296,12 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   nextVLineId: 1,
   isDrawingVLine: false,
   isMeasuring: false,
+  rects: [],
+  nextRectId: 1,
+  isDrawingRect: false,
   selected: null,
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
+  rectDraft: { color: RECT_COLORS[0], width: 2 },
   showEMA: false,
   showBB: true,
   showCloud: true,
@@ -330,7 +344,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         positions: [], pendingOrders: [], nextOrderId: 1,
         closedTrades: [], nextId: 1,
         isPlaying: false,
-        lines: [], nextLineId: 1, vlines: [], nextVLineId: 1, selected: null,
+        lines: [], nextLineId: 1, vlines: [], nextVLineId: 1, rects: [], nextRectId: 1, selected: null,
         showFullHistory: false, quoteCurrency, symbol,
         dataVersion: get().dataVersion + 1,
       });
@@ -456,7 +470,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   togglePickTarget: (t: 'price' | 'tp' | 'sl') => {
     set(s => ({
       pickTarget: s.pickTarget === t ? null : t,
-      isDrawingLine: false, isDrawingVLine: false, isMeasuring: false,
+      isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false,
     }));
   },
   pickPrice: (price: number) => {
@@ -607,7 +621,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       selected: (s.selected?.kind === 'h' && s.selected.id === id) ? null : s.selected,
     }));
   },
-  toggleDrawLine: () => set(s => ({ isDrawingLine: !s.isDrawingLine, isDrawingVLine: false, isMeasuring: false, pickTarget: null })),
+  toggleDrawLine: () => set(s => ({ isDrawingLine: !s.isDrawingLine, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, pickTarget: null })),
 
   addVLine: (time: number) => {
     const { vlines, nextVLineId, lineDraft } = get();
@@ -626,10 +640,40 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       selected: (s.selected?.kind === 'v' && s.selected.id === id) ? null : s.selected,
     }));
   },
-  toggleDrawVLine: () => set(s => ({ isDrawingVLine: !s.isDrawingVLine, isDrawingLine: false, isMeasuring: false, pickTarget: null })),
-  toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, pickTarget: null })),
+  toggleDrawVLine: () => set(s => ({ isDrawingVLine: !s.isDrawingVLine, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, pickTarget: null })),
+  toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, pickTarget: null })),
+
+  addRect: (time1: number, price1: number, time2: number, price2: number) => {
+    const { rects, nextRectId, rectDraft } = get();
+    set({
+      rects: [...rects, { id: nextRectId, time1, price1, time2, price2, ...rectDraft }],
+      nextRectId: nextRectId + 1,
+      isDrawingRect: false,
+    });
+  },
+  updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => {
+    set(s => ({ rects: s.rects.map(r => r.id === id ? { ...r, ...patch } : r) }));
+  },
+  removeRect: (id: number) => {
+    set(s => ({
+      rects: s.rects.filter(r => r.id !== id),
+      selected: (s.selected?.kind === 'rect' && s.selected.id === id) ? null : s.selected,
+    }));
+  },
+  toggleDrawRect: () => set(s => ({ isDrawingRect: !s.isDrawingRect, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, pickTarget: null })),
 
   selectLine: (target: LineSelection | null) => set({ selected: target }),
+  setRectDraft: (patch) => {
+    const { selected } = get();
+    if (selected?.kind === 'rect') {
+      set(s => ({
+        rects: s.rects.map(r => r.id === selected.id ? { ...r, ...patch } : r),
+        rectDraft: { ...s.rectDraft, ...patch },
+      }));
+    } else {
+      set(s => ({ rectDraft: { ...s.rectDraft, ...patch } }));
+    }
+  },
   setLineDraft: (patch) => {
     const { selected } = get();
     if (selected?.kind === 'h') {

@@ -27,8 +27,9 @@
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
 
 ### チャート表示・描画
-- ローソク足 + **200EMA**（増分計算、デフォルトOFF）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトON）、**一目均衡表の雲**（先行スパンA/Bのみ、26期間先行、色分け塗りつぶし、デフォルトON）、**区切り線**（15m/1H/4Hは日替わり、1D/1Wは月替わり、MNは年替わりで最初に出現した足の時刻を境界とする、控えめなドット線、デフォルトON）、ON/OFF切替可。これらはすべて4画面時のミニチャート3枚にも連動して反映される（`src/lib/indicators.ts`・`src/lib/weekLines.ts`を共有）
+- ローソク足 + **200EMA**（増分計算、デフォルトOFF）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトON）、**一目均衡表の雲**（先行スパンA/Bのみ、26期間先行、色分け塗りつぶし、デフォルトON）、**区間区切り**（15m/1Hは日替わり、4Hは週替わり、1D/1Wは月替わり、MNは年替わりで最初に出現した足の時刻を境界とする、控えめなドット線、デフォルトON）、ON/OFF切替可。これらはすべて4画面時のミニチャート3枚にも連動して反映される（`src/lib/indicators.ts`・`src/lib/weekLines.ts`を共有）
 - **水平線・垂直線描画**: クリックで配置、ドラッグで移動、色・線種・太さを個別設定
+- **四角形描画**: ドラッグで描画（始点〜終点の対角）。色は青・赤・黄の3色、太さ1〜4pxを個別設定。4隅のいずれかをドラッグしてリサイズ可能（反対側の角は固定、掴んだ角だけ移動）。選択中（チップクリック）にDeleteキーで削除（水平線・垂直線も同様）。配置後の平行移動は非対応。水平線・垂直線と同じくメインパネルのみ（4画面のミニチャートには表示しない）
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁、TradingViewと同じ`1.17471`形式）
 - **全体を見る**（全期間一括表示）/ **画面にフィット**（ズームリセット）/ **最新足に固定**（メインパネルの縮尺は維持したまま最新足を右オフセット位置に表示、`scrollToRealTime()`）/ **日時ジャンプ**（カレンダー、縮尺維持で中心移動）
@@ -66,7 +67,8 @@ PendingOrder { id, side, type: 'limit'|'stop', price, lots, tp?, sl?: number }
 ClosedTrade  { id, side, openPrice, closePrice, openTime, closeTime, lots, pnl: number }
 DrawnLine    { id, price, color, dash: 'solid'|'dashed'|'dotted', width: 1|2|3|4 }
 DrawnVLine   { id, time, color, dash, width }  // 構造はDrawnLineと同じでpriceがtimeに変わる
-LineSelection: { kind: 'h'|'v', id: number } | null
+DrawnRect    { id, time1, price1, time2, price2, color, width: 1|2|3|4 }  // 色は青・赤・黄の3色固定、dashなし
+LineSelection: { kind: 'h'|'v'|'rect', id: number } | null
 TIMEFRAMES: [{sec:900,label:'15m'}, {sec:3600,label:'1H'}, {sec:14400,label:'4H'}, {sec:86400,label:'1D'}, {sec:604800,label:'1W'}, {sec:2629746,label:'MN'}]
 // MNのsecは平均月長（秒）で近似値。DB集計は実際の暦月でdate_trunc、この値はcursorEnd等の「おおよその足の長さ」計算にのみ使う
 ```
@@ -89,7 +91,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/chartTheme.ts` — TradingView風のチャート共通スタイル定数（フォント・軸文字色/サイズ）
 - `src/lib/chartViewState.ts` — チャートのズーム/スケールを時間軸ごとにlocalStorageへ保存/復元。絶対時刻ではなく「右端から何本目〜何本分」の相対位置で持つため、別データセットでも同じ拡大率で再現される
 - `src/lib/indicators.ts` — EMA/BB/雲の計算ロジック（全体再計算版）。MiniChartが使用。CandleChartは増分計算の最適化版を別途持つ
-- `src/lib/weekLines.ts` — 区切り線の境界計算（`computeSeparatorBoundaries`。MN足は`computeYearBoundaries`＝年区切り、1D/1W足は`computeMonthBoundaries`＝月区切り、それ以外（15m/1H/4H）は`computeDayBoundaries`＝日区切り）。CandleChart/MiniChart共通
+- `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`。MN足は`computeYearBoundaries`＝年区切り、1D/1W足は`computeMonthBoundaries`＝月区切り、4H足は`computeWeekBoundaries`＝週区切り（月曜始まり）、15m/1Hは`computeDayBoundaries`＝日区切り）。CandleChart/MiniChart共通
 - `src/lib/pips.ts` — 価格帯から pip単位・表示精度を推定（JPYクロス判定）
 - `src/lib/crosshairSync.ts` — 4画面の十字カーソル同期用。`priceAtTime(candles, time, timeframeSec)`で、指定時刻直前に確定している足の終値を返す。時刻が先頭の足より前、または末尾の足の期間（`time + timeframeSec`）を超える場合はnull（そのパネルにはまだ存在しない未来のためクロスヘアを出さない）
 - `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
@@ -122,7 +124,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - チャート操作（`fitToScreen`/`centerOnTime`等）はシグナルincrement + useEffectの実行順に依存。`centerSignal`のeffectはリプレイモードのcursor effectより**後**に置くこと（先に置くと`scrollToRealTime()`に上書きされる）。ズーム/スケール復元のeffectも同じ理由でリプレイモードのcursor effectより後に置く
 - ズーム/スケールの保存は「表示中の本数」を基準に相対化するため、リプレイモード中は`candles.length`ではなく`cursor + 1`（実際にsetDataされている本数）を使うこと。`candles.length`を使うと未来分を含めてズーム率がずれる
 - CSV読み込み直後（`cursor === 0`）は表示本数が1本しかないため、以前保存した（本数の多い時の）ズーム幅`span`をそのまま`relativeViewToLogicalRange`に渡すと、範囲外に大きくはみ出た破綻したlogical range（例: `{from:-95, to:10}`）になる。`scrollToRealTime()`はパン位置しか動かさないためこの破綻したズーム幅は直せない。`saved.span <= totalBars`のときだけ復元を適用するガードで回避している
-- CSV再読込で `lines`/`vlines`/`closedTrades`/`positions`/`pendingOrders` は全リセット。時間軸切替では保持
+- CSV再読込で `lines`/`vlines`/`rects`/`closedTrades`/`positions`/`pendingOrders` は全リセット。時間軸切替では保持
 - フォルダブックマークは Chrome/Edge のみ対応（File System Access API）。Safari/Firefoxでは機能自体が非表示になる
 - フロートパネルの位置クランプは `chart.priceScale('right').width()` / `chart.timeScale().height()` の実測値をストア経由で共有している。チャートのリサイズ・精度変更時に更新される
 - `setTimeframe`（4画面メインパネル切替・時間軸ボタン）でのカーソル復元は、新しい足の**終了時刻**が旧カーソル足の終了時刻以下かで選ぶこと（`newCandles[i].time + sec <= currentClose`）。開始時刻だけで比較すると、切替先の未確定（まだ閉じていない）足が選ばれてしまい、切替直後にローソク足が1本先出しで進んで見える
@@ -137,7 +139,12 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 十字カーソル同期（`crosshairSourceId`/`crosshairTime`）で、他パネルが`setCrosshairPosition`をプログラム的に呼んだ際の`subscribeCrosshairMove`コールバックには`param.sourceEvent`が付かない。これを使って「実マウス操作か、同期表示による再発火か」を判定し無限ループを防いでいる。ただしマウスが画面外に抜けた場合の「消える」イベントは`sourceEvent`の有無が信頼できないことがあるため、パネルのルート要素に`onMouseLeave`（Reactの通常のマウスイベント）を別途つけて、自分がホバー元（`crosshairSourceId === 自分のID`）のときだけ明示的にクリアしている
 - `chart.setCrosshairPosition(price, time, series)`に、そのパネルの実データ範囲外の時刻を渡しても例外にはならず、無関係などこかの足へ無言でスナップする（例外もconsole警告も出ない）。4画面で各パネルの時間軸・先出し防止のカバー範囲がバラバラなことと組み合わさると、パネルごとに全く違う日時に十字カーソルが出て「同期がずれている」ように見える。`priceAtTime`側で範囲外ならnullを返し、呼び出し側はnullなら`setCrosshairPosition`を呼ばず`clearCrosshairPosition`するガードが必須
 - `CandleChart`の`series.createPriceLine`/`applyOptions`/`setCrosshairPosition`など、lightweight-chartsのchart/series APIを呼ぶeffectはすべてtry/catchで包み、失敗したら`errorLog.ts`に記録して処理を継続すること（画面全体をクラッシュさせない）。4画面でパネルを連続で素早く切り替える（`promoteSlotToMain`や時間軸ボタン）と、チャートが破棄されかけているタイミングでこれらのAPIが`Cannot read properties of undefined (reading '_internal_state')`を投げることがある。React にはこの種の例外用の公式なガード方法がなく、`ErrorBoundary`が無いと例外1つでアプリ全体が真っ黒になる（Reactツリーがアンマウントされる）。原因を完全には特定できていない前提で、まずクラッシュさせないことを優先している
+- 上記と同じエラー（`series.createPriceLine`起因、TP/SL価格ライン効果）は、try/catchで包んでいても`window.onerror`に漏れて`errorLog`に記録されることがある。lightweight-charts内部で描画が次フレームへ遅延されており、そのタイミングでchartが破棄済みだと同期のtry/catchのスコープ外で例外が飛ぶためと見られる。ただしこのケースはReactツリーの外側で起きる素のJSエラーなので**ErrorBoundaryは発火せず、アプリは壊れず動作を続ける**（クラッシュではなくログに残るだけ）。動作確認時にこのエラーだけが出ても、画面が実際に固まっていなければ気にしなくてよい
 - Vite dev serverは、ファイル編集後に`preview_start`していた既存プロセスを使い回すと、依存最適化キャッシュ絡みで編集が反映されない（実際のファイル内容とズレたスタックトレースが出る）ことがある。挙動がおかしいと感じたら、まず`preview_stop`→`preview_start`でプロセスごと再起動して切り分けること
+- 四角形描画の座標→時刻変換（`CandleChart`の`pixelToTime`）は、あえて`coordinateToTime`をそのまま使うだけのシンプルな実装にしている。過去に`coordinateToLogical`＋線形補間や`getVisibleRange`ベースの独自スケール計算で「足へのスナップを回避」しようとしたが、リプレイ中の表示範囲（cursorまでしかsetDataされていない）との食い違いや、表示中の足が1本だけの時の範囲・スケール不定などでかえって不安定になった（描画できたりできなかったり、意図と全く違う位置に飛ぶ）。`coordinateToTime`が範囲外で返す`null`だけ、表示中（リプレイ中は`candles.slice(0, cursor+1)`、全表示中は全体）の最初/最後の足の時刻にクランプしている。ドラッグ幅が1本未満だと四角形が細くなるが、それは仕様として許容する（足へのスナップを避けようとする独自スケール計算は再度やらないこと）
+- 逆に描画済みの水平線・垂直線・四角形を**表示する**側（`timeToCoordinate`）は「時刻が実在する足と完全一致しないと`null`を返す」ため、時間軸切替（例: 15m→4H）で保存済みの`time`が新しい足のグリッドと一致せず、要素が消えたように見える罠がある。`CandleChart`の`timeToX`ヘルパーで、完全一致しなければ表示中の足を挟む2本の座標を線形補間して求めることで回避している（`vlines`/`rects`の描画・当たり判定は全てこれ経由にすること。ライブドラッグ中の一時的な計算など、同一時間軸内で必ず実在する足の時刻だけを扱う箇所は素の`timeToCoordinate`のままでよい）
+- Delete/Backspaceでの図形削除（`CandleChart`の`onKeyDown`）は`e.key === 'Delete'`だけでなく`'Backspace'`も拾うこと。Macの物理削除キーは通常`⌫`＝Backspaceで、`Delete`はfn+⌫が必要なため、`Delete`のみだと大半のユーザーの操作を無視してしまう。なお図形の選択（`selected`）はキャンバス上のクリックでは行われず、`描画`メニュー内の一覧（例:「四角1」）をクリックして選ぶ方式
+- 4画面レイアウトでは`quadMainSlot`の1枠だけが`CandleChart`（操作可能・描画ツール持ち）で、残り3枠は`MiniChart`（表示専用）。水平線・垂直線・四角形は元々`MiniChart`に描画コードが一切無かったため、メインパネルを切り替える（別の枠をクリックしてpromoteSlotToMain）と、描いた図形がその枠にしか無いように見えて「消えた」と誤解されていた。`MiniChart`にも`CandleChart`と同じ`timeToX`＋DOMオーバーレイ（vlines/rects）と`createPriceLine`（hlines、`lines`）を追加し、4枠すべてに常時表示するようにした。表示専用なのでドラッグ・選択・削除のハンドラは持たない。新しく描画系オブジェクトの種類を追加する場合は`CandleChart`と`MiniChart`の両方に実装すること（スタイル変換ヘルパー`DASH_TO_STYLE`/`DASH_TO_CSS`/`hexToRgba`は`lib/chartTheme.ts`に共通化済み）
 
 ## ビルド / 起動
 

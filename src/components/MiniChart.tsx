@@ -1,16 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, LineStyle, type IChartApi, type ISeriesApi, type Time, type UTCTimestamp } from 'lightweight-charts';
+import { createChart, LineStyle, type IChartApi, type ISeriesApi, type IPriceLine, type Time, type UTCTimestamp } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, TimeframeSec } from '../types';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
 import { pricePrecision } from '../lib/pips';
-import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE } from '../lib/chartTheme';
+import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS, hexToRgba } from '../lib/chartTheme';
+import { logError } from '../lib/errorLog';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeEMA, computeBB, computeCloud } from '../lib/indicators';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { priceAtTime } from '../lib/crosshairSync';
-import { logError } from '../lib/errorLog';
 
 const toBar = (c: Candle) => ({
   time: c.time as Time,
@@ -42,6 +42,13 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const weekLineElsRef = useRef<HTMLDivElement[]>([]);
   const weekBoundariesRef = useRef<number[]>([]);
   const syncWeekLinesRef = useRef<() => void>(() => {});
+  const priceLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
+  const vlineOverlayRef = useRef<HTMLDivElement>(null);
+  const vlineElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  const syncVLinesRef = useRef<() => void>(() => {});
+  const rectOverlayRef = useRef<HTMLDivElement>(null);
+  const rectElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  const syncRectsRef = useRef<() => void>(() => {});
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   const [data, setData] = useState<Candle[]>([]);
 
@@ -59,6 +66,9 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const crosshairSourceId = useTraderStore(s => s.crosshairSourceId);
   const crosshairTime = useTraderStore(s => s.crosshairTime);
+  const lines = useTraderStore(s => s.lines);
+  const vlines = useTraderStore(s => s.vlines);
+  const rects = useTraderStore(s => s.rects);
   const mySourceId = String(slot);
   // メインの現在足が閉じた時点（=これより先の情報は「未来」として隠す境界）
   const cursorEnd = cursorTime !== undefined ? cursorTime + mainTimeframeSec : undefined;
@@ -245,10 +255,113 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     };
     syncWeekLinesRef.current = syncWeekLines;
 
+    // 時刻→X座標変換。CandleChartのtimeToXと同じ理由（timeToCoordinateは実在する
+    // 足の時刻と完全一致しないとnullを返す）で、このパネル自身の時間軸グリッドに
+    // 存在しない時刻（他の時間軸で描いた水平線・垂直線・四角形の時刻）は、表示中の
+    // 前後の足を線形補間して位置を求める。表示専用パネルなので範囲外はクランプのみ
+    const timeToX = (t: number): number | null => {
+      if (!chartRef.current) return null;
+      const ts = chartRef.current.timeScale();
+      const exact = ts.timeToCoordinate(t as Time);
+      if (exact !== null) return exact;
+      const visible = visibleDataRef.current;
+      if (visible.length === 0) return null;
+      if (t <= visible[0].time) return ts.timeToCoordinate(visible[0].time as Time);
+      if (t >= visible[visible.length - 1].time) return ts.timeToCoordinate(visible[visible.length - 1].time as Time);
+      let lo = 0, hi = visible.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (visible[mid].time <= t) lo = mid; else hi = mid;
+      }
+      const x0 = ts.timeToCoordinate(visible[lo].time as Time);
+      const x1 = ts.timeToCoordinate(visible[hi].time as Time);
+      if (x0 === null || x1 === null) return null;
+      const frac = (t - visible[lo].time) / (visible[hi].time - visible[lo].time);
+      return x0 + frac * (x1 - x0);
+    };
+
+    // 垂直線の位置を再計算して DOM に反映（表示専用、ドラッグ操作なし）
+    const syncVLines = () => {
+      if (!chartRef.current || !vlineOverlayRef.current) return;
+      const { vlines: currentVLines } = useTraderStore.getState();
+      const overlay = vlineOverlayRef.current;
+      const existing = vlineElsRef.current;
+      const nextIds = new Set(currentVLines.map(v => v.id));
+
+      for (const [id, el] of existing) {
+        if (!nextIds.has(id)) { el.remove(); existing.delete(id); }
+      }
+
+      for (const v of currentVLines) {
+        let el = existing.get(v.id);
+        if (!el) {
+          el = document.createElement('div');
+          el.style.position = 'absolute';
+          el.style.top = '0';
+          el.style.height = '100%';
+          el.style.width = '0px';
+          el.style.pointerEvents = 'none';
+          overlay.appendChild(el);
+          existing.set(v.id, el);
+        }
+        const x = timeToX(v.time);
+        if (x === null) {
+          el.style.display = 'none';
+        } else {
+          el.style.display = 'block';
+          el.style.left = `${x}px`;
+          el.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
+        }
+      }
+    };
+    syncVLinesRef.current = syncVLines;
+
+    // 四角形の位置を再計算して DOM に反映（表示専用、ドラッグ操作なし）
+    const syncRects = () => {
+      if (!chartRef.current || !seriesRef.current || !rectOverlayRef.current) return;
+      const { rects: currentRects } = useTraderStore.getState();
+      const overlay = rectOverlayRef.current;
+      const existing = rectElsRef.current;
+      const nextIds = new Set(currentRects.map(r => r.id));
+
+      for (const [id, el] of existing) {
+        if (!nextIds.has(id)) { el.remove(); existing.delete(id); }
+      }
+
+      for (const r of currentRects) {
+        let el = existing.get(r.id);
+        if (!el) {
+          el = document.createElement('div');
+          el.style.position = 'absolute';
+          el.style.pointerEvents = 'none';
+          overlay.appendChild(el);
+          existing.set(r.id, el);
+        }
+        const x1 = timeToX(r.time1);
+        const x2 = timeToX(r.time2);
+        const y1 = seriesRef.current.priceToCoordinate(r.price1);
+        const y2 = seriesRef.current.priceToCoordinate(r.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) {
+          el.style.display = 'none';
+          continue;
+        }
+        el.style.display = 'block';
+        el.style.left = `${Math.min(x1, x2)}px`;
+        el.style.top = `${Math.min(y1, y2)}px`;
+        el.style.width = `${Math.abs(x2 - x1)}px`;
+        el.style.height = `${Math.abs(y2 - y1)}px`;
+        el.style.border = `${r.width}px solid ${r.color}`;
+        el.style.backgroundColor = hexToRgba(r.color, 0.12);
+      }
+    };
+    syncRectsRef.current = syncRects;
+
     const ro = new ResizeObserver(() => {
       chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
       syncCloud();
       syncWeekLines();
+      syncVLines();
+      syncRects();
     });
     ro.observe(container);
 
@@ -257,6 +370,8 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     const onRangeChange = () => {
       syncCloud();
       syncWeekLines();
+      syncVLines();
+      syncRects();
       if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
       saveViewTimer = window.setTimeout(() => {
         if (!chartRef.current) return;
@@ -274,11 +389,52 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
       weekLineElsRef.current.forEach(el => el.remove());
       weekLineElsRef.current = [];
+      vlineElsRef.current.forEach(el => el.remove());
+      vlineElsRef.current.clear();
+      rectElsRef.current.forEach(el => el.remove());
+      rectElsRef.current.clear();
+      priceLineMapRef.current.clear();
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
     };
   }, [timeframeSec]);
+
+  // 水平線の再描画（表示専用）。チャート破棄タイミングの例外はCandleChartと同じ理由で
+  // try/catchで吸収し、画面クラッシュを防ぐ
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    const series = seriesRef.current;
+    try {
+      const existing = priceLineMapRef.current;
+      const nextIds = new Set(lines.map(l => l.id));
+      for (const [id, priceLine] of existing) {
+        if (!nextIds.has(id)) { series.removePriceLine(priceLine); existing.delete(id); }
+      }
+      for (const line of lines) {
+        const opts = {
+          price: line.price,
+          color: line.color,
+          lineWidth: line.width,
+          lineStyle: DASH_TO_STYLE[line.dash],
+          axisLabelVisible: true,
+        };
+        const current = existing.get(line.id);
+        if (current) current.applyOptions(opts);
+        else existing.set(line.id, series.createPriceLine(opts));
+      }
+    } catch (e) {
+      logError('MiniChart:hlines', e);
+    }
+  }, [lines]);
+
+  useEffect(() => {
+    syncVLinesRef.current();
+  }, [vlines]);
+
+  useEffect(() => {
+    syncRectsRef.current();
+  }, [rects]);
 
   // 他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）
   useEffect(() => {
@@ -358,6 +514,8 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
 
     weekBoundariesRef.current = computeSeparatorBoundaries(visible, timeframeSec);
     syncWeekLinesRef.current();
+    syncVLinesRef.current();
+    syncRectsRef.current();
 
     // カーソル進行のたびに毎回フィットすると、序盤の少数本だけを見て過剰拡大されるため、
     // 新規データ読み込み時（全期間の時間幅）だけ一度フィットし、以降は同じスケールを維持する。
@@ -375,6 +533,8 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       }
       syncCloudRef.current();
       syncWeekLinesRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
     }
   }, [data, cursorEnd, showFullHistory, timeframeSec]);
 
@@ -407,7 +567,9 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         disabled={!isLoaded}
       />
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
+      <div ref={rectOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
+      <div ref={vlineOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
     </div>
   );

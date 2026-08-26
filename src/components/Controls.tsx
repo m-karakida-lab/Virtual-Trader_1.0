@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
-import { TIMEFRAMES, LINE_COLORS, type Position, type PendingOrder, type TimeframeSec, type LineDash, type LineWidth, type LineSelection, type OrderType } from '../types';
+import { TIMEFRAMES, LINE_COLORS, RECT_COLORS, type Position, type PendingOrder, type TimeframeSec, type LineDash, type LineWidth, type LineSelection, type OrderType } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 
@@ -197,6 +197,9 @@ export function Controls() {
   const removeLine    = useTraderStore(s => s.removeLine);
   const toggleDrawVLine = useTraderStore(s => s.toggleDrawVLine);
   const removeVLine   = useTraderStore(s => s.removeVLine);
+  const toggleDrawRect = useTraderStore(s => s.toggleDrawRect);
+  const removeRect    = useTraderStore(s => s.removeRect);
+  const setRectDraft  = useTraderStore(s => s.setRectDraft);
   const selectLine    = useTraderStore(s => s.selectLine);
   const setLineDraft  = useTraderStore(s => s.setLineDraft);
   const toggleEMA     = useTraderStore(s => s.toggleEMA);
@@ -209,11 +212,14 @@ export function Controls() {
   const toggleFullHistory = useTraderStore(s => s.toggleFullHistory);
   const lines          = useTraderStore(s => s.lines);
   const vlines          = useTraderStore(s => s.vlines);
+  const rects          = useTraderStore(s => s.rects);
   const isDrawingLine = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring = useTraderStore(s => s.isMeasuring);
+  const isDrawingRect = useTraderStore(s => s.isDrawingRect);
   const selected        = useTraderStore(s => s.selected);
   const lineDraft      = useTraderStore(s => s.lineDraft);
+  const rectDraft      = useTraderStore(s => s.rectDraft);
   const showEMA       = useTraderStore(s => s.showEMA);
   const showBB        = useTraderStore(s => s.showBB);
   const showCloud     = useTraderStore(s => s.showCloud);
@@ -283,7 +289,9 @@ export function Controls() {
   // 選択中のライン（水平線 or 垂直線）があればその設定を、なければ draft（次に引く線の設定）を表示
   const selectedLine  = selected?.kind === 'h' ? lines.find(l => l.id === selected.id) : undefined;
   const selectedVLine = selected?.kind === 'v' ? vlines.find(v => v.id === selected.id) : undefined;
+  const selectedRect  = selected?.kind === 'rect' ? rects.find(r => r.id === selected.id) : undefined;
   const activeStyle = selectedLine ?? selectedVLine ?? lineDraft;
+  const activeRectStyle = selectedRect ?? rectDraft;
 
   // rAF 自動再生
   useEffect(() => {
@@ -582,7 +590,7 @@ export function Controls() {
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton
             label="描画"
-            active={isDrawingLine || isDrawingVLine || isMeasuring}
+            active={isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect}
             disabled={!isLoaded}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '340px' }}>
@@ -590,7 +598,7 @@ export function Controls() {
                 <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
                 <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
                 <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
-                <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>週区切り</button>
+                <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
                 <button
                   onClick={toggleDrawLine}
                   disabled={!isLoaded}
@@ -606,9 +614,14 @@ export function Controls() {
                   disabled={!isLoaded}
                   style={tfBtn(isMeasuring, !isLoaded)}
                 >{isMeasuring ? 'ドラッグで計測...' : 'ものさし'}</button>
+                <button
+                  onClick={toggleDrawRect}
+                  disabled={!isLoaded}
+                  style={tfBtn(isDrawingRect, !isLoaded)}
+                >{isDrawingRect ? 'ドラッグで描画...' : '+ 四角'}</button>
               </div>
 
-              {(lines.length > 0 || vlines.length > 0) && (
+              {(lines.length > 0 || vlines.length > 0 || rects.length > 0) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   {lines.map(line => {
                     const isSel = selected?.kind === 'h' && selected.id === line.id;
@@ -665,6 +678,34 @@ export function Controls() {
                       </span>
                     );
                   })}
+
+                  {rects.map((r, i) => {
+                    const isSel = selected?.kind === 'rect' && selected.id === r.id;
+                    const sel: LineSelection = { kind: 'rect', id: r.id };
+                    return (
+                      <span
+                        key={`r${r.id}`}
+                        onClick={() => selectLine(isSel ? null : sel)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+                          backgroundColor: isSel ? '#222' : '#161616',
+                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
+                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        <span style={{ width: '8px', height: '8px', backgroundColor: r.color, flexShrink: 0 }} />
+                        四角{i + 1}
+                        <button
+                          onClick={e => { e.stopPropagation(); removeRect(r.id); }}
+                          style={{
+                            background: 'none', border: 'none', color: '#555',
+                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+                          }}
+                        >×</button>
+                      </span>
+                    );
+                  })}
                 </div>
               )}
 
@@ -703,6 +744,35 @@ export function Controls() {
                       key={w}
                       onClick={() => setLineDraft({ width: w })}
                       style={tfBtn(activeStyle.width === w, false)}
+                    >{w}px</button>
+                  ))}
+                </div>
+              </div>
+
+              {/* 四角形のスタイルピッカー: 選択中の四角があればそれを編集、なければ次に描く四角の既定値 */}
+              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
+                <span style={{ color: '#444', fontSize: '14px' }}>
+                  {selectedRect ? '編集中: 四角' : '次の四角:'}
+                </span>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  {RECT_COLORS.map(c => (
+                    <button
+                      key={c}
+                      onClick={() => setRectDraft({ color: c })}
+                      style={{
+                        width: '16px', height: '16px', backgroundColor: c,
+                        border: activeRectStyle.color === c ? '2px solid #fff' : '2px solid transparent',
+                        cursor: 'pointer', padding: 0,
+                      }}
+                    />
+                  ))}
+                </div>
+                <div style={{ display: 'flex', gap: '3px' }}>
+                  {WIDTH_OPTIONS.map(w => (
+                    <button
+                      key={w}
+                      onClick={() => setRectDraft({ width: w })}
+                      style={tfBtn(activeRectStyle.width === w, false)}
                     >{w}px</button>
                   ))}
                 </div>

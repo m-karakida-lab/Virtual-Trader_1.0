@@ -84,5 +84,17 @@ export interface DrawnVLine {
 
 export const LINE_COLORS = ['#787b86', '#ef5350', '#26a69a', '#42a5f5', '#ffa726', '#ab47bc'];
 
-// 水平線・垂直線を問わず「選択中の1本」を表す
-export type LineSelection = { kind: 'h' | 'v'; id: number };
+// ── 四角形 ───────────────────────────────────────────────────────────────
+
+export interface DrawnRect {
+  id: number;
+  time1: number; price1: number; // 始点（Unix秒・価格）
+  time2: number; price2: number; // 終点
+  color: string;
+  width: LineWidth;
+}
+
+export const RECT_COLORS = ['#2962ff', '#ef5350', '#ffca28']; // 青・赤・黄
+
+// 水平線・垂直線・四角形を問わず「選択中の1つ」を表す
+export type LineSelection = { kind: 'h' | 'v' | 'rect'; id: number };

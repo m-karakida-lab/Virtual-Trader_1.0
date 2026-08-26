@@ -7,6 +7,13 @@ function dayOfUTC(sec: number): number {
   return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000);
 }
 
+// その時刻が属する週（月曜始まり、キー比較専用）
+function weekKeyOf(sec: number): number {
+  const d = new Date(sec * 1000);
+  const daysSinceMonday = (d.getUTCDay() + 6) % 7; // Mon=0, Tue=1, ..., Sun=6
+  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate() - daysSinceMonday) / 1000);
+}
+
 // その時刻が属する月（年*12+月、キー比較専用）
 function monthKeyOf(sec: number): number {
   const d = new Date(sec * 1000);
@@ -38,6 +45,10 @@ export function computeDayBoundaries(candles: Candle[]): number[] {
   return computeBoundaries(candles, dayOfUTC);
 }
 
+export function computeWeekBoundaries(candles: Candle[]): number[] {
+  return computeBoundaries(candles, weekKeyOf);
+}
+
 export function computeMonthBoundaries(candles: Candle[]): number[] {
   return computeBoundaries(candles, monthKeyOf);
 }
@@ -47,8 +58,10 @@ export function computeYearBoundaries(candles: Candle[]): number[] {
 }
 
 // 区切り線の周期は時間軸によって切り替える:
-// MN足=年区切り、1D/1W足=月区切り、それ以外（15m/1H/4H）は日区切り
+// MN足=年区切り、1D/1W足=月区切り、4H足=週区切り、それ以外（15m/1H）は日区切り
 export function computeSeparatorBoundaries(candles: Candle[], timeframeSec: number): number[] {
   if (timeframeSec === MONTH_SEC) return computeYearBoundaries(candles);
-  return timeframeSec >= 86400 ? computeMonthBoundaries(candles) : computeDayBoundaries(candles);
+  if (timeframeSec >= 86400) return computeMonthBoundaries(candles);
+  if (timeframeSec === 14400) return computeWeekBoundaries(candles);
+  return computeDayBoundaries(candles);
 }
