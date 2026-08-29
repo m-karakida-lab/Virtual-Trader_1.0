@@ -203,6 +203,7 @@ export function Controls() {
   const selectLine    = useTraderStore(s => s.selectLine);
   const setLineDraft  = useTraderStore(s => s.setLineDraft);
   const toggleEMA     = useTraderStore(s => s.toggleEMA);
+  const toggleSMA     = useTraderStore(s => s.toggleSMA);
   const toggleBB      = useTraderStore(s => s.toggleBB);
   const toggleCloud   = useTraderStore(s => s.toggleCloud);
   const toggleWeekLines = useTraderStore(s => s.toggleWeekLines);
@@ -221,6 +222,7 @@ export function Controls() {
   const lineDraft      = useTraderStore(s => s.lineDraft);
   const rectDraft      = useTraderStore(s => s.rectDraft);
   const showEMA       = useTraderStore(s => s.showEMA);
+  const showSMA       = useTraderStore(s => s.showSMA);
   const showBB        = useTraderStore(s => s.showBB);
   const showCloud     = useTraderStore(s => s.showCloud);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
@@ -596,6 +598,7 @@ export function Controls() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '340px' }}>
               <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                 <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
+                <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
                 <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
                 <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
                 <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>

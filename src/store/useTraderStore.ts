@@ -115,6 +115,7 @@ interface TraderState {
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
   rectDraft: { color: string; width: LineWidth };
   showEMA: boolean;
+  showSMA: boolean;
   showBB: boolean;
   showCloud: boolean;
   showWeekLines: boolean;
@@ -180,6 +181,7 @@ interface TraderState {
   setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   setRectDraft: (patch: Partial<{ color: string; width: LineWidth }>) => void;
   toggleEMA: () => void;
+  toggleSMA: () => void;
   toggleBB: () => void;
   toggleCloud: () => void;
   toggleWeekLines: () => void;
@@ -303,6 +305,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
   rectDraft: { color: RECT_COLORS[0], width: 2 },
   showEMA: false,
+  showSMA: false,
   showBB: true,
   showCloud: true,
   showWeekLines: true,
@@ -691,6 +694,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     }
   },
   toggleEMA: () => set(s => ({ showEMA: !s.showEMA })),
+  toggleSMA: () => set(s => ({ showSMA: !s.showSMA })),
   toggleBB: () => set(s => ({ showBB: !s.showBB })),
   toggleCloud: () => set(s => ({ showCloud: !s.showCloud })),
   toggleWeekLines: () => set(s => ({ showWeekLines: !s.showWeekLines })),

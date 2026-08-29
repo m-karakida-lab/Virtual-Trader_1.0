@@ -8,7 +8,7 @@ import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO
 import { logError } from '../lib/errorLog';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
-import { computeEMA, computeBB, computeCloud } from '../lib/indicators';
+import { computeEMA, computeSMA, computeBB, computeCloud } from '../lib/indicators';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { priceAtTime } from '../lib/crosshairSync';
 
@@ -27,6 +27,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const chartRef  = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const emaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const smaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bbBasisSeriesRef  = useRef<ISeriesApi<'Line'> | null>(null);
   const bbUpper1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bbLower1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
@@ -61,6 +62,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
   const showFullHistory = useTraderStore(s => s.showFullHistory);
   const showEMA = useTraderStore(s => s.showEMA);
+  const showSMA = useTraderStore(s => s.showSMA);
   const showBB = useTraderStore(s => s.showBB);
   const showCloud = useTraderStore(s => s.showCloud);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
@@ -133,6 +135,11 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
       visible: false,
     });
+    const smaSeries = chart.addLineSeries({
+      color: '#ab47bc', lineWidth: 2,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      visible: false,
+    });
     const bbLineOptions = {
       lineWidth: 1 as const,
       priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
@@ -155,6 +162,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     chartRef.current = chart;
     seriesRef.current = series;
     emaSeriesRef.current = emaSeries;
+    smaSeriesRef.current = smaSeries;
     bbBasisSeriesRef.current  = bbBasisSeries;
     bbUpper1SeriesRef.current = bbUpper1Series;
     bbLower1SeriesRef.current = bbLower1Series;
@@ -457,6 +465,9 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     emaSeriesRef.current?.applyOptions({ visible: showEMA });
   }, [showEMA]);
   useEffect(() => {
+    smaSeriesRef.current?.applyOptions({ visible: showSMA });
+  }, [showSMA]);
+  useEffect(() => {
     bbBasisSeriesRef.current?.applyOptions({ visible: showBB });
     bbUpper1SeriesRef.current?.applyOptions({ visible: showBB });
     bbLower1SeriesRef.current?.applyOptions({ visible: showBB });
@@ -496,6 +507,9 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
 
     emaSeriesRef.current?.applyOptions({ priceFormat });
     emaSeriesRef.current?.setData(computeEMA(visible));
+
+    smaSeriesRef.current?.applyOptions({ priceFormat });
+    smaSeriesRef.current?.setData(computeSMA(visible));
 
     const bb = computeBB(visible);
     bbBasisSeriesRef.current?.applyOptions({ priceFormat });

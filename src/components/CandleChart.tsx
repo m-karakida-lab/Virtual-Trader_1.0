@@ -35,6 +35,7 @@ interface RectCorner {
 }
 
 const EMA_PERIOD = 200;
+const SMA_PERIOD = 14;
 const BB_PERIOD = 20;
 const DRAG_TOLERANCE_PX = 6;
 const MIN_JUMP_SPAN_BARS = 30; // 日時ジャンプ時、表示幅がこの本数分未満にはならないようにする
@@ -135,6 +136,7 @@ export function CandleChart() {
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const emaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const smaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bbBasisSeriesRef  = useRef<ISeriesApi<'Line'> | null>(null);
   const bbUpper1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const bbLower1SeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
@@ -191,6 +193,7 @@ export function CandleChart() {
   const draftTP        = useTraderStore(s => s.draftTP);
   const draftSL        = useTraderStore(s => s.draftSL);
   const showEMA   = useTraderStore(s => s.showEMA);
+  const showSMA   = useTraderStore(s => s.showSMA);
   const showBB    = useTraderStore(s => s.showBB);
   const showCloud = useTraderStore(s => s.showCloud);
   const timeframeSec = useTraderStore(s => s.timeframeSec);
@@ -216,6 +219,9 @@ export function CandleChart() {
   const emaValueRef = useRef(0);
   const emaSumRef   = useRef(0);
   const emaCountRef = useRef(0);
+
+  // SMA14（単純移動平均・移動窓の合計を差分更新）
+  const smaSumRef = useRef(0);
 
   // ボリンジャーバンド（移動窓の合計・二乗和で SMA・標準偏差を差分更新）
   const bbSumRef   = useRef(0);
@@ -285,6 +291,13 @@ export function CandleChart() {
       lastValueVisible: false,
       crosshairMarkerVisible: false,
     });
+    const smaSeries = chart.addLineSeries({
+      color: '#ab47bc',
+      lineWidth: 2,
+      priceLineVisible: false,
+      lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
     const bbLineOptions = {
       lineWidth: 1 as const,
       priceLineVisible: false,
@@ -311,6 +324,7 @@ export function CandleChart() {
     chartRef.current = chart;
     seriesRef.current = series;
     emaSeriesRef.current = emaSeries;
+    smaSeriesRef.current = smaSeries;
     bbBasisSeriesRef.current  = bbBasisSeries;
     bbUpper1SeriesRef.current = bbUpper1Series;
     bbLower1SeriesRef.current = bbLower1Series;
@@ -1416,6 +1430,7 @@ export function CandleChart() {
     const priceFormat = { type: 'price' as const, precision, minMove };
     seriesRef.current?.applyOptions({ priceFormat });
     emaSeriesRef.current?.applyOptions({ priceFormat });
+    smaSeriesRef.current?.applyOptions({ priceFormat });
     bbBasisSeriesRef.current?.applyOptions({ priceFormat });
     bbUpper1SeriesRef.current?.applyOptions({ priceFormat });
     bbLower1SeriesRef.current?.applyOptions({ priceFormat });
@@ -1448,6 +1463,11 @@ export function CandleChart() {
     emaSeriesRef.current?.applyOptions({ visible: showEMA });
   }, [showEMA]);
 
+  // SMA14 表示 ON/OFF（EMA同様、非表示中も裏で計算は継続しておく）
+  useEffect(() => {
+    smaSeriesRef.current?.applyOptions({ visible: showSMA });
+  }, [showSMA]);
+
   // ボリンジャーバンド 表示 ON/OFF（EMA同様、非表示中も裏で計算は継続しておく）
   useEffect(() => {
     bbBasisSeriesRef.current?.applyOptions({ visible: showBB });
@@ -1474,6 +1494,7 @@ export function CandleChart() {
     if (!seriesRef.current || candles.length === 0 || !showFullHistory) return;
     seriesRef.current.setData(candles.map(toBar));
     recomputeEmaFull(candles, candles.length - 1);
+    recomputeSMAFull(candles, candles.length - 1);
     recomputeBBFull(candles, candles.length - 1);
     recomputeCloudFull(candles, candles.length - 1);
     chartRef.current?.timeScale().fitContent();
@@ -1525,12 +1546,14 @@ export function CandleChart() {
     if (isStep) {
       seriesRef.current.update(toBar(candles[cursor]));
       updateEmaStep(candles[cursor]);
+      updateSMAStep(candles, cursor);
       updateBBStep(candles, cursor);
       updateCloudStep(candles, cursor);
     } else {
       seriesRef.current.setData(candles.slice(0, cursor + 1).map(toBar));
       chartRef.current?.timeScale().scrollToRealTime();
       recomputeEmaFull(candles, cursor);
+      recomputeSMAFull(candles, cursor);
       recomputeBBFull(candles, cursor);
       recomputeCloudFull(candles, cursor);
     }
@@ -1630,6 +1653,26 @@ export function CandleChart() {
       emaValueRef.current = newCandle.close * k + emaValueRef.current * (1 - k);
     }
     emaSeriesRef.current?.update({ time: newCandle.time as Time, value: emaValueRef.current });
+  }
+
+  // SMA14: 移動窓(SMA_PERIOD)の合計を差分更新する単純移動平均
+  function recomputeSMAFull(cs: Candle[], uptoIndex: number) {
+    const data: LineData[] = [];
+    let sum = 0;
+    for (let i = 0; i <= uptoIndex; i++) {
+      sum += cs[i].close;
+      if (i >= SMA_PERIOD) sum -= cs[i - SMA_PERIOD].close;
+      if (i >= SMA_PERIOD - 1) data.push({ time: cs[i].time as Time, value: sum / SMA_PERIOD });
+    }
+    smaSeriesRef.current?.setData(data);
+    smaSumRef.current = sum;
+  }
+
+  function updateSMAStep(cs: Candle[], idx: number) {
+    smaSumRef.current += cs[idx].close;
+    if (idx >= SMA_PERIOD) smaSumRef.current -= cs[idx - SMA_PERIOD].close;
+    if (idx < SMA_PERIOD - 1) return;
+    smaSeriesRef.current?.update({ time: cs[idx].time as Time, value: smaSumRef.current / SMA_PERIOD });
   }
 
   // ボリンジャーバンド: 移動窓(BB_PERIOD)の合計・二乗和から SMA と標準偏差を算出（±1σ・±2σ）

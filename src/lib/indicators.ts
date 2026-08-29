@@ -5,6 +5,7 @@ import type { Time, LineData } from 'lightweight-charts';
 import type { Candle } from '../types';
 
 export const EMA_PERIOD = 200;
+export const SMA_PERIOD = 14;
 export const BB_PERIOD = 20;
 export const TENKAN_PERIOD = 9;
 export const KIJUN_PERIOD = 26;
@@ -22,6 +23,17 @@ export function computeEMA(candles: Candle[]): LineData[] {
     if (i === EMA_PERIOD - 1) { sum += close; ema = sum / EMA_PERIOD; }
     else { ema = close * k + ema * (1 - k); }
     data.push({ time: candles[i].time as Time, value: ema });
+  }
+  return data;
+}
+
+export function computeSMA(candles: Candle[]): LineData[] {
+  const data: LineData[] = [];
+  let sum = 0;
+  for (let i = 0; i < candles.length; i++) {
+    sum += candles[i].close;
+    if (i >= SMA_PERIOD) sum -= candles[i - SMA_PERIOD].close;
+    if (i >= SMA_PERIOD - 1) data.push({ time: candles[i].time as Time, value: sum / SMA_PERIOD });
   }
   return data;
 }
