@@ -158,6 +158,7 @@ export function CandleChart() {
   const syncVLinesRef = useRef<() => void>(() => {});
   const rectOverlayRef = useRef<HTMLDivElement>(null);
   const rectElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  const rectHandleElsRef = useRef<HTMLDivElement[]>([]); // 選択中の四角形の4隅ハンドル（常に1個の四角形分のみ）
   const syncRectsRef = useRef<() => void>(() => {});
   const rectDraftBoxRef = useRef<HTMLDivElement>(null);
   const weekLineElsRef = useRef<HTMLDivElement[]>([]);
@@ -183,6 +184,7 @@ export function CandleChart() {
   const lines     = useTraderStore(s => s.lines);
   const vlines    = useTraderStore(s => s.vlines);
   const rects     = useTraderStore(s => s.rects);
+  const selected  = useTraderStore(s => s.selected);
   const isDrawingLine  = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
@@ -448,17 +450,37 @@ export function CandleChart() {
     syncVLinesRef.current = syncVLines;
     syncVLines();
 
-    // ── 四角形の位置を再計算して DOM に反映（半透明塗り + 枠線） ────────
+    // ── 四角形の位置を再計算して DOM に反映（枠線のみ、選択中は破線＋4隅ハンドル） ──
+    const RECT_HANDLE_SIZE = 8;
     const syncRects = () => {
       if (!chartRef.current || !seriesRef.current || !rectOverlayRef.current) return;
-      const { rects: currentRects } = useTraderStore.getState();
+      const { rects: currentRects, selected } = useTraderStore.getState();
       const overlay = rectOverlayRef.current;
       const existing = rectElsRef.current;
       const nextIds = new Set(currentRects.map(r => r.id));
+      const selectedRectId = selected?.kind === 'rect' ? selected.id : null;
 
       for (const [id, el] of existing) {
         if (!nextIds.has(id)) { el.remove(); existing.delete(id); }
       }
+
+      // ハンドルは選択中の四角形1つぶんだけ使い回す（毎回作り直さない）
+      const handles = rectHandleElsRef.current;
+      while (handles.length < 4) {
+        const h = document.createElement('div');
+        h.style.position = 'absolute';
+        h.style.width = `${RECT_HANDLE_SIZE}px`;
+        h.style.height = `${RECT_HANDLE_SIZE}px`;
+        h.style.backgroundColor = '#42a5f5';
+        h.style.border = '1px solid #fff';
+        h.style.borderRadius = '2px';
+        h.style.pointerEvents = 'none';
+        h.style.display = 'none';
+        overlay.appendChild(h);
+        handles.push(h);
+      }
+
+      let selectedCorners: [number, number][] | null = null;
 
       for (const r of currentRects) {
         let el = existing.get(r.id);
@@ -482,7 +504,20 @@ export function CandleChart() {
         el.style.top = `${Math.min(y1, y2)}px`;
         el.style.width = `${Math.abs(x2 - x1)}px`;
         el.style.height = `${Math.abs(y2 - y1)}px`;
-        el.style.border = `${r.width}px solid ${r.color}`;
+        const isSelected = r.id === selectedRectId;
+        el.style.border = `${r.width}px ${isSelected ? 'dashed' : 'solid'} ${r.color}`;
+        if (isSelected) selectedCorners = [[x1, y1], [x1, y2], [x2, y1], [x2, y2]];
+      }
+
+      if (selectedCorners) {
+        selectedCorners.forEach(([cx, cy], i) => {
+          const h = handles[i];
+          h.style.display = 'block';
+          h.style.left = `${cx - RECT_HANDLE_SIZE / 2}px`;
+          h.style.top = `${cy - RECT_HANDLE_SIZE / 2}px`;
+        });
+      } else {
+        handles.forEach(h => { h.style.display = 'none'; });
       }
     };
     syncRectsRef.current = syncRects;
@@ -849,6 +884,25 @@ export function CandleChart() {
       return null;
     };
 
+    // 四角形の枠内（境界も少し外側まで許容）をクリックしたか判定。ヒットしたら選択状態にする
+    // （見た目上の編集モードに入り、破線枠＋4隅ハンドルが出る）。ここでは選択するだけで、
+    // ドラッグでの本体移動は対応しない（対応するのは4隅のリサイズのみ）
+    const findRectBodyNear = (x: number, y: number): number | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { rects: currentRects } = useTraderStore.getState();
+      for (const r of currentRects) {
+        const x1 = timeToX(r.time1);
+        const x2 = timeToX(r.time2);
+        const y1 = seriesRef.current.priceToCoordinate(r.price1);
+        const y2 = seriesRef.current.priceToCoordinate(r.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        const left = Math.min(x1, x2) - DRAG_TOLERANCE_PX, right = Math.max(x1, x2) + DRAG_TOLERANCE_PX;
+        const top = Math.min(y1, y2) - DRAG_TOLERANCE_PX, bottom = Math.max(y1, y2) + DRAG_TOLERANCE_PX;
+        if (x >= left && x <= right && y >= top && y <= bottom) return r.id;
+      }
+      return null;
+    };
+
     // 四角形の頂点のX座標→時刻変換。lightweight-chartsのcoordinateToTimeをそのまま使う
     // （足に吸着する＝ドラッグ幅が1本未満だと細くなるが、それ自体は仕様として許容する）。
     // 唯一のクランプは「実際に表示されている足（リプレイ中ならcursorまで）の範囲より外側は
@@ -927,6 +981,17 @@ export function CandleChart() {
         draggingRectCorner = corner;
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'nwse-resize';
+        useTraderStore.getState().selectLine({ kind: 'rect', id: corner.rectId });
+        return;
+      }
+
+      const bodyRectId = findRectBodyNear(x, y);
+      const { selected: currentSelected } = useTraderStore.getState();
+      if (bodyRectId !== null) {
+        useTraderStore.getState().selectLine({ kind: 'rect', id: bodyRectId });
+      } else if (currentSelected !== null) {
+        // 図形の外（余白）をクリックしたら選択解除する（TradingView等と同じ挙動）
+        useTraderStore.getState().selectLine(null);
       }
     };
 
@@ -1171,6 +1236,8 @@ export function CandleChart() {
       vlineElsRef.current.clear();
       rectElsRef.current.forEach(el => el.remove());
       rectElsRef.current.clear();
+      rectHandleElsRef.current.forEach(el => el.remove());
+      rectHandleElsRef.current = [];
       weekLineElsRef.current.forEach(el => el.remove());
       weekLineElsRef.current = [];
       chart.remove();
@@ -1415,10 +1482,10 @@ export function CandleChart() {
     syncVLinesRef.current();
   }, [vlines]);
 
-  // 四角形の再描画
+  // 四角形の再描画（選択状態が変わった時もハンドル表示を更新する）
   useEffect(() => {
     syncRectsRef.current();
-  }, [rects]);
+  }, [rects, selected]);
 
   // 価格軸の表示精度: 読み込んだペアの価格帯に合わせる（JPYクロス=小数3桁、それ以外=小数5桁）
   useEffect(() => {
