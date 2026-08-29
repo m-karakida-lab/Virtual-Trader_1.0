@@ -441,10 +441,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       ? processOrderRange(candles, oldCursor, idx, positions, pendingOrders, closedTrades, balance, nextId)
       : null;
 
-    // showFullHistory はそのまま維持する（全表示中ならジャンプ後も全表示のまま）
+    // 過去日付へのジャンプは cursor を戻さない（表示位置を動かすだけ）。
+    // cursor はリプレイの進行位置＝データの開示境界そのものなので、ここを巻き戻すと
+    // 「6/1へジャンプしたら7/1まで見えていた足が6/1以降ごと隠れて、6/1が最新足になる」
+    // という直感に反する挙動になる。未来日付へのジャンプは従来どおり cursor を進め、
+    // 通過した範囲の注文約定・TP/SL判定も行う（バックテストとして時間を進める意味がある）
     // 垂直線チップ移動と同じ「縮尺維持で中心移動」を使う
     set(s => ({
-      cursor: idx, isPlaying: false, centerTarget: targetSec, centerSignal: s.centerSignal + 1,
+      cursor: Math.max(idx, oldCursor), isPlaying: false, centerTarget: targetSec, centerSignal: s.centerSignal + 1,
       ...(result?.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,
         closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
