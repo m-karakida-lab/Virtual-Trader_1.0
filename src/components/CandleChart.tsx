@@ -35,6 +35,12 @@ interface RectCorner {
   priceField: 'price1' | 'price2';
 }
 
+// 四角形のドラッグ中の辺（4隅の中間点）。1フィールドだけ更新して上下/左右いずれか一方向にリサイズする
+interface RectEdge {
+  rectId: number;
+  field: 'time1' | 'time2' | 'price1' | 'price2';
+}
+
 const EMA_PERIOD = 200;
 const SMA_PERIOD = 14;
 const BB_PERIOD = 20;
@@ -450,7 +456,7 @@ export function CandleChart() {
     syncVLinesRef.current = syncVLines;
     syncVLines();
 
-    // ── 四角形の位置を再計算して DOM に反映（枠線のみ、選択中は破線＋4隅ハンドル） ──
+    // ── 四角形の位置を再計算して DOM に反映（枠線のみ、選択中は破線＋4隅・4辺のハンドル） ──
     const RECT_HANDLE_SIZE = 8;
     const syncRects = () => {
       if (!chartRef.current || !seriesRef.current || !rectOverlayRef.current) return;
@@ -464,9 +470,10 @@ export function CandleChart() {
         if (!nextIds.has(id)) { el.remove(); existing.delete(id); }
       }
 
-      // ハンドルは選択中の四角形1つぶんだけ使い回す（毎回作り直さない）
+      // ハンドルは選択中の四角形1つぶんだけ使い回す（毎回作り直さない）。
+      // 0-3=4隅、4-7=4辺の中点（上・下・左・右）
       const handles = rectHandleElsRef.current;
-      while (handles.length < 4) {
+      while (handles.length < 8) {
         const h = document.createElement('div');
         h.style.position = 'absolute';
         h.style.width = `${RECT_HANDLE_SIZE}px`;
@@ -480,7 +487,7 @@ export function CandleChart() {
         handles.push(h);
       }
 
-      let selectedCorners: [number, number][] | null = null;
+      let selectedPoints: [number, number][] | null = null;
 
       for (const r of currentRects) {
         let el = existing.get(r.id);
@@ -506,11 +513,18 @@ export function CandleChart() {
         el.style.height = `${Math.abs(y2 - y1)}px`;
         const isSelected = r.id === selectedRectId;
         el.style.border = `${r.width}px ${isSelected ? 'dashed' : 'solid'} ${r.color}`;
-        if (isSelected) selectedCorners = [[x1, y1], [x1, y2], [x2, y1], [x2, y2]];
+        if (isSelected) {
+          const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+          selectedPoints = [
+            [x1, y1], [x1, y2], [x2, y1], [x2, y2],
+            [midX, Math.min(y1, y2)], [midX, Math.max(y1, y2)],
+            [Math.min(x1, x2), midY], [Math.max(x1, x2), midY],
+          ];
+        }
       }
 
-      if (selectedCorners) {
-        selectedCorners.forEach(([cx, cy], i) => {
+      if (selectedPoints) {
+        selectedPoints.forEach(([cx, cy], i) => {
           const h = handles[i];
           h.style.display = 'block';
           h.style.left = `${cx - RECT_HANDLE_SIZE / 2}px`;
@@ -783,10 +797,12 @@ export function CandleChart() {
     let draggingVId: number | null = null;
     let draggingDraft: 'price' | 'tp' | 'sl' | null = null;
     let draggingRectCorner: RectCorner | null = null;
+    let draggingRectEdge: RectEdge | null = null;
     let pendingPrice: number | null = null;
     let pendingVX: number | null = null;
     let pendingDraftPrice: number | null = null;
     let pendingRectCornerPos: { time: number; price: number } | null = null;
+    let pendingRectEdgeValue: number | null = null;
     let rafScheduled = false;
 
     // 発注パネルの draft 価格（price/TP/SL）のプレビュー線をドラッグで調整
@@ -878,6 +894,39 @@ export function CandleChart() {
         for (const [cx, cy, timeField, priceField] of corners) {
           if (Math.hypot(cx - x, cy - y) <= DRAG_TOLERANCE_PX) {
             return { rectId: r.id, timeField, priceField };
+          }
+        }
+      }
+      return null;
+    };
+
+    // 四角形の4辺の中点のいずれかの近くか判定（上下または左右いずれか一方向だけのリサイズ）。
+    // 「上辺」「左辺」等は画面上の位置（min/max）で決めるが、実際に更新するフィールドは
+    // time1/time2・price1/price2 のうち掴んだ瞬間にその位置にあった方1つに固定する
+    // （四角形の中身をドラッグで反転させても、その後は同じフィールドを更新し続ける。角のドラッグと同じ考え方）
+    const findRectEdgeNear = (x: number, y: number): RectEdge | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { rects: currentRects } = useTraderStore.getState();
+      for (const r of currentRects) {
+        const x1 = timeToX(r.time1);
+        const x2 = timeToX(r.time2);
+        const y1 = seriesRef.current.priceToCoordinate(r.price1);
+        const y2 = seriesRef.current.priceToCoordinate(r.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+        const topField: RectEdge['field'] = y1 <= y2 ? 'price1' : 'price2';
+        const bottomField: RectEdge['field'] = y1 <= y2 ? 'price2' : 'price1';
+        const leftField: RectEdge['field'] = x1 <= x2 ? 'time1' : 'time2';
+        const rightField: RectEdge['field'] = x1 <= x2 ? 'time2' : 'time1';
+        const edges: [number, number, RectEdge['field']][] = [
+          [midX, Math.min(y1, y2), topField],
+          [midX, Math.max(y1, y2), bottomField],
+          [Math.min(x1, x2), midY, leftField],
+          [Math.max(x1, x2), midY, rightField],
+        ];
+        for (const [ex, ey, field] of edges) {
+          if (Math.hypot(ex - x, ey - y) <= DRAG_TOLERANCE_PX) {
+            return { rectId: r.id, field };
           }
         }
       }
@@ -982,6 +1031,15 @@ export function CandleChart() {
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'nwse-resize';
         useTraderStore.getState().selectLine({ kind: 'rect', id: corner.rectId });
+        return;
+      }
+
+      const edge = findRectEdgeNear(x, y);
+      if (edge !== null) {
+        draggingRectEdge = edge;
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = edge.field === 'time1' || edge.field === 'time2' ? 'ew-resize' : 'ns-resize';
+        useTraderStore.getState().selectLine({ kind: 'rect', id: edge.rectId });
         return;
       }
 
@@ -1100,6 +1158,37 @@ export function CandleChart() {
         return;
       }
 
+      if (draggingRectEdge !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const isTimeField = draggingRectEdge.field === 'time1' || draggingRectEdge.field === 'time2';
+        const value = isTimeField ? pixelToTime(x) : seriesRef.current.coordinateToPrice(y);
+        if (value === null) return;
+        pendingRectEdgeValue = value;
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingRectEdge === null || pendingRectEdgeValue === null) return;
+            if (!chartRef.current || !seriesRef.current) return;
+            const el = rectElsRef.current.get(draggingRectEdge.rectId);
+            const { rects: currentRects } = useTraderStore.getState();
+            const r = currentRects.find(rr => rr.id === draggingRectEdge!.rectId);
+            if (!el || !r) return;
+            const updated = { ...r, [draggingRectEdge.field]: pendingRectEdgeValue };
+            const x1 = timeToX(updated.time1);
+            const x2 = timeToX(updated.time2);
+            const y1 = seriesRef.current.priceToCoordinate(updated.price1);
+            const y2 = seriesRef.current.priceToCoordinate(updated.price2);
+            if (x1 === null || x2 === null || y1 === null || y2 === null) return;
+            el.style.left = `${Math.min(x1, x2)}px`;
+            el.style.top = `${Math.min(y1, y2)}px`;
+            el.style.width = `${Math.abs(x2 - x1)}px`;
+            el.style.height = `${Math.abs(y2 - y1)}px`;
+          });
+        }
+        return;
+      }
+
       // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, pickTarget: pick } = useTraderStore.getState();
       if (!dH && !dV && !isM && !isR && pick === null) {
@@ -1110,7 +1199,11 @@ export function CandleChart() {
         const vId = findVLineNear(x);
         if (vId !== null) { container.style.cursor = 'ew-resize'; return; }
         const corner = findRectCornerNear(x, y);
-        container.style.cursor = corner !== null ? 'nwse-resize' : 'default';
+        if (corner !== null) { container.style.cursor = 'nwse-resize'; return; }
+        const edge = findRectEdgeNear(x, y);
+        container.style.cursor = edge !== null
+          ? (edge.field === 'time1' || edge.field === 'time2' ? 'ew-resize' : 'ns-resize')
+          : 'default';
       }
     };
 
@@ -1178,6 +1271,16 @@ export function CandleChart() {
         }
         draggingRectCorner = null;
         pendingRectCornerPos = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+      }
+      if (draggingRectEdge !== null) {
+        if (pendingRectEdgeValue !== null) {
+          useTraderStore.getState().updateRect(draggingRectEdge.rectId, {
+            [draggingRectEdge.field]: pendingRectEdgeValue,
+          });
+        }
+        draggingRectEdge = null;
+        pendingRectEdgeValue = null;
         chart.applyOptions({ handleScroll: true, handleScale: true });
       }
     };
