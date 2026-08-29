@@ -10,7 +10,7 @@ import type { Candle, Position, ClosedTrade } from '../types';
 import { TIMEFRAMES } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
-import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS, hexToRgba } from '../lib/chartTheme';
+import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
@@ -483,7 +483,6 @@ export function CandleChart() {
         el.style.width = `${Math.abs(x2 - x1)}px`;
         el.style.height = `${Math.abs(y2 - y1)}px`;
         el.style.border = `${r.width}px solid ${r.color}`;
-        el.style.backgroundColor = hexToRgba(r.color, 0.12);
       }
     };
     syncRectsRef.current = syncRects;
@@ -656,7 +655,6 @@ export function CandleChart() {
       box.style.width = `${Math.abs(x2 - x1)}px`;
       box.style.height = `${Math.abs(y2 - y1)}px`;
       box.style.border = `${rectDraft.width}px solid ${rectDraft.color}`;
-      box.style.backgroundColor = hexToRgba(rectDraft.color, 0.12);
     };
 
     // ── ものさし（ドラッグで価格差・本数・期間を計測） ──────────────

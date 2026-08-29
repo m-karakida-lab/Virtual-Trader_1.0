@@ -4,7 +4,7 @@ import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, TimeframeSec } from '../types';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
 import { pricePrecision } from '../lib/pips';
-import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS, hexToRgba } from '../lib/chartTheme';
+import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS } from '../lib/chartTheme';
 import { logError } from '../lib/errorLog';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
@@ -359,7 +359,6 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         el.style.width = `${Math.abs(x2 - x1)}px`;
         el.style.height = `${Math.abs(y2 - y1)}px`;
         el.style.border = `${r.width}px solid ${r.color}`;
-        el.style.backgroundColor = hexToRgba(r.color, 0.12);
       }
     };
     syncRectsRef.current = syncRects;

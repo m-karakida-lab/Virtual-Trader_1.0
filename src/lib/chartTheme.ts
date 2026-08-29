@@ -19,9 +19,3 @@ export const DASH_TO_CSS: Record<LineDash, string> = {
   dashed: 'dashed',
   dotted: 'dotted',
 };
-
-export function hexToRgba(hex: string, alpha: number): string {
-  const n = parseInt(hex.replace('#', ''), 16);
-  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
-  return `rgba(${r}, ${g}, ${b}, ${alpha})`;
-}
