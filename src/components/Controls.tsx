@@ -193,11 +193,8 @@ export function Controls() {
   const setTimeframe  = useTraderStore(s => s.setTimeframe);
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const setChartLayout = useTraderStore(s => s.setChartLayout);
-  const toggleDrawLine = useTraderStore(s => s.toggleDrawLine);
   const removeLine    = useTraderStore(s => s.removeLine);
-  const toggleDrawVLine = useTraderStore(s => s.toggleDrawVLine);
   const removeVLine   = useTraderStore(s => s.removeVLine);
-  const toggleDrawRect = useTraderStore(s => s.toggleDrawRect);
   const removeRect    = useTraderStore(s => s.removeRect);
   const setRectDraft  = useTraderStore(s => s.setRectDraft);
   const selectLine    = useTraderStore(s => s.selectLine);
@@ -209,7 +206,6 @@ export function Controls() {
   const toggleWeekLines = useTraderStore(s => s.toggleWeekLines);
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
-  const toggleMeasure = useTraderStore(s => s.toggleMeasure);
   const toggleFullHistory = useTraderStore(s => s.toggleFullHistory);
   const lines          = useTraderStore(s => s.lines);
   const vlines          = useTraderStore(s => s.vlines);
@@ -602,26 +598,15 @@ export function Controls() {
                 <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
                 <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
                 <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
-                <button
-                  onClick={toggleDrawLine}
-                  disabled={!isLoaded}
-                  style={tfBtn(isDrawingLine, !isLoaded)}
-                >{isDrawingLine ? 'クリックで配置...' : '+ 水平線'}</button>
-                <button
-                  onClick={toggleDrawVLine}
-                  disabled={!isLoaded}
-                  style={tfBtn(isDrawingVLine, !isLoaded)}
-                >{isDrawingVLine ? 'クリックで配置...' : '+ 垂直線'}</button>
-                <button
-                  onClick={toggleMeasure}
-                  disabled={!isLoaded}
-                  style={tfBtn(isMeasuring, !isLoaded)}
-                >{isMeasuring ? 'ドラッグで計測...' : 'ものさし'}</button>
-                <button
-                  onClick={toggleDrawRect}
-                  disabled={!isLoaded}
-                  style={tfBtn(isDrawingRect, !isLoaded)}
-                >{isDrawingRect ? 'ドラッグで描画...' : '+ 四角'}</button>
+                {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect) && (
+                  <span style={{ color: '#42a5f5', fontSize: '14px' }}>
+                    {isDrawingLine && 'クリックで配置...'}
+                    {isDrawingVLine && 'クリックで配置...'}
+                    {isMeasuring && 'ドラッグで計測...'}
+                    {isDrawingRect && 'ドラッグで描画...'}
+                    （左のアイコンで再度クリックすると解除）
+                  </span>
+                )}
               </div>
 
               {(lines.length > 0 || vlines.length > 0 || rects.length > 0) && (

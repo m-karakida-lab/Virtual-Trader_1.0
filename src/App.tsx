@@ -5,6 +5,7 @@ import { MiniChart } from './components/MiniChart';
 import { Controls } from './components/Controls';
 import { HistoryPanel } from './components/HistoryPanel';
 import { FloatingControls } from './components/FloatingControls';
+import { DrawToolbar } from './components/DrawToolbar';
 import { useTraderStore } from './store/useTraderStore';
 import { initDuckDB } from './lib/duckdb';
 import { TIMEFRAMES } from './types';
@@ -70,6 +71,7 @@ export default function App() {
           <CandleChart />
         )}
         <FloatingControls />
+        <DrawToolbar />
         {error && (
           <div style={{
             position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)',
