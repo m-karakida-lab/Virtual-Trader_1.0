@@ -93,15 +93,33 @@ export interface CloudSeries {
   points: { time: number; a: number; b: number }[]; // canvas塗りつぶし用
 }
 
-// timeframeSec: 先行スパンを CLOUD_SHIFT 本先の時刻にずらすための足の間隔（秒）
-export function computeCloud(candles: Candle[], timeframeSec: number): CloudSeries {
+// 先行スパンを置く時刻。「26本先」は必ず"本数"で数える（時刻に 26*timeframeSec 秒を足さない）。
+// lightweight-charts は足を時刻ではなくインデックスで並べ、時間軸の目盛りはそのチャートに
+// 載っている全シリーズの時刻の和集合になる。そのため雲がローソク足に存在しない時刻
+// （週末・DSTでずれた時刻・MN足の平均月秒など）を持ち込むと、その時刻のぶんだけ空スロットが
+// 増え、週またぎで足が途切れて見える（visible:false のシリーズも時刻は残るのでOFFでも消えない）。
+// データ終端より先だけは実在する足が無いため最終足からの等間隔で合成する。これは全ローソク足より
+// 右にしか出ないので途中に隙間を作ることはない。実在の足があるときに外挿してはいけない
+// （後から足が埋まると、外挿した時刻が中間に取り残されて同じ不具合が再発する）
+export function cloudDisplacedTime(cs: Candle[], i: number, timeframeSec: number): number {
+  const j = i + CLOUD_SHIFT;
+  if (j < cs.length) return cs[j].time;
+  const last = cs.length - 1;
+  return cs[last].time + (j - last) * timeframeSec;
+}
+
+// candles:    描画する範囲（MiniChartはカーソルまでに切り詰めた前方部分列）
+// timeframeSec: データ終端より先を合成するための足の間隔（秒）
+// allCandles: ずらし先の時刻を引くための全期間データ。candles はこの配列の先頭からの部分列であること。
+//             値は candles からしか読まない（時刻だけ参照するので未来の価格は覗いていない）
+export function computeCloud(candles: Candle[], timeframeSec: number, allCandles: Candle[]): CloudSeries {
   const senkouA: LineData[] = [];
   const senkouB: LineData[] = [];
   const points: { time: number; a: number; b: number }[] = [];
   for (let i = 0; i < candles.length; i++) {
     const pt = computeCloudPoint(candles, i);
     if (!pt) continue;
-    const displaced = candles[i].time + CLOUD_SHIFT * timeframeSec;
+    const displaced = cloudDisplacedTime(allCandles, i, timeframeSec);
     senkouA.push({ time: displaced as Time, value: pt.a });
     senkouB.push({ time: displaced as Time, value: pt.b });
     points.push({ time: displaced, a: pt.a, b: pt.b });

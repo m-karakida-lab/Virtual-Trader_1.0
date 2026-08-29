@@ -27,7 +27,7 @@
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
 
 ### チャート表示・描画
-- ローソク足 + **200EMA**（増分計算、デフォルトOFF）、**SMA14**（単純移動平均、増分計算、デフォルトOFF）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトON）、**一目均衡表の雲**（先行スパンA/Bのみ、26期間先行、色分け塗りつぶし、デフォルトON）、**区間区切り**（15m/1Hは日替わり、4Hは週替わり、1D/1Wは月替わり、MNは年替わりで最初に出現した足の時刻を境界とする、控えめなドット線、デフォルトON）、ON/OFF切替可。これらはすべて4画面時のミニチャート3枚にも連動して反映される（`src/lib/indicators.ts`・`src/lib/weekLines.ts`を共有）
+- ローソク足 + **200EMA**（増分計算、デフォルトOFF）、**SMA14**（単純移動平均、増分計算、デフォルトOFF）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトON）、**一目均衡表の雲**（先行スパンA/Bのみ、26**本**先行、色分け塗りつぶし、デフォルトON）、**区間区切り**（15m/1Hは日替わり、4Hは週替わり、1D/1Wは月替わり、MNは年替わりで最初に出現した足の時刻を境界とする、控えめなドット線、デフォルトON）、ON/OFF切替可。これらはすべて4画面時のミニチャート3枚にも連動して反映される（`src/lib/indicators.ts`・`src/lib/weekLines.ts`を共有）
 - **水平線・垂直線描画**: クリックで配置、ドラッグで移動、色・線種・太さを個別設定
 - **四角形描画**: ドラッグで描画（始点〜終点の対角）。色は青・赤・黄・緑の4色、太さ1〜4pxを個別設定。4隅のいずれかをドラッグしてリサイズ可能（反対側の角は固定、掴んだ角だけ移動）。選択中（`描画`メニュー内の一覧をクリック）にDelete/Backspaceキーで削除（水平線・垂直線も同様）。配置後の平行移動は非対応。水平線・垂直線・四角形とも、描画・編集操作はメインパネルのみだが、表示自体は4画面のミニチャート3枚にも常時同期される
 - **ものさし**: ドラッグで価格差・pips・%・本数・期間・中央線を計測
@@ -90,7 +90,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/currency.ts` — ファイル名から通貨ペア検出（`detectPairSymbol`）・クオート通貨/記号マッピング
 - `src/lib/chartTheme.ts` — TradingView風のチャート共通スタイル定数（フォント・軸文字色/サイズ）
 - `src/lib/chartViewState.ts` — チャートのズーム/スケールを時間軸ごとにlocalStorageへ保存/復元。絶対時刻ではなく「右端から何本目〜何本分」の相対位置で持つため、別データセットでも同じ拡大率で再現される
-- `src/lib/indicators.ts` — EMA/BB/雲の計算ロジック（全体再計算版）。MiniChartが使用。CandleChartは増分計算の最適化版を別途持つ
+- `src/lib/indicators.ts` — EMA/SMA/BB/雲の計算ロジック（全体再計算版）。MiniChartが使用。CandleChartは増分計算の最適化版を別途持つ。ただし雲のずらし先時刻を返す`cloudDisplacedTime`だけは CandleChart / MiniChart 双方がここを共用する（本数ベースでずらす実装を1箇所に閉じるため）
 - `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`。MN足は`computeYearBoundaries`＝年区切り、1D/1W足は`computeMonthBoundaries`＝月区切り、4H足は`computeWeekBoundaries`＝週区切り（月曜始まり）、15m/1Hは`computeDayBoundaries`＝日区切り）。CandleChart/MiniChart共通
 - `src/lib/pips.ts` — 価格帯から pip単位・表示精度を推定（JPYクロス判定）
 - `src/lib/crosshairSync.ts` — 4画面の十字カーソル同期用。`priceAtTime(candles, time, timeframeSec)`で、指定時刻直前に確定している足の終値を返す。時刻が先頭の足より前、または末尾の足の期間（`time + timeframeSec`）を超える場合はnull（そのパネルにはまだ存在しない未来のためクロスヘアを出さない）
@@ -113,6 +113,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `read_csv` に `all_varchar=true` と `ignore_errors=true` が必須
 - P&L 計算は**クオート通貨そのまま**（円換算しない）。EURUSDなら結果はUSD相当
 - JST変換は`candles_1m`（生の1分足）ではなく`queryCandles`の集計結果（`time`列）に対して事後的に適用している。そのため4H/1D等のバケット境界自体はブローカー時間基準のまま（JST 00:00ちょうど等の切りの良い時刻にはならない）。ラベルの変換のみで再集計はしていない。この影響で「計算上のカレンダー時刻（月曜0時等）」を直接使う機能は実在する足の時刻と一致せず`timeToCoordinate`がnullを返しやすい。区切り線は「日/月替わりを跨いだ実際の足」を境界に使うことで回避している（`computeSeparatorBoundaries`）。同種の機能を追加する際はこのパターンを踏襲すること
+- チャートの時間軸の目盛りは**そのチャートに載っている全シリーズの時刻の和集合**。ローソク足に存在しない時刻を1つでも持ち込むと、そこに空スロットが挿入されて足が途切れて見える（`visible:false`のシリーズも時刻は残るのでインジケーターをOFFにしても消えない）。一目均衡表の先行スパンは必ず**本数**でずらすこと（`cloudDisplacedTime`）。時刻に`26*timeframeSec`秒を足すと、週末・DST・MN足の平均月秒（`MONTH_SEC`は近似値だが実際の集計は暦月`date_trunc`）のせいで足の無い時刻に着地する。データ終端より先だけは実在の足が無いので等間隔で外挿してよい（全足より右にしか出ないため途中に隙間を作らない）が、実在の足があるうちに外挿してはいけない（後から足が埋まると外挿分が中間に取り残される）
 - チャートの月境界マークは `tickMarkFormatter` を通らず `localization.dateFormat` が使われる。有効トークンは `yyyy/yy/MMMM/MMM/MM/dd` のみ
 - 自動再生は `requestAnimationFrame` で実装（`setInterval` は高速再生時に描画ノイズが出る）
 - ドラッグ系操作（水平線・垂直線・ものさし・注文・TP/SL・draft）は開始時にチャートの `handleScroll`/`handleScale` を無効化し、終了時に必ず再有効化する。新規ドラッグ操作追加時はこの作法に従う

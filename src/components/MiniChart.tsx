@@ -518,7 +518,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     bbUpper2SeriesRef.current?.setData(bb.upper2);
     bbLower2SeriesRef.current?.setData(bb.lower2);
 
-    const cloud = computeCloud(visible, timeframeSec);
+    const cloud = computeCloud(visible, timeframeSec, data);
     senkouASeriesRef.current?.applyOptions({ priceFormat });
     senkouASeriesRef.current?.setData(cloud.senkouA);
     senkouBSeriesRef.current?.setData(cloud.senkouB);

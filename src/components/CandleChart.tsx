@@ -14,6 +14,7 @@ import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
+import { cloudDisplacedTime } from '../lib/indicators';
 import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
 
@@ -44,7 +45,6 @@ const MIN_JUMP_SPAN_BARS = 30; // 日時ジャンプ時、表示幅がこの本�
 const TENKAN_PERIOD = 9;
 const KIJUN_PERIOD = 26;
 const SENKOU_B_PERIOD = 52;
-const CLOUD_SHIFT = 26;
 
 const toBar = (c: Candle): CandlestickData => ({
   time: c.time as Time,
@@ -1730,7 +1730,7 @@ export function CandleChart() {
     bbLower2SeriesRef.current?.update({ time, value: mean - 2 * sd });
   }
 
-  // 雲: 先行スパンA/Bを CLOUD_SHIFT 本先の時刻にずらして描画（値自体は過去データのみで算出）
+  // 雲: 先行スパンA/Bを 26 本先の"足の時刻"に置いて描画（値自体は過去データのみで算出）
   function recomputeCloudFull(cs: Candle[], uptoIndex: number) {
     const aData: LineData[] = [];
     const bData: LineData[] = [];
@@ -1738,7 +1738,7 @@ export function CandleChart() {
     for (let i = 0; i <= uptoIndex; i++) {
       const pt = computeCloudPoint(cs, i);
       if (!pt) continue;
-      const displaced = cs[i].time + CLOUD_SHIFT * timeframeSec;
+      const displaced = cloudDisplacedTime(cs, i, timeframeSec);
       aData.push({ time: displaced as Time, value: pt.a });
       bData.push({ time: displaced as Time, value: pt.b });
       points.push({ time: displaced, a: pt.a, b: pt.b });
@@ -1752,7 +1752,7 @@ export function CandleChart() {
   function updateCloudStep(cs: Candle[], idx: number) {
     const pt = computeCloudPoint(cs, idx);
     if (!pt) return;
-    const displaced = cs[idx].time + CLOUD_SHIFT * timeframeSec;
+    const displaced = cloudDisplacedTime(cs, idx, timeframeSec);
     senkouASeriesRef.current?.update({ time: displaced as Time, value: pt.a });
     senkouBSeriesRef.current?.update({ time: displaced as Time, value: pt.b });
     cloudDataRef.current = [...cloudDataRef.current, { time: displaced, a: pt.a, b: pt.b }];
