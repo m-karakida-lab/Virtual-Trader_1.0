@@ -161,6 +161,7 @@ export function CandleChart() {
   const orderSlLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const draftLineMapRef = useRef<Map<'price' | 'tp' | 'sl', IPriceLine>>(new Map());
   const vlineElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  const lineHandleElRef = useRef<HTMLDivElement | null>(null); // 選択中の水平線/垂直線の中点ハンドル（常に1個分のみ）
   const syncVLinesRef = useRef<() => void>(() => {});
   const rectOverlayRef = useRef<HTMLDivElement>(null);
   const rectElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
@@ -421,8 +422,8 @@ export function CandleChart() {
 
     // ── 垂直線の位置を再計算して DOM に反映 ────────────────────────
     const syncVLines = () => {
-      if (!chartRef.current || !overlayRef.current) return;
-      const { vlines: currentVLines } = useTraderStore.getState();
+      if (!chartRef.current || !overlayRef.current || !seriesRef.current) return;
+      const { vlines: currentVLines, lines: currentLines, selected } = useTraderStore.getState();
       const overlay = overlayRef.current;
       const existing = vlineElsRef.current;
       const nextIds = new Set(currentVLines.map(v => v.id));
@@ -451,6 +452,41 @@ export function CandleChart() {
           el.style.left = `${x}px`;
           el.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
         }
+      }
+
+      // 選択中の水平線・垂直線があれば中点にハンドルを1つ表示する（編集モードの目印。
+      // 実際の移動は既存のドラッグ判定（findPriceTargetNear/findVLineNear）が
+      // 線全体のどこでも受け付けるので、ハンドルは見た目上のマーカーを兼ねる）
+      let handle = lineHandleElRef.current;
+      if (!handle) {
+        handle = document.createElement('div');
+        handle.style.position = 'absolute';
+        handle.style.width = '8px';
+        handle.style.height = '8px';
+        handle.style.backgroundColor = '#42a5f5';
+        handle.style.border = '1px solid #fff';
+        handle.style.borderRadius = '2px';
+        handle.style.pointerEvents = 'none';
+        handle.style.display = 'none';
+        overlay.appendChild(handle);
+        lineHandleElRef.current = handle;
+      }
+      let point: [number, number] | null = null;
+      if (selected?.kind === 'h') {
+        const line = currentLines.find(l => l.id === selected.id);
+        const y = line ? seriesRef.current.priceToCoordinate(line.price) : null;
+        if (y !== null) point = [container.clientWidth / 2, y];
+      } else if (selected?.kind === 'v') {
+        const v = currentVLines.find(vv => vv.id === selected.id);
+        const x = v ? timeToX(v.time) : null;
+        if (x !== null) point = [x, container.clientHeight / 2];
+      }
+      if (point) {
+        handle.style.display = 'block';
+        handle.style.left = `${point[0] - 4}px`;
+        handle.style.top = `${point[1] - 4}px`;
+      } else {
+        handle.style.display = 'none';
       }
     };
     syncVLinesRef.current = syncVLines;
@@ -1016,6 +1052,7 @@ export function CandleChart() {
         draggingTarget = target;
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'ns-resize';
+        if (target.kind === 'hline') useTraderStore.getState().selectLine({ kind: 'h', id: target.id });
         return;
       }
       const vId = findVLineNear(x);
@@ -1023,6 +1060,7 @@ export function CandleChart() {
         draggingVId = vId;
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'ew-resize';
+        useTraderStore.getState().selectLine({ kind: 'v', id: vId });
         return;
       }
       const corner = findRectCornerNear(x, y);
@@ -1337,6 +1375,8 @@ export function CandleChart() {
       if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
       vlineElsRef.current.forEach(el => el.remove());
       vlineElsRef.current.clear();
+      lineHandleElRef.current?.remove();
+      lineHandleElRef.current = null;
       rectElsRef.current.forEach(el => el.remove());
       rectElsRef.current.clear();
       rectHandleElsRef.current.forEach(el => el.remove());
@@ -1409,7 +1449,8 @@ export function CandleChart() {
     } catch (e) {
       logError('CandleChart:hlines', e);
     }
-  }, [lines]);
+    syncVLinesRef.current();
+  }, [lines, selected]);
 
   // 未約定注文（指値・逆指値）の価格ラインを再描画
   useEffect(() => {
@@ -1580,10 +1621,10 @@ export function CandleChart() {
     updateRRPreviewRef.current();
   }, [orderType, draftPrice, draftTP, draftSL, candles, cursor]);
 
-  // 垂直線の再描画
+  // 垂直線の再描画（選択状態が変わった時も中点ハンドル表示を更新する）
   useEffect(() => {
     syncVLinesRef.current();
-  }, [vlines]);
+  }, [vlines, selected]);
 
   // 四角形の再描画（選択状態が変わった時もハンドル表示を更新する）
   useEffect(() => {
