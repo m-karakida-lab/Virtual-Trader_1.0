@@ -305,7 +305,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
   rectDraft: { color: RECT_COLORS[0], width: 2 },
   showEMA: false,
-  showSMA: false,
+  showSMA: true,
   showBB: true,
   showCloud: true,
   showWeekLines: true,
