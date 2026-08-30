@@ -946,6 +946,11 @@ export function CandleChart() {
     let pendingRectCornerPos: { time: number; price: number } | null = null;
     let pendingRectEdgeValue: number | null = null;
     let rafScheduled = false;
+    // 価格軸のドラッグによる縦スケール変更はlightweight-charts側の内部処理で、
+    // それを教えてくれるイベントが無い。そのためドラッグ操作中でなくても、マウスが
+    // 動くたびに（rAFで間引きながら）水平線・垂直線・四角形・区切り線を再計算することで
+    // 追従させる（本来の座標変換はスケールに依存するので、再計算自体は毎回必要な処理）
+    let overlayResyncScheduled = false;
 
     // ── 四角形の枠（ハンドル以外の辺）をつかんでの平行移動 ──────────────
     // リサイズ（角・辺の中点）と違い、4隅すべてに同じ時間・価格の差分を
@@ -1490,6 +1495,17 @@ export function CandleChart() {
           });
         }
         return;
+      }
+
+      // 価格軸ドラッグ等、こちらで検知できないスケール変更にも追従させる（コメントは冒頭のlet宣言を参照）
+      if (!overlayResyncScheduled) {
+        overlayResyncScheduled = true;
+        requestAnimationFrame(() => {
+          overlayResyncScheduled = false;
+          syncVLines();
+          syncRects();
+          syncWeekLines();
+        });
       }
 
       // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に
