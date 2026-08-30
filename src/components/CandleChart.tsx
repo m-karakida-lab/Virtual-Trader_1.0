@@ -947,6 +947,14 @@ export function CandleChart() {
     let pendingRectEdgeValue: number | null = null;
     let rafScheduled = false;
 
+    // ── 四角形の枠（ハンドル以外の辺）をつかんでの平行移動 ──────────────
+    // リサイズ（角・辺の中点）と違い、4隅すべてに同じ時間・価格の差分を
+    // 加算するだけ。掴んだ瞬間の位置を基準に差分を測るので、枠のどこを
+    // つかんでも（中点でなくても）ズレなく平行移動する
+    let draggingRectMoveId: number | null = null;
+    let rectMoveStart: { time1: number; time2: number; price1: number; price2: number; startTime: number; startPrice: number } | null = null;
+    let pendingRectMoveDelta: { dt: number; dp: number } | null = null;
+
     // 発注パネルの draft 価格（price/TP/SL）のプレビュー線をドラッグで調整
     const findDraftNear = (y: number): 'price' | 'tp' | 'sl' | null => {
       if (!seriesRef.current) return null;
@@ -1078,6 +1086,29 @@ export function CandleChart() {
     // 四角形の枠内（境界も少し外側まで許容）をクリックしたか判定。ヒットしたら選択状態にする
     // （見た目上の編集モードに入り、破線枠＋4隅ハンドルが出る）。ここでは選択するだけで、
     // ドラッグでの本体移動は対応しない（対応するのは4隅のリサイズのみ）
+    // 四角形の枠線上（角・辺の中点ハンドルは含まない、辺全体）を掴んだかどうかの判定。
+    // mousedownではfindRectCornerNear/findRectEdgeNearの後に呼ぶことで、ハンドル上の
+    // クリックは常にリサイズが優先され、それ以外の枠線上のクリックだけが平行移動になる
+    const findRectBorderNear = (x: number, y: number): number | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { rects: currentRects } = useTraderStore.getState();
+      for (const r of currentRects) {
+        const x1 = timeToX(r.time1);
+        const x2 = timeToX(r.time2);
+        const y1 = seriesRef.current.priceToCoordinate(r.price1);
+        const y2 = seriesRef.current.priceToCoordinate(r.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        const left = Math.min(x1, x2), right = Math.max(x1, x2);
+        const top = Math.min(y1, y2), bottom = Math.max(y1, y2);
+        const withinX = x >= left - DRAG_TOLERANCE_PX && x <= right + DRAG_TOLERANCE_PX;
+        const withinY = y >= top - DRAG_TOLERANCE_PX && y <= bottom + DRAG_TOLERANCE_PX;
+        const nearVerticalEdge   = withinY && (Math.abs(x - left) <= DRAG_TOLERANCE_PX || Math.abs(x - right) <= DRAG_TOLERANCE_PX);
+        const nearHorizontalEdge = withinX && (Math.abs(y - top) <= DRAG_TOLERANCE_PX || Math.abs(y - bottom) <= DRAG_TOLERANCE_PX);
+        if (nearVerticalEdge || nearHorizontalEdge) return r.id;
+      }
+      return null;
+    };
+
     const findRectBodyNear = (x: number, y: number): number | null => {
       if (!chartRef.current || !seriesRef.current) return null;
       const { rects: currentRects } = useTraderStore.getState();
@@ -1222,6 +1253,21 @@ export function CandleChart() {
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = edge.field === 'time1' || edge.field === 'time2' ? 'ew-resize' : 'ns-resize';
         useTraderStore.getState().selectLine({ kind: 'rect', id: edge.rectId });
+        return;
+      }
+
+      const borderRectId = findRectBorderNear(x, y);
+      if (borderRectId !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const r = useTraderStore.getState().rects.find(rr => rr.id === borderRectId);
+        const startTime = pixelToTime(x);
+        const startPrice = seriesRef.current.coordinateToPrice(y);
+        if (!r || startTime === null || startPrice === null) return;
+        draggingRectMoveId = borderRectId;
+        rectMoveStart = { time1: r.time1, time2: r.time2, price1: r.price1, price2: r.price2, startTime, startPrice };
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'move';
+        useTraderStore.getState().selectLine({ kind: 'rect', id: borderRectId });
         return;
       }
 
@@ -1386,6 +1432,35 @@ export function CandleChart() {
         return;
       }
 
+      if (draggingRectMoveId !== null && rectMoveStart) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const t = pixelToTime(x);
+        const p = seriesRef.current.coordinateToPrice(y);
+        if (t === null || p === null) return;
+        pendingRectMoveDelta = { dt: t - rectMoveStart.startTime, dp: p - rectMoveStart.startPrice };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingRectMoveId === null || pendingRectMoveDelta === null || rectMoveStart === null) return;
+            if (!chartRef.current || !seriesRef.current) return;
+            const el = rectElsRef.current.get(draggingRectMoveId);
+            if (!el) return;
+            const x1 = timeToX(rectMoveStart.time1 + pendingRectMoveDelta.dt);
+            const x2 = timeToX(rectMoveStart.time2 + pendingRectMoveDelta.dt);
+            const y1 = seriesRef.current.priceToCoordinate(rectMoveStart.price1 + pendingRectMoveDelta.dp);
+            const y2 = seriesRef.current.priceToCoordinate(rectMoveStart.price2 + pendingRectMoveDelta.dp);
+            if (x1 === null || x2 === null || y1 === null || y2 === null) return;
+            el.style.left = `${Math.min(x1, x2)}px`;
+            el.style.top = `${Math.min(y1, y2)}px`;
+            el.style.width = `${Math.abs(x2 - x1)}px`;
+            el.style.height = `${Math.abs(y2 - y1)}px`;
+            positionRectHandles(x1, x2, y1, y2);
+          });
+        }
+        return;
+      }
+
       // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, pickTarget: pick } = useTraderStore.getState();
       if (!dH && !dV && !isM && !isR && pick === null) {
@@ -1398,9 +1473,9 @@ export function CandleChart() {
         const corner = findRectCornerNear(x, y);
         if (corner !== null) { container.style.cursor = 'nwse-resize'; return; }
         const edge = findRectEdgeNear(x, y);
-        container.style.cursor = edge !== null
-          ? (edge.field === 'time1' || edge.field === 'time2' ? 'ew-resize' : 'ns-resize')
-          : 'default';
+        if (edge !== null) { container.style.cursor = edge.field === 'time1' || edge.field === 'time2' ? 'ew-resize' : 'ns-resize'; return; }
+        const border = findRectBorderNear(x, y);
+        container.style.cursor = border !== null ? 'move' : 'default';
       }
     };
 
@@ -1479,6 +1554,21 @@ export function CandleChart() {
         draggingRectEdge = null;
         pendingRectEdgeValue = null;
         chart.applyOptions({ handleScroll: true, handleScale: true });
+      }
+      if (draggingRectMoveId !== null) {
+        if (pendingRectMoveDelta !== null && rectMoveStart !== null) {
+          useTraderStore.getState().updateRect(draggingRectMoveId, {
+            time1: rectMoveStart.time1 + pendingRectMoveDelta.dt,
+            time2: rectMoveStart.time2 + pendingRectMoveDelta.dt,
+            price1: rectMoveStart.price1 + pendingRectMoveDelta.dp,
+            price2: rectMoveStart.price2 + pendingRectMoveDelta.dp,
+          });
+        }
+        draggingRectMoveId = null;
+        rectMoveStart = null;
+        pendingRectMoveDelta = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
       }
     };
 
