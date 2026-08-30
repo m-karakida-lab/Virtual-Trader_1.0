@@ -179,6 +179,7 @@ interface TraderState {
   removeRect: (id: number) => void;
   toggleDrawRect: () => void;
   setMagnetMode: (mode: MagnetMode) => void;
+  toggleMagnet: () => void;
   selectLine: (target: LineSelection | null) => void;
   setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   setRectDraft: (patch: Partial<{ color: string; width: LineWidth }>) => void;
@@ -672,6 +673,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawRect: () => set(s => ({ isDrawingRect: !s.isDrawingRect, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, pickTarget: null })),
   setMagnetMode: mode => set({ magnetMode: mode }),
+  // アイコン本体クリックでのON/OFFトグル。OFF→ONは弱から始める
+  // （直前の強さを記憶はしない。矢印ポップアップでいつでも強に変えられるため）
+  toggleMagnet: () => set(s => ({ magnetMode: s.magnetMode === 'off' ? 'weak' : 'off' })),
 
   selectLine: (target: LineSelection | null) => set({ selected: target }),
   setRectDraft: (patch) => {

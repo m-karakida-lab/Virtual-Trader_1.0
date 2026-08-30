@@ -221,58 +221,33 @@ function LineStylePopup({ title, disabled }: { title: string; disabled: boolean 
   );
 }
 
-const MAGNET_OPTIONS: { v: MagnetMode; label: string }[] = [
-  { v: 'off', label: 'オフ' }, { v: 'weak', label: '弱' }, { v: 'strong', label: '強' },
+const MAGNET_STRENGTH_OPTIONS: { v: Exclude<MagnetMode, 'off'>; label: string }[] = [
+  { v: 'weak', label: '弱' }, { v: 'strong', label: '強' },
 ];
 
-// マグネット（描画時の価格スナップ）のON/OFF・強さを選ぶボタン。他のツールと違い
-// クリックしても描画モードには入らず、常にポップアップで弱/強/オフを選ぶだけ
-function MagnetButton({ disabled }: { disabled: boolean }) {
+// マグネットの強さ（弱/強）を選ぶ矢印つきポップアップ。他のStyleArrow系と同じく、
+// 選ぶと同時にその強さでマグネットをONにする（オフの状態から矢印で選んでもすぐ使える）
+function MagnetStrengthPopup({ disabled }: { disabled: boolean }) {
   const magnetMode = useTraderStore(s => s.magnetMode);
   const setMagnetMode = useTraderStore(s => s.setMagnetMode);
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const onClick = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener('mousedown', onClick);
-    return () => document.removeEventListener('mousedown', onClick);
-  }, [open]);
 
   return (
-    <div ref={ref} style={{ position: 'relative' }}>
-      <ToolButton
-        icon="magnet"
-        title="マグネット（足のOHLCに吸着）"
-        active={magnetMode !== 'off'}
-        disabled={disabled}
-        onClick={() => setOpen(o => !o)}
-      />
-      {open && (
-        <div style={{
-          position: 'absolute', left: 'calc(100% + 6px)', top: 0,
-          backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
-          padding: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 60,
-          display: 'flex', gap: '3px', minWidth: 'max-content',
-        }}>
-          {MAGNET_OPTIONS.map(o => (
-            <button
-              key={o.v}
-              onClick={() => setMagnetMode(o.v)}
-              style={{
-                backgroundColor: magnetMode === o.v ? '#2a2a2a' : '#161616',
-                color: magnetMode === o.v ? '#e0e0e0' : '#666',
-                border: magnetMode === o.v ? '1px solid #3a3a3a' : '1px solid #222',
-                borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-              }}
-            >{o.label}</button>
-          ))}
-        </div>
-      )}
-    </div>
+    <StyleArrow title="マグネットの強さ" disabled={disabled}>
+      <div style={{ display: 'flex', gap: '3px' }}>
+        {MAGNET_STRENGTH_OPTIONS.map(o => (
+          <button
+            key={o.v}
+            onClick={() => setMagnetMode(o.v)}
+            style={{
+              backgroundColor: magnetMode === o.v ? '#2a2a2a' : '#161616',
+              color: magnetMode === o.v ? '#e0e0e0' : '#666',
+              border: magnetMode === o.v ? '1px solid #3a3a3a' : '1px solid #222',
+              borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+            }}
+          >{o.label}</button>
+        ))}
+      </div>
+    </StyleArrow>
   );
 }
 
@@ -286,6 +261,8 @@ export function DrawToolbar() {
   const toggleDrawVLine = useTraderStore(s => s.toggleDrawVLine);
   const toggleMeasure   = useTraderStore(s => s.toggleMeasure);
   const toggleDrawRect  = useTraderStore(s => s.toggleDrawRect);
+  const magnetMode      = useTraderStore(s => s.magnetMode);
+  const toggleMagnet    = useTraderStore(s => s.toggleMagnet);
 
   return (
     <div style={{
@@ -308,7 +285,10 @@ export function DrawToolbar() {
         <RectStylePopup disabled={!isLoaded} />
       </div>
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
-      <MagnetButton disabled={!isLoaded} />
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <ToolButton icon="magnet" title="マグネット（足のOHLCに吸着）" active={magnetMode !== 'off'} disabled={!isLoaded} onClick={toggleMagnet} />
+        <MagnetStrengthPopup disabled={!isLoaded} />
+      </div>
     </div>
   );
 }
