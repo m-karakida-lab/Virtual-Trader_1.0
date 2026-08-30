@@ -1036,8 +1036,11 @@ export function CandleChart() {
     // 四角形の4つの角のいずれかの近くか判定（リサイズハンドル）
     const findRectCornerNear = (x: number, y: number): RectCorner | null => {
       if (!chartRef.current || !seriesRef.current) return null;
-      const { rects: currentRects } = useTraderStore.getState();
-      for (const r of currentRects) {
+      const { rects: currentRects, selected } = useTraderStore.getState();
+      // ハンドル（角の小さな四角）は選択中の四角形にしか表示されないため、判定も選択中のものだけに
+      // 限定する。そうしないと未選択の四角形の辺のちょうど中央あたりを「枠を掴んで移動」しようとした
+      // 際に、見えないハンドルに引っかかって意図せずリサイズされてしまう
+      for (const r of currentRects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id)) {
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
@@ -1064,8 +1067,9 @@ export function CandleChart() {
     // （四角形の中身をドラッグで反転させても、その後は同じフィールドを更新し続ける。角のドラッグと同じ考え方）
     const findRectEdgeNear = (x: number, y: number): RectEdge | null => {
       if (!chartRef.current || !seriesRef.current) return null;
-      const { rects: currentRects } = useTraderStore.getState();
-      for (const r of currentRects) {
+      const { rects: currentRects, selected } = useTraderStore.getState();
+      // 角のハンドルと同じ理由で、選択中の四角形の辺だけを対象にする
+      for (const r of currentRects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id)) {
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
