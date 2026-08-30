@@ -494,6 +494,24 @@ export function CandleChart() {
 
     // ── 四角形の位置を再計算して DOM に反映（枠線のみ、選択中は破線＋4隅・4辺のハンドル） ──
     const RECT_HANDLE_SIZE = 8;
+    // 4隅+4辺の中点にハンドルを配置する（0-3=4隅、4-7=上/下/左/右の中点）。
+    // syncRects（store確定後）だけでなく、コーナー/辺ドラッグ中のrAFプレビューからも
+    // 同じフレームで呼ぶことで、ドラッグ中に本体だけ動いてハンドルが取り残されるのを防ぐ
+    const positionRectHandles = (x1: number, x2: number, y1: number, y2: number) => {
+      const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
+      const points: [number, number][] = [
+        [x1, y1], [x1, y2], [x2, y1], [x2, y2],
+        [midX, Math.min(y1, y2)], [midX, Math.max(y1, y2)],
+        [Math.min(x1, x2), midY], [Math.max(x1, x2), midY],
+      ];
+      points.forEach(([cx, cy], i) => {
+        const h = rectHandleElsRef.current[i];
+        if (!h) return;
+        h.style.display = 'block';
+        h.style.left = `${cx - RECT_HANDLE_SIZE / 2}px`;
+        h.style.top = `${cy - RECT_HANDLE_SIZE / 2}px`;
+      });
+    };
     const syncRects = () => {
       if (!chartRef.current || !seriesRef.current || !rectOverlayRef.current) return;
       const { rects: currentRects, selected } = useTraderStore.getState();
@@ -523,7 +541,7 @@ export function CandleChart() {
         handles.push(h);
       }
 
-      let selectedPoints: [number, number][] | null = null;
+      let hasSelected = false;
 
       for (const r of currentRects) {
         let el = existing.get(r.id);
@@ -550,23 +568,12 @@ export function CandleChart() {
         const isSelected = r.id === selectedRectId;
         el.style.border = `${r.width}px ${isSelected ? 'dashed' : 'solid'} ${r.color}`;
         if (isSelected) {
-          const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
-          selectedPoints = [
-            [x1, y1], [x1, y2], [x2, y1], [x2, y2],
-            [midX, Math.min(y1, y2)], [midX, Math.max(y1, y2)],
-            [Math.min(x1, x2), midY], [Math.max(x1, x2), midY],
-          ];
+          hasSelected = true;
+          positionRectHandles(x1, x2, y1, y2);
         }
       }
 
-      if (selectedPoints) {
-        selectedPoints.forEach(([cx, cy], i) => {
-          const h = handles[i];
-          h.style.display = 'block';
-          h.style.left = `${cx - RECT_HANDLE_SIZE / 2}px`;
-          h.style.top = `${cy - RECT_HANDLE_SIZE / 2}px`;
-        });
-      } else {
+      if (!hasSelected) {
         handles.forEach(h => { h.style.display = 'none'; });
       }
     };
@@ -1199,6 +1206,7 @@ export function CandleChart() {
             el.style.top = `${Math.min(y1, y2)}px`;
             el.style.width = `${Math.abs(x2 - x1)}px`;
             el.style.height = `${Math.abs(y2 - y1)}px`;
+            positionRectHandles(x1, x2, y1, y2);
           });
         }
         return;
@@ -1230,6 +1238,7 @@ export function CandleChart() {
             el.style.top = `${Math.min(y1, y2)}px`;
             el.style.width = `${Math.abs(x2 - x1)}px`;
             el.style.height = `${Math.abs(y2 - y1)}px`;
+            positionRectHandles(x1, x2, y1, y2);
           });
         }
         return;
