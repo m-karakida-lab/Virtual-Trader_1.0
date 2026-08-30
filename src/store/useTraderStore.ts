@@ -34,6 +34,26 @@ function saveSpeed(speed: number): void {
   }
 }
 
+// マグネットの強さ（弱/強）は localStorage に記憶する。ON/OFF自体は他の描画ツールと
+// 同じく起動のたびOFFに戻るが、「弱/強のどちらを使うか」は毎回選び直したくないため
+const MAGNET_STRENGTH_STORAGE_KEY = 'vt:magnetStrength';
+
+function loadSavedMagnetStrength(): Exclude<MagnetMode, 'off'> {
+  try {
+    return localStorage.getItem(MAGNET_STRENGTH_STORAGE_KEY) === 'strong' ? 'strong' : 'weak';
+  } catch {
+    return 'weak';
+  }
+}
+
+function saveMagnetStrength(strength: Exclude<MagnetMode, 'off'>): void {
+  try {
+    localStorage.setItem(MAGNET_STRENGTH_STORAGE_KEY, strength);
+  } catch {
+    // localStorage が使えない場合は無視
+  }
+}
+
 // 4画面レイアウトの「どの枠にどの時間軸を表示するか」（枠の位置=左上/左下/右上/右下は固定、
 // 中身の時間軸だけユーザーが選べる）。デフォルトは 左上15m・左下1H・右上4H・右下1D
 const QUAD_STORAGE_KEY = 'vt:quad';
@@ -112,6 +132,7 @@ interface TraderState {
   nextRectId: number;
   isDrawingRect: boolean;
   magnetMode: MagnetMode; // 描画時に価格を足の高値/安値/始値/終値へ吸着させる強さ
+  magnetStrength: Exclude<MagnetMode, 'off'>; // OFF→ON時に使う強さ（localStorageに記憶）
   selected: LineSelection | null; // 水平線・垂直線・四角形のいずれか選択中の1つ
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
   rectDraft: { color: string; width: LineWidth };
@@ -305,6 +326,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   nextRectId: 1,
   isDrawingRect: false,
   magnetMode: 'off',
+  magnetStrength: loadSavedMagnetStrength(),
   selected: null,
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
   rectDraft: { color: RECT_COLORS[0], width: 2 },
@@ -672,10 +694,12 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     }));
   },
   toggleDrawRect: () => set(s => ({ isDrawingRect: !s.isDrawingRect, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, pickTarget: null })),
-  setMagnetMode: mode => set({ magnetMode: mode }),
-  // アイコン本体クリックでのON/OFFトグル。OFF→ONは弱から始める
-  // （直前の強さを記憶はしない。矢印ポップアップでいつでも強に変えられるため）
-  toggleMagnet: () => set(s => ({ magnetMode: s.magnetMode === 'off' ? 'weak' : 'off' })),
+  setMagnetMode: mode => {
+    if (mode !== 'off') saveMagnetStrength(mode);
+    set(s => ({ magnetMode: mode, magnetStrength: mode !== 'off' ? mode : s.magnetStrength }));
+  },
+  // アイコン本体クリックでのON/OFFトグル。OFF→ONは直前に選んだ強さ（magnetStrength）から始める
+  toggleMagnet: () => set(s => ({ magnetMode: s.magnetMode === 'off' ? s.magnetStrength : 'off' })),
 
   selectLine: (target: LineSelection | null) => set({ selected: target }),
   setRectDraft: (patch) => {
