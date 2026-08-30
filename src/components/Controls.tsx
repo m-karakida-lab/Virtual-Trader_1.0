@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
-import { TIMEFRAMES, type Position, type PendingOrder, type TimeframeSec, type LineSelection, type OrderType } from '../types';
+import { TIMEFRAMES, type Position, type PendingOrder, type LineSelection, type OrderType } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 
@@ -186,7 +186,6 @@ export function Controls() {
   const pickTarget    = useTraderStore(s => s.pickTarget);
   const setLots       = useTraderStore(s => s.setLots);
   const setSpeed      = useTraderStore(s => s.setSpeed);
-  const setTimeframe  = useTraderStore(s => s.setTimeframe);
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const setChartLayout = useTraderStore(s => s.setChartLayout);
   const removeLine    = useTraderStore(s => s.removeLine);
@@ -235,7 +234,6 @@ export function Controls() {
   const timeframeSec  = useTraderStore(s => s.timeframeSec);
   const cursor        = useTraderStore(s => s.cursor);
   const isLoaded      = useTraderStore(s => s.isLoaded);
-  const isLoading     = useTraderStore(s => s.isLoading);
   const isPlaying     = useTraderStore(s => s.isPlaying);
   const speed         = useTraderStore(s => s.speed);
   const totalPnl      = useTraderStore(selectUnrealizedPnL);
@@ -501,20 +499,6 @@ export function Controls() {
             disabled={!isLoaded}
             style={tfBtn(false, !isLoaded)}
           >リセット</button>
-        </div>
-
-        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
-
-        {/* 時間軸 */}
-        <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
-          {TIMEFRAMES.map(tf => (
-            <button
-              key={tf.sec}
-              onClick={() => setTimeframe(tf.sec as TimeframeSec)}
-              disabled={!isLoaded || isLoading}
-              style={tfBtn(tf.sec === timeframeSec, !isLoaded || isLoading)}
-            >{tf.label}</button>
-          ))}
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
