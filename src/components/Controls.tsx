@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
-import { TIMEFRAMES, LINE_COLORS, RECT_COLORS, type Position, type PendingOrder, type TimeframeSec, type LineDash, type LineWidth, type LineSelection, type OrderType } from '../types';
+import { TIMEFRAMES, type Position, type PendingOrder, type TimeframeSec, type LineSelection, type OrderType } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 
@@ -38,10 +38,6 @@ const fmt  = (n: number) => Math.round(n).toLocaleString('ja-JP');
 const fmtp = (n: number, sym: string) => (n >= 0 ? `+${sym}${fmt(n)}` : `-${sym}${fmt(Math.abs(n))}`);
 
 const LOT_OPTIONS = [1_000, 3_000, 5_000, 10_000, 20_000, 50_000, 100_000];
-const DASH_OPTIONS: { v: LineDash; label: string }[] = [
-  { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
-];
-const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
 
 const pnlColor = (n: number) => n > 0 ? '#26a69a' : n < 0 ? '#ef5350' : '#444';
 
@@ -196,9 +192,7 @@ export function Controls() {
   const removeLine    = useTraderStore(s => s.removeLine);
   const removeVLine   = useTraderStore(s => s.removeVLine);
   const removeRect    = useTraderStore(s => s.removeRect);
-  const setRectDraft  = useTraderStore(s => s.setRectDraft);
   const selectLine    = useTraderStore(s => s.selectLine);
-  const setLineDraft  = useTraderStore(s => s.setLineDraft);
   const toggleEMA     = useTraderStore(s => s.toggleEMA);
   const toggleSMA     = useTraderStore(s => s.toggleSMA);
   const toggleBB      = useTraderStore(s => s.toggleBB);
@@ -215,8 +209,6 @@ export function Controls() {
   const isMeasuring = useTraderStore(s => s.isMeasuring);
   const isDrawingRect = useTraderStore(s => s.isDrawingRect);
   const selected        = useTraderStore(s => s.selected);
-  const lineDraft      = useTraderStore(s => s.lineDraft);
-  const rectDraft      = useTraderStore(s => s.rectDraft);
   const showEMA       = useTraderStore(s => s.showEMA);
   const showSMA       = useTraderStore(s => s.showSMA);
   const showBB        = useTraderStore(s => s.showBB);
@@ -283,13 +275,6 @@ export function Controls() {
   };
   const minDate = candles.length > 0 ? toDateUTC(candles[0].time) : undefined;
   const maxDate = candles.length > 0 ? toDateUTC(candles[candles.length - 1].time) : undefined;
-
-  // 選択中のライン（水平線 or 垂直線）があればその設定を、なければ draft（次に引く線の設定）を表示
-  const selectedLine  = selected?.kind === 'h' ? lines.find(l => l.id === selected.id) : undefined;
-  const selectedVLine = selected?.kind === 'v' ? vlines.find(v => v.id === selected.id) : undefined;
-  const selectedRect  = selected?.kind === 'rect' ? rects.find(r => r.id === selected.id) : undefined;
-  const activeStyle = selectedLine ?? selectedVLine ?? lineDraft;
-  const activeRectStyle = selectedRect ?? rectDraft;
 
   // rAF 自動再生
   useEffect(() => {
@@ -697,74 +682,6 @@ export function Controls() {
                 </div>
               )}
 
-              {/* スタイルピッカー: 選択中のラインがあればそれを編集、なければ次に引く線の既定値 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <span style={{ color: '#444', fontSize: '14px' }}>
-                  {selectedLine ? `編集中: ${selectedLine.price.toFixed(pricePrecision(selectedLine.price))}`
-                    : selectedVLine ? `編集中: ${fmtVTime(selectedVLine.time)}`
-                    : '次の線:'}
-                </span>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  {LINE_COLORS.map(c => (
-                    <button
-                      key={c}
-                      onClick={() => setLineDraft({ color: c })}
-                      style={{
-                        width: '16px', height: '16px', borderRadius: '50%', backgroundColor: c,
-                        border: activeStyle.color === c ? '2px solid #fff' : '2px solid transparent',
-                        cursor: 'pointer', padding: 0,
-                      }}
-                    />
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: '3px' }}>
-                  {DASH_OPTIONS.map(d => (
-                    <button
-                      key={d.v}
-                      onClick={() => setLineDraft({ dash: d.v })}
-                      style={tfBtn(activeStyle.dash === d.v, false)}
-                    >{d.label}</button>
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: '3px' }}>
-                  {WIDTH_OPTIONS.map(w => (
-                    <button
-                      key={w}
-                      onClick={() => setLineDraft({ width: w })}
-                      style={tfBtn(activeStyle.width === w, false)}
-                    >{w}px</button>
-                  ))}
-                </div>
-              </div>
-
-              {/* 四角形のスタイルピッカー: 選択中の四角があればそれを編集、なければ次に描く四角の既定値 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '10px', flexWrap: 'wrap' }}>
-                <span style={{ color: '#444', fontSize: '14px' }}>
-                  {selectedRect ? '編集中: 四角' : '次の四角:'}
-                </span>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  {RECT_COLORS.map(c => (
-                    <button
-                      key={c}
-                      onClick={() => setRectDraft({ color: c })}
-                      style={{
-                        width: '16px', height: '16px', backgroundColor: c,
-                        border: activeRectStyle.color === c ? '2px solid #fff' : '2px solid transparent',
-                        cursor: 'pointer', padding: 0,
-                      }}
-                    />
-                  ))}
-                </div>
-                <div style={{ display: 'flex', gap: '3px' }}>
-                  {WIDTH_OPTIONS.map(w => (
-                    <button
-                      key={w}
-                      onClick={() => setRectDraft({ width: w })}
-                      style={tfBtn(activeRectStyle.width === w, false)}
-                    >{w}px</button>
-                  ))}
-                </div>
-              </div>
             </div>
           </MenuButton>
         </div>
