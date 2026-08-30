@@ -952,8 +952,11 @@ export function CandleChart() {
     // 加算するだけ。掴んだ瞬間の位置を基準に差分を測るので、枠のどこを
     // つかんでも（中点でなくても）ズレなく平行移動する
     let draggingRectMoveId: number | null = null;
-    let rectMoveStart: { time1: number; time2: number; price1: number; price2: number; startTime: number; startPrice: number } | null = null;
-    let pendingRectMoveDelta: { dt: number; dp: number } | null = null;
+    // 時間方向の移動は秒数の差分ではなく足のインデックスの差分で行う（雲の先行スパンと同じ理由）。
+    // 週末や休場日で足が抜けている区間をまたぐと、同じ秒数でも実際の足の本数は場所によって
+    // 変わるため、四角形の両端に同じ「秒数」を足すと片方だけ足の本数がズレて幅が変わってしまう
+    let rectMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
+    let pendingRectMoveDelta: { idx: number; dp: number } | null = null;
 
     // ── コピー&ペースト（Cmd/Ctrl+C / Cmd/Ctrl+V） ──────────────────────
     // クリップボードはこのコンポーネントの寿命内だけ有効なローカル変数
@@ -1271,12 +1274,20 @@ export function CandleChart() {
       const borderRectId = findRectBorderNear(x, y);
       if (borderRectId !== null) {
         if (!seriesRef.current || !chartRef.current) return;
-        const r = useTraderStore.getState().rects.find(rr => rr.id === borderRectId);
+        const { rects: rectsAtDown, candles: csAtDown, cursor: curAtDown, showFullHistory: fullAtDown } = useTraderStore.getState();
+        const r = rectsAtDown.find(rr => rr.id === borderRectId);
+        const visibleAtDown = fullAtDown ? csAtDown : csAtDown.slice(0, curAtDown + 1);
         const startTime = pixelToTime(x);
         const startPrice = seriesRef.current.coordinateToPrice(y);
-        if (!r || startTime === null || startPrice === null) return;
+        if (!r || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
         draggingRectMoveId = borderRectId;
-        rectMoveStart = { time1: r.time1, time2: r.time2, price1: r.price1, price2: r.price2, startTime, startPrice };
+        rectMoveStart = {
+          idx1: candleIndexAt(visibleAtDown, r.time1),
+          idx2: candleIndexAt(visibleAtDown, r.time2),
+          price1: r.price1, price2: r.price2,
+          startIdx: candleIndexAt(visibleAtDown, startTime),
+          startPrice,
+        };
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'move';
         useTraderStore.getState().selectLine({ kind: 'rect', id: borderRectId });
@@ -1449,7 +1460,10 @@ export function CandleChart() {
         const t = pixelToTime(x);
         const p = seriesRef.current.coordinateToPrice(y);
         if (t === null || p === null) return;
-        pendingRectMoveDelta = { dt: t - rectMoveStart.startTime, dp: p - rectMoveStart.startPrice };
+        const { candles: csMove, cursor: curMove, showFullHistory: fullMove } = useTraderStore.getState();
+        const visibleMove = fullMove ? csMove : csMove.slice(0, curMove + 1);
+        if (visibleMove.length === 0) return;
+        pendingRectMoveDelta = { idx: candleIndexAt(visibleMove, t) - rectMoveStart.startIdx, dp: p - rectMoveStart.startPrice };
         if (!rafScheduled) {
           rafScheduled = true;
           requestAnimationFrame(() => {
@@ -1458,8 +1472,13 @@ export function CandleChart() {
             if (!chartRef.current || !seriesRef.current) return;
             const el = rectElsRef.current.get(draggingRectMoveId);
             if (!el) return;
-            const x1 = timeToX(rectMoveStart.time1 + pendingRectMoveDelta.dt);
-            const x2 = timeToX(rectMoveStart.time2 + pendingRectMoveDelta.dt);
+            const { candles: csRaf, cursor: curRaf, showFullHistory: fullRaf } = useTraderStore.getState();
+            const visibleRaf = fullRaf ? csRaf : csRaf.slice(0, curRaf + 1);
+            if (visibleRaf.length === 0) return;
+            const newIdx1 = Math.min(Math.max(rectMoveStart.idx1 + pendingRectMoveDelta.idx, 0), visibleRaf.length - 1);
+            const newIdx2 = Math.min(Math.max(rectMoveStart.idx2 + pendingRectMoveDelta.idx, 0), visibleRaf.length - 1);
+            const x1 = timeToX(visibleRaf[newIdx1].time);
+            const x2 = timeToX(visibleRaf[newIdx2].time);
             const y1 = seriesRef.current.priceToCoordinate(rectMoveStart.price1 + pendingRectMoveDelta.dp);
             const y2 = seriesRef.current.priceToCoordinate(rectMoveStart.price2 + pendingRectMoveDelta.dp);
             if (x1 === null || x2 === null || y1 === null || y2 === null) return;
@@ -1569,12 +1588,18 @@ export function CandleChart() {
       }
       if (draggingRectMoveId !== null) {
         if (pendingRectMoveDelta !== null && rectMoveStart !== null) {
-          useTraderStore.getState().updateRect(draggingRectMoveId, {
-            time1: rectMoveStart.time1 + pendingRectMoveDelta.dt,
-            time2: rectMoveStart.time2 + pendingRectMoveDelta.dt,
-            price1: rectMoveStart.price1 + pendingRectMoveDelta.dp,
-            price2: rectMoveStart.price2 + pendingRectMoveDelta.dp,
-          });
+          const { candles: csUp, cursor: curUp, showFullHistory: fullUp } = useTraderStore.getState();
+          const visibleUp = fullUp ? csUp : csUp.slice(0, curUp + 1);
+          if (visibleUp.length > 0) {
+            const newIdx1 = Math.min(Math.max(rectMoveStart.idx1 + pendingRectMoveDelta.idx, 0), visibleUp.length - 1);
+            const newIdx2 = Math.min(Math.max(rectMoveStart.idx2 + pendingRectMoveDelta.idx, 0), visibleUp.length - 1);
+            useTraderStore.getState().updateRect(draggingRectMoveId, {
+              time1: visibleUp[newIdx1].time,
+              time2: visibleUp[newIdx2].time,
+              price1: rectMoveStart.price1 + pendingRectMoveDelta.dp,
+              price2: rectMoveStart.price2 + pendingRectMoveDelta.dp,
+            });
+          }
         }
         draggingRectMoveId = null;
         rectMoveStart = null;
