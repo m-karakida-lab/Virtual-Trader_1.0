@@ -772,9 +772,24 @@ export function CandleChart() {
     const onScrubberUp = () => {
       scrubbing = false;
       scrubStartRange = null;
+      if (!hoveringScrubber && scrubberTrackRef.current) scrubberTrackRef.current.style.opacity = '0.2';
+    };
+
+    // 普段は薄く、マウスを近づけた時とドラッグ中だけはっきり表示する。
+    // ドラッグ中にカーソルがバーの外へ出ても（youtube等と同じく）薄くしない
+    let hoveringScrubber = false;
+    const onScrubberEnter = () => {
+      hoveringScrubber = true;
+      if (scrubberTrackRef.current) scrubberTrackRef.current.style.opacity = '1';
+    };
+    const onScrubberLeave = () => {
+      hoveringScrubber = false;
+      if (!scrubbing && scrubberTrackRef.current) scrubberTrackRef.current.style.opacity = '0.2';
     };
 
     scrubberTrackRef.current?.addEventListener('mousedown', onScrubberDown);
+    scrubberTrackRef.current?.addEventListener('mouseenter', onScrubberEnter);
+    scrubberTrackRef.current?.addEventListener('mouseleave', onScrubberLeave);
     window.addEventListener('mousemove', onScrubberMove);
     window.addEventListener('mouseup', onScrubberUp);
 
@@ -1473,6 +1488,8 @@ export function CandleChart() {
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('keydown', onKeyDown);
       scrubberTrackRef.current?.removeEventListener('mousedown', onScrubberDown);
+      scrubberTrackRef.current?.removeEventListener('mouseenter', onScrubberEnter);
+      scrubberTrackRef.current?.removeEventListener('mouseleave', onScrubberLeave);
       window.removeEventListener('mousemove', onScrubberMove);
       window.removeEventListener('mouseup', onScrubberUp);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
@@ -2118,23 +2135,26 @@ export function CandleChart() {
       </div>
       {/* 全期間スクラバー: YouTubeのシークバーのように全体に対する表示位置・幅を示し、
           ドラッグで平行移動・余白クリックでジャンプできる。価格軸に被らないよう右側を除き、
-          時間軸の日付ラベル（chartBottomMargin分）とも被らないよう、その上に乗せる */}
+          時間軸の日付ラベル（chartBottomMargin分）とも被らないよう、その上に乗せる。
+          普段は薄く表示し、マウスを近づけた時だけはっきり見えるようにする（当たり判定自体は
+          常に有効。判定域を実際の見た目より少し広めに取り、掴みやすくしている） */}
       <div
         ref={scrubberTrackRef}
         title="ドラッグで移動、クリックでジャンプ"
         style={{
-          position: 'absolute', left: 0, right: `${chartRightMargin}px`, bottom: `${chartBottomMargin + 4}px`,
-          height: '10px', cursor: 'pointer', zIndex: 14,
+          position: 'absolute', left: 0, right: `${chartRightMargin}px`, bottom: `${chartBottomMargin}px`,
+          height: '20px', cursor: 'pointer', zIndex: 14,
+          opacity: 0.2, transition: 'opacity 0.15s ease',
         }}
       >
         <div style={{
-          position: 'absolute', top: '3px', left: 0, right: 0, height: '4px',
+          position: 'absolute', top: '8px', left: 0, right: 0, height: '4px',
           backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '2px', pointerEvents: 'none',
         }} />
         <div
           ref={scrubberThumbRef}
           style={{
-            position: 'absolute', top: '1px', height: '8px',
+            position: 'absolute', top: '6px', height: '8px',
             backgroundColor: 'rgba(66,165,245,0.55)', border: '1px solid rgba(66,165,245,0.9)',
             borderRadius: '3px', pointerEvents: 'none', display: 'none',
           }}
