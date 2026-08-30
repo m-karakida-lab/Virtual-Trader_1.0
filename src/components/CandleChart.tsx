@@ -221,6 +221,7 @@ export function CandleChart() {
   const crosshairSourceId = useTraderStore(s => s.crosshairSourceId);
   const crosshairTime = useTraderStore(s => s.crosshairTime);
   const chartRightMargin = useTraderStore(s => s.chartRightMargin);
+  const chartBottomMargin = useTraderStore(s => s.chartBottomMargin);
   const timeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
 
   const prevCursorRef  = useRef(-1);
@@ -2116,12 +2117,13 @@ export function CandleChart() {
         }} />
       </div>
       {/* 全期間スクラバー: YouTubeのシークバーのように全体に対する表示位置・幅を示し、
-          ドラッグで平行移動・余白クリックでジャンプできる。価格軸に被らないよう右側を除く */}
+          ドラッグで平行移動・余白クリックでジャンプできる。価格軸に被らないよう右側を除き、
+          時間軸の日付ラベル（chartBottomMargin分）とも被らないよう、その上に乗せる */}
       <div
         ref={scrubberTrackRef}
         title="ドラッグで移動、クリックでジャンプ"
         style={{
-          position: 'absolute', left: 0, right: `${chartRightMargin}px`, bottom: '2px',
+          position: 'absolute', left: 0, right: `${chartRightMargin}px`, bottom: `${chartBottomMargin + 4}px`,
           height: '10px', cursor: 'pointer', zIndex: 14,
         }}
       >
