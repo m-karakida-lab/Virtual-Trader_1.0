@@ -821,8 +821,8 @@ export function CandleChart() {
         return;
       }
       if (drawingH) {
-        const price = seriesRef.current.coordinateToPrice(param.point.y);
-        if (price !== null) addLine(price);
+        const snap = magnetSnap(param.point.x, param.point.y);
+        if (snap !== null) addLine(snap.price);
         return;
       }
       if (drawingV && chartRef.current) {
@@ -833,8 +833,8 @@ export function CandleChart() {
 
     // ── 四角形（ドラッグで描画） ──────────────────────────────────
     let rectDragging = false;
-    let rectStart: { x: number; y: number } | null = null;
-    let pendingRectEnd: { x: number; y: number } | null = null;
+    let rectStart: { x: number; y: number; price: number } | null = null;
+    let pendingRectEnd: { x: number; y: number; price: number } | null = null;
 
     const updateRectDraftBox = (x1: number, y1: number, x2: number, y2: number) => {
       const box = rectDraftBoxRef.current;
@@ -1113,6 +1113,42 @@ export function CandleChart() {
       return null;
     };
 
+    const MAGNET_WEAK_PX = 12;
+
+    // カーソル座標(x,y)を、マグネット設定に応じて直下の足の始値/高値/安値/終値のうち
+    // 最も近いものへ吸着させる。strong は常に吸着、weak は MAGNET_WEAK_PX 以内に
+    // 近づいた時だけ吸着、off は素通し。吸着後の価格とそのy座標を返す
+    // （プレビュー描画はピクセル単位で行われるため、価格だけでなくyも一緒に返す）
+    const magnetSnap = (x: number, y: number): { price: number; y: number } | null => {
+      if (!seriesRef.current) return null;
+      const rawPrice = seriesRef.current.coordinateToPrice(y);
+      if (rawPrice === null) return null;
+      const { magnetMode, candles: cs, cursor, showFullHistory } = useTraderStore.getState();
+      if (magnetMode === 'off' || cs.length === 0) return { price: rawPrice, y };
+      const visible = showFullHistory ? cs : cs.slice(0, cursor + 1);
+      const t = pixelToTime(x);
+      if (visible.length === 0 || t === null) return { price: rawPrice, y };
+      const idx0 = Math.min(Math.max(candleIndexAt(visible, t), 0), visible.length - 1);
+      let best = idx0, bestDx = Infinity;
+      for (const i of [idx0, idx0 + 1]) {
+        if (i < 0 || i >= visible.length) continue;
+        const cx = timeToX(visible[i].time);
+        if (cx === null) continue;
+        const dx = Math.abs(cx - x);
+        if (dx < bestDx) { bestDx = dx; best = i; }
+      }
+      const c = visible[best];
+      let snappedPrice: number = rawPrice, snappedY = y, bestDy = Infinity;
+      for (const v of [c.open, c.high, c.low, c.close]) {
+        const vy = seriesRef.current.priceToCoordinate(v);
+        if (vy === null) continue;
+        const dy = Math.abs(vy - y);
+        if (dy < bestDy) { bestDy = dy; snappedPrice = v; snappedY = vy; }
+      }
+      if (magnetMode === 'weak' && bestDy > MAGNET_WEAK_PX) return { price: rawPrice, y };
+      return { price: snappedPrice, y: snappedY };
+    };
+
     const onMouseDown = (e: MouseEvent) => {
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, pickTarget: pick } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
@@ -1123,11 +1159,13 @@ export function CandleChart() {
 
       if (isR) {
         if (!seriesRef.current || !chartRef.current) return;
-        rectStart = { x, y };
-        pendingRectEnd = { x, y };
+        const snap = magnetSnap(x, y);
+        if (snap === null) return;
+        rectStart = { x, y: snap.y, price: snap.price };
+        pendingRectEnd = { x, y: snap.y, price: snap.price };
         rectDragging = true;
         chart.applyOptions({ handleScroll: false, handleScale: false });
-        updateRectDraftBox(x, y, x, y);
+        updateRectDraftBox(x, snap.y, x, snap.y);
         return;
       }
 
@@ -1203,8 +1241,10 @@ export function CandleChart() {
       const y = e.clientY - rect.top;
 
       if (rectDragging && rectStart) {
-        pendingRectEnd = { x, y };
-        updateRectDraftBox(rectStart.x, rectStart.y, x, y);
+        const snap = magnetSnap(x, y);
+        if (snap === null) return;
+        pendingRectEnd = { x, y: snap.y, price: snap.price };
+        updateRectDraftBox(rectStart.x, rectStart.y, x, snap.y);
         return;
       }
 
@@ -1236,7 +1276,10 @@ export function CandleChart() {
 
       if (draggingTarget !== null) {
         if (!seriesRef.current) return;
-        const price = seriesRef.current.coordinateToPrice(y);
+        // 水平線のみ描画ツールとしてマグネットの対象にする（TP/SL等の注文編集は対象外）
+        const price = draggingTarget.kind === 'hline'
+          ? magnetSnap(x, y)?.price ?? null
+          : seriesRef.current.coordinateToPrice(y);
         if (price === null) return;
         // 丸めない（0.001刻みなどに量子化すると、ズーム次第で複数px分の
         // ジャンプになり「カクつく」原因になる。表示側だけ toFixed で丸める）
@@ -1280,7 +1323,7 @@ export function CandleChart() {
 
       if (draggingRectCorner !== null) {
         if (!seriesRef.current || !chartRef.current) return;
-        const price = seriesRef.current.coordinateToPrice(y);
+        const price = magnetSnap(x, y)?.price ?? null;
         const time = pixelToTime(x);
         if (price === null || time === null) return;
         pendingRectCornerPos = { time, price };
@@ -1314,7 +1357,7 @@ export function CandleChart() {
       if (draggingRectEdge !== null) {
         if (!seriesRef.current || !chartRef.current) return;
         const isTimeField = draggingRectEdge.field === 'time1' || draggingRectEdge.field === 'time2';
-        const value = isTimeField ? pixelToTime(x) : seriesRef.current.coordinateToPrice(y);
+        const value = isTimeField ? pixelToTime(x) : (magnetSnap(x, y)?.price ?? null);
         if (value === null) return;
         pendingRectEdgeValue = value;
         if (!rafScheduled) {
@@ -1368,10 +1411,10 @@ export function CandleChart() {
         if (rectDraftBoxRef.current) rectDraftBoxRef.current.style.display = 'none';
         if (rectStart && pendingRectEnd && seriesRef.current && chartRef.current) {
           const t1 = pixelToTime(rectStart.x);
-          const p1 = seriesRef.current.coordinateToPrice(rectStart.y);
           const t2 = pixelToTime(pendingRectEnd.x);
-          const p2 = seriesRef.current.coordinateToPrice(pendingRectEnd.y);
-          if (t1 !== null && p1 !== null && t2 !== null && p2 !== null && (t1 !== t2 || p1 !== p2)) {
+          const p1 = rectStart.price;
+          const p2 = pendingRectEnd.price;
+          if (t1 !== null && t2 !== null && (t1 !== t2 || p1 !== p2)) {
             useTraderStore.getState().addRect(t1, p1, t2, p2);
           }
         }

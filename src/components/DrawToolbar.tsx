@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import { RECT_COLORS, LINE_COLORS, type LineWidth, type LineDash } from '../types';
+import { RECT_COLORS, LINE_COLORS, type LineWidth, type LineDash, type MagnetMode } from '../types';
 
 // TradingView風の左端アイコンツールバー。クリックした瞬間にそのツールが有効化され、
 // 続けてチャート上をクリック/ドラッグするだけで配置できる（配置後は自動的に解除される）。
@@ -37,6 +37,13 @@ const ICONS: Record<string, JSX.Element> = {
   rect: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
       <rect x="4" y="6" width="16" height="12" rx="1" />
+    </svg>
+  ),
+  magnet: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M7 4h4v9a3 3 0 0 1-6 0V9" />
+      <path d="M17 4h-4v9a3 3 0 0 0 6 0V9" />
+      <path d="M3 9h4M17 9h4" />
     </svg>
   ),
 };
@@ -214,6 +221,61 @@ function LineStylePopup({ title, disabled }: { title: string; disabled: boolean 
   );
 }
 
+const MAGNET_OPTIONS: { v: MagnetMode; label: string }[] = [
+  { v: 'off', label: 'オフ' }, { v: 'weak', label: '弱' }, { v: 'strong', label: '強' },
+];
+
+// マグネット（描画時の価格スナップ）のON/OFF・強さを選ぶボタン。他のツールと違い
+// クリックしても描画モードには入らず、常にポップアップで弱/強/オフを選ぶだけ
+function MagnetButton({ disabled }: { disabled: boolean }) {
+  const magnetMode = useTraderStore(s => s.magnetMode);
+  const setMagnetMode = useTraderStore(s => s.setMagnetMode);
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <ToolButton
+        icon="magnet"
+        title="マグネット（足のOHLCに吸着）"
+        active={magnetMode !== 'off'}
+        disabled={disabled}
+        onClick={() => setOpen(o => !o)}
+      />
+      {open && (
+        <div style={{
+          position: 'absolute', left: 'calc(100% + 6px)', top: 0,
+          backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
+          padding: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 60,
+          display: 'flex', gap: '3px', minWidth: 'max-content',
+        }}>
+          {MAGNET_OPTIONS.map(o => (
+            <button
+              key={o.v}
+              onClick={() => setMagnetMode(o.v)}
+              style={{
+                backgroundColor: magnetMode === o.v ? '#2a2a2a' : '#161616',
+                color: magnetMode === o.v ? '#e0e0e0' : '#666',
+                border: magnetMode === o.v ? '1px solid #3a3a3a' : '1px solid #222',
+                borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+              }}
+            >{o.label}</button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DrawToolbar() {
   const isLoaded = useTraderStore(s => s.isLoaded);
   const isDrawingLine  = useTraderStore(s => s.isDrawingLine);
@@ -245,6 +307,8 @@ export function DrawToolbar() {
         <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
         <RectStylePopup disabled={!isLoaded} />
       </div>
+      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
+      <MagnetButton disabled={!isLoaded} />
     </div>
   );
 }

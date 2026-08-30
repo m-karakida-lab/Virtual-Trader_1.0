@@ -64,6 +64,10 @@ export type TimeframeSec = typeof TIMEFRAMES[number]['sec'];
 export type LineDash = 'solid' | 'dashed' | 'dotted';
 export type LineWidth = 1 | 2 | 3 | 4;
 
+// ── マグネット（描画時の価格スナップ） ─────────────────────────────────────
+// off: 吸着しない / weak: 足のOHLCに近づいた時だけ吸着 / strong: 常に最寄りのOHLCへ吸着
+export type MagnetMode = 'off' | 'weak' | 'strong';
+
 export interface DrawnLine {
   id: number;
   price: number;

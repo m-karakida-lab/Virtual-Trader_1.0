@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, LineDash, LineWidth, LineSelection } from '../types';
+import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, LineDash, LineWidth, LineSelection, MagnetMode } from '../types';
 import { RECT_COLORS } from '../types';
 import { TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
@@ -111,6 +111,7 @@ interface TraderState {
   rects: DrawnRect[];
   nextRectId: number;
   isDrawingRect: boolean;
+  magnetMode: MagnetMode; // 描画時に価格を足の高値/安値/始値/終値へ吸着させる強さ
   selected: LineSelection | null; // 水平線・垂直線・四角形のいずれか選択中の1つ
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
   rectDraft: { color: string; width: LineWidth };
@@ -177,6 +178,7 @@ interface TraderState {
   updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => void;
   removeRect: (id: number) => void;
   toggleDrawRect: () => void;
+  setMagnetMode: (mode: MagnetMode) => void;
   selectLine: (target: LineSelection | null) => void;
   setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   setRectDraft: (patch: Partial<{ color: string; width: LineWidth }>) => void;
@@ -301,6 +303,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   rects: [],
   nextRectId: 1,
   isDrawingRect: false,
+  magnetMode: 'off',
   selected: null,
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
   rectDraft: { color: RECT_COLORS[0], width: 2 },
@@ -668,6 +671,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     }));
   },
   toggleDrawRect: () => set(s => ({ isDrawingRect: !s.isDrawingRect, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, pickTarget: null })),
+  setMagnetMode: mode => set({ magnetMode: mode }),
 
   selectLine: (target: LineSelection | null) => set({ selected: target }),
   setRectDraft: (patch) => {
