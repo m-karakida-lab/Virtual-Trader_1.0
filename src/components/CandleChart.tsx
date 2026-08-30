@@ -180,6 +180,9 @@ export function CandleChart() {
   const rrSlBoxRef = useRef<HTMLDivElement>(null);
   const rrLabelRef = useRef<HTMLDivElement>(null);
   const updateRRPreviewRef = useRef<() => void>(() => {});
+  const scrubberTrackRef = useRef<HTMLDivElement>(null);
+  const scrubberThumbRef = useRef<HTMLDivElement>(null);
+  const syncScrubberRef = useRef<() => void>(() => {});
 
   const candles = useTraderStore(s => s.candles);
   const cursor    = useTraderStore(s => s.cursor);
@@ -217,6 +220,7 @@ export function CandleChart() {
   const centerTarget = useTraderStore(s => s.centerTarget);
   const crosshairSourceId = useTraderStore(s => s.crosshairSourceId);
   const crosshairTime = useTraderStore(s => s.crosshairTime);
+  const chartRightMargin = useTraderStore(s => s.chartRightMargin);
   const timeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
 
   const prevCursorRef  = useRef(-1);
@@ -694,6 +698,85 @@ export function CandleChart() {
     updateRRPreviewRef.current = updateRRPreview;
     updateRRPreview();
 
+    // ── 全期間スクラバー（YouTubeのシークバーのように、全体に対する現在の表示位置・
+    // 幅をバーで示し、ドラッグで平行移動・クリックでジャンプできるようにする） ──────
+    const getScrubberTotalBars = () => {
+      const { candles: cs, cursor: cur, showFullHistory: full } = useTraderStore.getState();
+      return full ? cs.length : cur + 1;
+    };
+    const syncScrubber = () => {
+      if (!chartRef.current || !scrubberTrackRef.current || !scrubberThumbRef.current) return;
+      const totalBars = getScrubberTotalBars();
+      const range = chartRef.current.timeScale().getVisibleLogicalRange();
+      const trackWidth = scrubberTrackRef.current.clientWidth;
+      if (totalBars <= 0 || !range || trackWidth <= 0) {
+        scrubberThumbRef.current.style.display = 'none';
+        return;
+      }
+      const from = Math.max(0, range.from);
+      const to = Math.min(totalBars, range.to);
+      scrubberThumbRef.current.style.display = 'block';
+      scrubberThumbRef.current.style.left = `${(from / totalBars) * trackWidth}px`;
+      scrubberThumbRef.current.style.width = `${Math.max(4, ((to - from) / totalBars) * trackWidth)}px`;
+    };
+    syncScrubberRef.current = syncScrubber;
+    syncScrubber();
+
+    // つまみを掴んだら平行移動、余白をクリックしたらそこを中心にジャンプ（幅＝ズームは変えない）
+    let scrubbing = false;
+    let scrubStartX = 0;
+    let scrubStartRange: { from: number; to: number } | null = null;
+
+    const onScrubberDown = (e: MouseEvent) => {
+      if (!chartRef.current || !scrubberTrackRef.current) return;
+      const trackRect = scrubberTrackRef.current.getBoundingClientRect();
+      const x = e.clientX - trackRect.left;
+      const totalBars = getScrubberTotalBars();
+      const range = chartRef.current.timeScale().getVisibleLogicalRange();
+      if (totalBars <= 0 || !range || trackRect.width <= 0) return;
+      const span = range.to - range.from;
+      const thumbLeftPx = (Math.max(0, range.from) / totalBars) * trackRect.width;
+      const thumbRightPx = (Math.min(totalBars, range.to) / totalBars) * trackRect.width;
+      let from: number = range.from;
+      let to: number = range.to;
+      if (x < thumbLeftPx || x > thumbRightPx) {
+        // トラックの余白クリック: そこを中心に瞬時にジャンプしてから、そのままドラッグ継続できる
+        const clickBar = (x / trackRect.width) * totalBars;
+        from = clickBar - span / 2;
+        to = clickBar + span / 2;
+        chartRef.current.timeScale().setVisibleLogicalRange({ from, to });
+      }
+      scrubbing = true;
+      scrubStartX = x;
+      scrubStartRange = { from, to };
+      e.preventDefault();
+    };
+
+    const onScrubberMove = (e: MouseEvent) => {
+      if (!scrubbing || !scrubStartRange || !chartRef.current || !scrubberTrackRef.current) return;
+      const trackRect = scrubberTrackRef.current.getBoundingClientRect();
+      if (trackRect.width <= 0) return;
+      const x = e.clientX - trackRect.left;
+      const totalBars = getScrubberTotalBars();
+      if (totalBars <= 0) return;
+      const span = scrubStartRange.to - scrubStartRange.from;
+      const dxBars = ((x - scrubStartX) / trackRect.width) * totalBars;
+      let from = scrubStartRange.from + dxBars;
+      let to = scrubStartRange.to + dxBars;
+      if (from < 0) { from = 0; to = span; }
+      if (to > totalBars) { to = totalBars; from = totalBars - span; }
+      chartRef.current.timeScale().setVisibleLogicalRange({ from, to });
+    };
+
+    const onScrubberUp = () => {
+      scrubbing = false;
+      scrubStartRange = null;
+    };
+
+    scrubberTrackRef.current?.addEventListener('mousedown', onScrubberDown);
+    window.addEventListener('mousemove', onScrubberMove);
+    window.addEventListener('mouseup', onScrubberUp);
+
     // 表示中のズーム/スケールを時間軸ごとに記憶（連続発火するため軽くデバウンス）
     const scheduleSaveView = () => {
       if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
@@ -708,7 +791,7 @@ export function CandleChart() {
       }, 400);
     };
 
-    const onRangeChange = () => { syncVLines(); syncRects(); syncWeekLines(); updateRRPreview(); syncCloud(); scheduleSaveView(); };
+    const onRangeChange = () => { syncVLines(); syncRects(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView(); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
@@ -1369,6 +1452,7 @@ export function CandleChart() {
       syncWeekLines();
       updateRRPreview();
       syncCloud();
+      syncScrubber();
       // フロートパネルが価格軸・時間軸に被らないよう、実測サイズをストアに反映
       useTraderStore.getState().setChartMargins(
         chart.priceScale('right').width(),
@@ -1387,6 +1471,9 @@ export function CandleChart() {
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('keydown', onKeyDown);
+      scrubberTrackRef.current?.removeEventListener('mousedown', onScrubberDown);
+      window.removeEventListener('mousemove', onScrubberMove);
+      window.removeEventListener('mouseup', onScrubberUp);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
@@ -1729,6 +1816,7 @@ export function CandleChart() {
     syncVLinesRef.current();
     syncRectsRef.current();
     syncWeekLinesRef.current();
+    syncScrubberRef.current();
   }, [candles, showFullHistory]);
 
   // 画面にフィット: 現在チャートに表示されているデータ範囲をビューポートに合わせる
@@ -1790,6 +1878,7 @@ export function CandleChart() {
     syncVLinesRef.current();
     syncRectsRef.current();
     syncWeekLinesRef.current();
+    syncScrubberRef.current();
 
     prevCursorRef.current  = cursor;
     prevCandlesRef.current = candles;
@@ -2025,6 +2114,29 @@ export function CandleChart() {
           backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '4px',
           padding: '3px 8px', whiteSpace: 'nowrap', display: 'none',
         }} />
+      </div>
+      {/* 全期間スクラバー: YouTubeのシークバーのように全体に対する表示位置・幅を示し、
+          ドラッグで平行移動・余白クリックでジャンプできる。価格軸に被らないよう右側を除く */}
+      <div
+        ref={scrubberTrackRef}
+        title="ドラッグで移動、クリックでジャンプ"
+        style={{
+          position: 'absolute', left: 0, right: `${chartRightMargin}px`, bottom: '2px',
+          height: '10px', cursor: 'pointer', zIndex: 14,
+        }}
+      >
+        <div style={{
+          position: 'absolute', top: '3px', left: 0, right: 0, height: '4px',
+          backgroundColor: 'rgba(255,255,255,0.08)', borderRadius: '2px', pointerEvents: 'none',
+        }} />
+        <div
+          ref={scrubberThumbRef}
+          style={{
+            position: 'absolute', top: '1px', height: '8px',
+            backgroundColor: 'rgba(66,165,245,0.55)', border: '1px solid rgba(66,165,245,0.9)',
+            borderRadius: '3px', pointerEvents: 'none', display: 'none',
+          }}
+        />
       </div>
     </div>
   );
