@@ -189,15 +189,18 @@ interface TraderState {
   addLine: (price: number) => void;
   updateLine: (id: number, patch: Partial<Omit<DrawnLine, 'id'>>) => void;
   removeLine: (id: number) => void;
+  duplicateLine: (id: number, newPrice: number) => void;
   toggleDrawLine: () => void;
   addVLine: (time: number) => void;
   updateVLine: (id: number, patch: Partial<Omit<DrawnVLine, 'id'>>) => void;
   removeVLine: (id: number) => void;
+  duplicateVLine: (id: number, newTime: number) => void;
   toggleDrawVLine: () => void;
   toggleMeasure: () => void;
   addRect: (time1: number, price1: number, time2: number, price2: number) => void;
   updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => void;
   removeRect: (id: number) => void;
+  duplicateRect: (id: number, time1: number, price1: number, time2: number, price2: number) => void;
   toggleDrawRect: () => void;
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
@@ -654,6 +657,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       selected: (s.selected?.kind === 'h' && s.selected.id === id) ? null : s.selected,
     }));
   },
+  // 選択中の線を色・線種・太さそのままに複製する（新規描画のaddLineと違い、
+  // 現在のlineDraftではなく複製元自身のスタイルを引き継ぐ）
+  duplicateLine: (id: number, newPrice: number) => {
+    const { lines, nextLineId } = get();
+    const src = lines.find(l => l.id === id);
+    if (!src) return;
+    set({ lines: [...lines, { ...src, id: nextLineId, price: newPrice }], nextLineId: nextLineId + 1 });
+  },
   toggleDrawLine: () => set(s => ({ isDrawingLine: !s.isDrawingLine, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, pickTarget: null })),
 
   addVLine: (time: number) => {
@@ -672,6 +683,12 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       vlines: s.vlines.filter(v => v.id !== id),
       selected: (s.selected?.kind === 'v' && s.selected.id === id) ? null : s.selected,
     }));
+  },
+  duplicateVLine: (id: number, newTime: number) => {
+    const { vlines, nextVLineId } = get();
+    const src = vlines.find(v => v.id === id);
+    if (!src) return;
+    set({ vlines: [...vlines, { ...src, id: nextVLineId, time: newTime }], nextVLineId: nextVLineId + 1 });
   },
   toggleDrawVLine: () => set(s => ({ isDrawingVLine: !s.isDrawingVLine, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, pickTarget: null })),
   toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, pickTarget: null })),
@@ -692,6 +709,12 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       rects: s.rects.filter(r => r.id !== id),
       selected: (s.selected?.kind === 'rect' && s.selected.id === id) ? null : s.selected,
     }));
+  },
+  duplicateRect: (id: number, time1: number, price1: number, time2: number, price2: number) => {
+    const { rects, nextRectId } = get();
+    const src = rects.find(r => r.id === id);
+    if (!src) return;
+    set({ rects: [...rects, { ...src, id: nextRectId, time1, price1, time2, price2 }], nextRectId: nextRectId + 1 });
   },
   toggleDrawRect: () => set(s => ({ isDrawingRect: !s.isDrawingRect, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, pickTarget: null })),
   setMagnetMode: mode => {

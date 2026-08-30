@@ -6,7 +6,7 @@ import {
   type SeriesMarker,
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
-import type { Candle, Position, ClosedTrade } from '../types';
+import type { Candle, Position, ClosedTrade, LineSelection } from '../types';
 import { TIMEFRAMES } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
@@ -955,6 +955,14 @@ export function CandleChart() {
     let rectMoveStart: { time1: number; time2: number; price1: number; price2: number; startTime: number; startPrice: number } | null = null;
     let pendingRectMoveDelta: { dt: number; dp: number } | null = null;
 
+    // ── コピー&ペースト（Cmd/Ctrl+C / Cmd/Ctrl+V） ──────────────────────
+    // クリップボードはこのコンポーネントの寿命内だけ有効なローカル変数
+    // （storeに持たせるとリロード後まで残ってしまい、選択解除と挙動が食い違うため）。
+    // ペースト後はクリップボードを複製先に差し替える。連続でVを押すと
+    // その都度OFFSET_PXずつ右下へずれながら複製されていく（斜めに並ぶ）
+    let clipboard: LineSelection | null = null;
+    const PASTE_OFFSET_PX = 20;
+
     // 発注パネルの draft 価格（price/TP/SL）のプレビュー線をドラッグで調整
     const findDraftNear = (y: number): 'price' | 'tp' | 'sl' | null => {
       if (!seriesRef.current) return null;
@@ -1576,17 +1584,71 @@ export function CandleChart() {
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
 
-    // Delete/Backspace キーで選択中の水平線・垂直線・四角形を削除
+    // Delete/Backspaceキーで選択中の水平線・垂直線・四角形を削除、Cmd/Ctrl+C・Vでコピー&ペースト
     // （Macのキーボードは物理削除キーが実は⌫=Backspaceで、fn+⌫でようやくDeleteになるため両方拾う）
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== 'Delete' && e.key !== 'Backspace') return;
       const tag = (document.activeElement?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea') return;
-      const { selected: sel, removeLine, removeVLine, removeRect } = useTraderStore.getState();
-      if (!sel) return;
-      if (sel.kind === 'h') removeLine(sel.id);
-      else if (sel.kind === 'v') removeVLine(sel.id);
-      else removeRect(sel.id);
+
+      if (e.key === 'Delete' || e.key === 'Backspace') {
+        const { selected: sel, removeLine, removeVLine, removeRect } = useTraderStore.getState();
+        if (!sel) return;
+        if (sel.kind === 'h') removeLine(sel.id);
+        else if (sel.kind === 'v') removeVLine(sel.id);
+        else removeRect(sel.id);
+        return;
+      }
+
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (!seriesRef.current || !chartRef.current) return;
+
+      if (e.key === 'c' || e.key === 'C') {
+        const { selected: sel } = useTraderStore.getState();
+        if (sel) clipboard = sel;
+        return;
+      }
+
+      if (e.key === 'v' || e.key === 'V') {
+        if (!clipboard) return;
+        e.preventDefault();
+        const store = useTraderStore.getState();
+        if (clipboard.kind === 'h') {
+          const src = store.lines.find(l => l.id === clipboard!.id);
+          const y = src && seriesRef.current.priceToCoordinate(src.price);
+          if (!src || y === null || y === undefined) return;
+          const newPrice = seriesRef.current.coordinateToPrice(y + PASTE_OFFSET_PX);
+          if (newPrice === null) return;
+          store.duplicateLine(src.id, newPrice);
+          const newId = useTraderStore.getState().nextLineId - 1;
+          store.selectLine({ kind: 'h', id: newId });
+          clipboard = { kind: 'h', id: newId };
+        } else if (clipboard.kind === 'v') {
+          const src = store.vlines.find(v => v.id === clipboard!.id);
+          const x = src && timeToX(src.time);
+          if (!src || x === null || x === undefined) return;
+          const newTime = pixelToTime(x + PASTE_OFFSET_PX);
+          if (newTime === null) return;
+          store.duplicateVLine(src.id, newTime);
+          const newId = useTraderStore.getState().nextVLineId - 1;
+          store.selectLine({ kind: 'v', id: newId });
+          clipboard = { kind: 'v', id: newId };
+        } else {
+          const src = store.rects.find(r => r.id === clipboard!.id);
+          if (!src) return;
+          const x1 = timeToX(src.time1), x2 = timeToX(src.time2);
+          const y1 = seriesRef.current.priceToCoordinate(src.price1), y2 = seriesRef.current.priceToCoordinate(src.price2);
+          if (x1 === null || x2 === null || y1 === null || y2 === null) return;
+          const newTime1 = pixelToTime(x1 + PASTE_OFFSET_PX);
+          const newTime2 = pixelToTime(x2 + PASTE_OFFSET_PX);
+          const newPrice1 = seriesRef.current.coordinateToPrice(y1 + PASTE_OFFSET_PX);
+          const newPrice2 = seriesRef.current.coordinateToPrice(y2 + PASTE_OFFSET_PX);
+          if (newTime1 === null || newTime2 === null || newPrice1 === null || newPrice2 === null) return;
+          store.duplicateRect(src.id, newTime1, newPrice1, newTime2, newPrice2);
+          const newId = useTraderStore.getState().nextRectId - 1;
+          store.selectLine({ kind: 'rect', id: newId });
+          clipboard = { kind: 'rect', id: newId };
+        }
+      }
     };
     window.addEventListener('keydown', onKeyDown);
 
