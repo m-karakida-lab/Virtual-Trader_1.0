@@ -1143,6 +1143,12 @@ export function CandleChart() {
             // （store → React 再レンダリング往復のラグでカクつくのを避ける）
             if (draggingTarget !== null && pendingPrice !== null) {
               priceLineMapFor(draggingTarget.kind).get(draggingTarget.id)?.applyOptions({ price: pendingPrice });
+              // 中点ハンドルも同じフレームで追従させる（store更新を待つと
+              // マウスボタンリリースまでハンドルだけ取り残されて不自然に見える）
+              if (draggingTarget.kind === 'hline' && lineHandleElRef.current && seriesRef.current) {
+                const hy = seriesRef.current.priceToCoordinate(pendingPrice);
+                if (hy !== null) lineHandleElRef.current.style.top = `${hy - 4}px`;
+              }
             }
           });
         }
@@ -1158,6 +1164,8 @@ export function CandleChart() {
             if (draggingVId !== null && pendingVX !== null) {
               const el = vlineElsRef.current.get(draggingVId);
               if (el) el.style.left = `${pendingVX}px`;
+              // 中点ハンドルも同じフレームで追従させる（理由は水平線ドラッグと同じ）
+              if (lineHandleElRef.current) lineHandleElRef.current.style.left = `${pendingVX - 4}px`;
             }
           });
         }
