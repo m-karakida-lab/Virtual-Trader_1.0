@@ -2351,11 +2351,14 @@ export function CandleChart() {
         disabled={!isLoaded}
       />
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
-      <div ref={rectOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }}>
+      {/* 四角形・垂直線のオーバーレイは価格軸の領域には侵入させない。overflow:hiddenと
+          right:chartRightMarginで、価格軸に被る位置までスクロール/リサイズされた図形は
+          その手前で切れて見えるようにする（スクラバーの右クランプと同じ考え方） */}
+      <div ref={rectOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }}>
         <div ref={rectDraftBoxRef} style={{ position: 'absolute', display: 'none' }} />
       </div>
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
-      <div ref={overlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />
+      <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />
       <div ref={measureOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 12, display: 'none' }}>
         <div ref={measureBoxRef} style={{ position: 'absolute' }} />
         <div ref={measureMidLineRef} style={{ position: 'absolute', width: '0px' }} />
