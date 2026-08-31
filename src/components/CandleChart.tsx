@@ -571,7 +571,8 @@ export function CandleChart() {
         el.style.width = `${Math.abs(x2 - x1)}px`;
         el.style.height = `${Math.abs(y2 - y1)}px`;
         const isSelected = r.id === selectedRectId;
-        el.style.border = `${r.width}px ${isSelected ? 'dashed' : 'solid'} ${r.color}`;
+        // 選択中でも枠は実線のまま（水平線・垂直線と同様、編集モードの目印はハンドルだけで示す）
+        el.style.border = `${r.width}px solid ${r.color}`;
         if (isSelected) {
           hasSelected = true;
           positionRectHandles(x1, x2, y1, y2);
