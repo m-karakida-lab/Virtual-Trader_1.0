@@ -948,7 +948,7 @@ export function CandleChart() {
     let rafScheduled = false;
     // 価格軸のドラッグによる縦スケール変更はlightweight-charts側の内部処理で、
     // それを教えてくれるイベントが無い。そのためドラッグ操作中でなくても、マウスが
-    // 動くたびに（rAFで間引きながら）水平線・垂直線・四角形・区切り線を再計算することで
+    // 動くたびに（rAFで間引きながら）垂直線・四角形・区切り線・雲を再計算することで
     // 追従させる（本来の座標変換はスケールに依存するので、再計算自体は毎回必要な処理）
     let overlayResyncScheduled = false;
 
@@ -1505,6 +1505,7 @@ export function CandleChart() {
           syncVLines();
           syncRects();
           syncWeekLines();
+          syncCloud();
         });
       }
 
