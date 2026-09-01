@@ -136,6 +136,10 @@ interface TraderState {
   selected: LineSelection | null; // 水平線・垂直線・四角形のいずれか選択中の1つ
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
   rectDraft: { color: string; width: LineWidth };
+  // パレットモード: ONの間、水平線・垂直線・四角形をクリックして選択（編集モード）に
+  // 入れるたびpaletteStyleの色・線種・太さをその図形へ即座に反映する（一括塗り替え用）
+  paletteMode: boolean;
+  paletteStyle: { color: string; dash: LineDash; width: LineWidth };
   showEMA: boolean;
   showSMA: boolean;
   showBB: boolean;
@@ -207,6 +211,8 @@ interface TraderState {
   selectLine: (target: LineSelection | null) => void;
   setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   setRectDraft: (patch: Partial<{ color: string; width: LineWidth }>) => void;
+  togglePaletteMode: () => void;
+  setPaletteStyle: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   toggleEMA: () => void;
   toggleSMA: () => void;
   toggleBB: () => void;
@@ -333,6 +339,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   selected: null,
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
   rectDraft: { color: RECT_COLORS[0], width: 2 },
+  paletteMode: false,
+  paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2 },
   showEMA: false,
   showSMA: true,
   showBB: true,
@@ -724,7 +732,17 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // アイコン本体クリックでのON/OFFトグル。OFF→ONは直前に選んだ強さ（magnetStrength）から始める
   toggleMagnet: () => set(s => ({ magnetMode: s.magnetMode === 'off' ? s.magnetStrength : 'off' })),
 
-  selectLine: (target: LineSelection | null) => set({ selected: target }),
+  selectLine: (target: LineSelection | null) => {
+    set({ selected: target });
+    if (!target) return;
+    const { paletteMode, paletteStyle } = get();
+    if (!paletteMode) return;
+    if (target.kind === 'h') get().updateLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
+    else if (target.kind === 'v') get().updateVLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
+    else get().updateRect(target.id, { color: paletteStyle.color, width: paletteStyle.width });
+  },
+  togglePaletteMode: () => set(s => ({ paletteMode: !s.paletteMode })),
+  setPaletteStyle: patch => set(s => ({ paletteStyle: { ...s.paletteStyle, ...patch } })),
   setRectDraft: (patch) => {
     const { selected } = get();
     if (selected?.kind === 'rect') {

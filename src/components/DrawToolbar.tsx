@@ -46,6 +46,14 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M3 9h4M17 9h4" />
     </svg>
   ),
+  palette: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.6 1.6-1.5 0-.4-.15-.75-.4-1.05-.25-.3-.4-.65-.4-1.05 0-.9.7-1.6 1.6-1.6h1.6c2 0 3.6-1.6 3.6-3.6C19.6 6.3 16.2 3 12 3z" />
+      <circle cx="7.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="10.5" cy="7" r="1.2" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="7.5" r="1.2" fill="currentColor" stroke="none" />
+    </svg>
+  ),
 };
 
 function ToolButton({
@@ -263,6 +271,8 @@ export function DrawToolbar() {
   const toggleDrawRect  = useTraderStore(s => s.toggleDrawRect);
   const magnetMode      = useTraderStore(s => s.magnetMode);
   const toggleMagnet    = useTraderStore(s => s.toggleMagnet);
+  const paletteMode     = useTraderStore(s => s.paletteMode);
+  const togglePaletteMode = useTraderStore(s => s.togglePaletteMode);
 
   return (
     <div style={{
@@ -289,6 +299,13 @@ export function DrawToolbar() {
         <ToolButton icon="magnet" title="マグネット（足のOHLCに吸着）" active={magnetMode !== 'off'} disabled={!isLoaded} onClick={toggleMagnet} />
         <MagnetStrengthPopup disabled={!isLoaded} />
       </div>
+      <ToolButton
+        icon="palette"
+        title="パレットモード（選択した図形に常設パネルの色・線種・太さを反映）"
+        active={paletteMode}
+        disabled={!isLoaded}
+        onClick={togglePaletteMode}
+      />
     </div>
   );
 }
