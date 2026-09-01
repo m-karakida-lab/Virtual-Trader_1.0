@@ -681,6 +681,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       nextLineId: nextLineId + 1,
       isDrawingLine: false,
     });
+    // 配置直後はそのまま編集モードに入れる（selectLine経由でパレットモードの自動ONも揃う）
+    get().selectLine({ kind: 'h', id: nextLineId });
   },
   updateLine: (id: number, patch: Partial<Omit<DrawnLine, 'id'>>) => {
     set(s => ({ lines: s.lines.map(l => l.id === id ? { ...l, ...patch } : l) }));
@@ -713,6 +715,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       nextVLineId: nextVLineId + 1,
       isDrawingVLine: false,
     });
+    get().selectLine({ kind: 'v', id: nextVLineId });
   },
   updateVLine: (id: number, patch: Partial<Omit<DrawnVLine, 'id'>>) => {
     set(s => ({ vlines: s.vlines.map(v => v.id === id ? { ...v, ...patch } : v) }));
@@ -743,6 +746,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       nextRectId: nextRectId + 1,
       isDrawingRect: false,
     });
+    get().selectLine({ kind: 'rect', id: nextRectId });
   },
   updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => {
     set(s => ({ rects: s.rects.map(r => r.id === id ? { ...r, ...patch } : r) }));
