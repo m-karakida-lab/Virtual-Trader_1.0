@@ -86,7 +86,7 @@ export interface DrawnVLine {
   width: LineWidth;
 }
 
-export const LINE_COLORS = ['#787b86', '#ef5350', '#26a69a', '#42a5f5', '#ffa726', '#ab47bc'];
+export const LINE_COLORS = ['#787b86', '#ef5350', '#26a69a', '#42a5f5', '#ffa726', '#ab47bc', '#ffca28', '#e0e0e0'];
 
 // ── 四角形 ───────────────────────────────────────────────────────────────
 
