@@ -358,7 +358,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         el.style.top = `${Math.min(y1, y2)}px`;
         el.style.width = `${Math.abs(x2 - x1)}px`;
         el.style.height = `${Math.abs(y2 - y1)}px`;
-        el.style.border = `${r.width}px solid ${r.color}`;
+        el.style.border = `${r.width}px ${DASH_TO_CSS[r.dash]} ${r.color}`;
       }
     };
     syncRectsRef.current = syncRects;

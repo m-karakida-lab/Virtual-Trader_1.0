@@ -135,7 +135,7 @@ interface TraderState {
   magnetStrength: Exclude<MagnetMode, 'off'>; // OFF→ON時に使う強さ（localStorageに記憶）
   selected: LineSelection | null; // 水平線・垂直線・四角形のいずれか選択中の1つ
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
-  rectDraft: { color: string; width: LineWidth };
+  rectDraft: { color: string; dash: LineDash; width: LineWidth };
   // パレットモード: ONの間、水平線・垂直線・四角形をクリックして選択（編集モード）に
   // 入れるたびpaletteStyleの色・線種・太さをその図形へ即座に反映する（一括塗り替え用）
   paletteMode: boolean;
@@ -210,7 +210,7 @@ interface TraderState {
   toggleMagnet: () => void;
   selectLine: (target: LineSelection | null) => void;
   setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
-  setRectDraft: (patch: Partial<{ color: string; width: LineWidth }>) => void;
+  setRectDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   togglePaletteMode: () => void;
   setPaletteStyle: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   toggleEMA: () => void;
@@ -296,19 +296,18 @@ function processOrderRange(
   return { positions, pendingOrders, closedTrades, balance, nextId, changed };
 }
 
-// パレットモード中に、選択中の図形へ現在のpaletteStyleを書き込む（色・線種・太さ。
-// 四角形は線種を持たないため色・太さのみ）。パレット側の設定を変えた時（setPaletteStyle）
-// から呼ばれる。「選択しただけ」では図形側は変えない（syncPaletteStyleFromと役割が逆）
+// パレットモード中に、選択中の図形へ現在のpaletteStyleを書き込む（色・線種・太さ）。
+// パレット側の設定を変えた時（setPaletteStyle）から呼ばれる。
+// 「選択しただけ」では図形側は変えない（syncPaletteStyleFromと役割が逆）
 function applyPaletteStyleTo(get: () => TraderState, target: LineSelection): void {
   const { paletteStyle } = get();
-  if (target.kind === 'h') get().updateLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
-  else if (target.kind === 'v') get().updateVLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
-  else get().updateRect(target.id, { color: paletteStyle.color, width: paletteStyle.width });
+  if (target.kind === 'h') get().updateLine(target.id, paletteStyle);
+  else if (target.kind === 'v') get().updateVLine(target.id, paletteStyle);
+  else get().updateRect(target.id, paletteStyle);
 }
 
 // パレットモードで図形を選択（編集モードに入る）した時に、その図形の現在のスタイルを
-// パレット側へ取り込む（選択しただけで図形の見た目が変わらないように）。四角形は線種を
-// 持たないため、パレット側のdashは変更しない
+// パレット側へ取り込む（選択しただけで図形の見た目が変わらないように）
 function syncPaletteStyleFrom(set: (fn: (s: TraderState) => Partial<TraderState>) => void, get: () => TraderState, target: LineSelection): void {
   const s = get();
   if (target.kind === 'h') {
@@ -319,7 +318,7 @@ function syncPaletteStyleFrom(set: (fn: (s: TraderState) => Partial<TraderState>
     if (v) set(() => ({ paletteStyle: { color: v.color, dash: v.dash, width: v.width } }));
   } else {
     const r = s.rects.find(rr => rr.id === target.id);
-    if (r) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: r.color, width: r.width } }));
+    if (r) set(() => ({ paletteStyle: { color: r.color, dash: r.dash, width: r.width } }));
   }
 }
 
@@ -365,7 +364,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   magnetStrength: loadSavedMagnetStrength(),
   selected: null,
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
-  rectDraft: { color: RECT_COLORS[0], width: 2 },
+  rectDraft: { color: RECT_COLORS[0], dash: 'solid', width: 2 },
   paletteMode: false,
   paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2 },
   showEMA: false,

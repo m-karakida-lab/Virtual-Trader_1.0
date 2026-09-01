@@ -95,6 +95,7 @@ export interface DrawnRect {
   time1: number; price1: number; // 始点（Unix秒・価格）
   time2: number; price2: number; // 終点
   color: string;
+  dash: LineDash;
   width: LineWidth;
 }
 

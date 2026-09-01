@@ -136,7 +136,7 @@ function RectStylePopup({ disabled }: { disabled: boolean }) {
   const activeStyle = selectedRect ?? rectDraft;
 
   return (
-    <StyleArrow title="四角形の色・太さ" disabled={disabled}>
+    <StyleArrow title="四角形の色・線種・太さ" disabled={disabled}>
       <div style={{ display: 'flex', gap: '4px' }}>
         {RECT_COLORS.map(c => (
           <button
@@ -148,6 +148,20 @@ function RectStylePopup({ disabled }: { disabled: boolean }) {
               borderRadius: '3px', cursor: 'pointer', padding: 0,
             }}
           />
+        ))}
+      </div>
+      <div style={{ display: 'flex', gap: '3px' }}>
+        {DASH_OPTIONS.map(d => (
+          <button
+            key={d.v}
+            onClick={() => setRectDraft({ dash: d.v })}
+            style={{
+              backgroundColor: activeStyle.dash === d.v ? '#2a2a2a' : '#161616',
+              color: activeStyle.dash === d.v ? '#e0e0e0' : '#666',
+              border: activeStyle.dash === d.v ? '1px solid #3a3a3a' : '1px solid #222',
+              borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+            }}
+          >{d.label}</button>
         ))}
       </div>
       <div style={{ display: 'flex', gap: '3px' }}>

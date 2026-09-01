@@ -571,8 +571,8 @@ export function CandleChart() {
         el.style.width = `${Math.abs(x2 - x1)}px`;
         el.style.height = `${Math.abs(y2 - y1)}px`;
         const isSelected = r.id === selectedRectId;
-        // 選択中でも枠は実線のまま（水平線・垂直線と同様、編集モードの目印はハンドルだけで示す）
-        el.style.border = `${r.width}px solid ${r.color}`;
+        // 選択中でも線種は変えない（水平線・垂直線と同様、編集モードの目印はハンドルだけで示す）
+        el.style.border = `${r.width}px ${DASH_TO_CSS[r.dash]} ${r.color}`;
         if (isSelected) {
           hasSelected = true;
           positionRectHandles(x1, x2, y1, y2);
@@ -846,7 +846,7 @@ export function CandleChart() {
       box.style.top = `${Math.min(y1, y2)}px`;
       box.style.width = `${Math.abs(x2 - x1)}px`;
       box.style.height = `${Math.abs(y2 - y1)}px`;
-      box.style.border = `${rectDraft.width}px solid ${rectDraft.color}`;
+      box.style.border = `${rectDraft.width}px ${DASH_TO_CSS[rectDraft.dash]} ${rectDraft.color}`;
     };
 
     // ── ものさし（ドラッグで価格差・本数・期間を計測） ──────────────
