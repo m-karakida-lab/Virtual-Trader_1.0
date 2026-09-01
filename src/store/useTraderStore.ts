@@ -686,10 +686,15 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     set(s => ({ lines: s.lines.map(l => l.id === id ? { ...l, ...patch } : l) }));
   },
   removeLine: (id: number) => {
-    set(s => ({
-      lines: s.lines.filter(l => l.id !== id),
-      selected: (s.selected?.kind === 'h' && s.selected.id === id) ? null : s.selected,
-    }));
+    set(s => {
+      const wasSelected = s.selected?.kind === 'h' && s.selected.id === id;
+      return {
+        lines: s.lines.filter(l => l.id !== id),
+        selected: wasSelected ? null : s.selected,
+        // 選択中の図形を削除した場合も編集モード終了とみなし、パレットも自動でOFFにする
+        paletteMode: wasSelected ? false : s.paletteMode,
+      };
+    });
   },
   // 選択中の線を色・線種・太さそのままに複製する（新規描画のaddLineと違い、
   // 現在のlineDraftではなく複製元自身のスタイルを引き継ぐ）
@@ -713,10 +718,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     set(s => ({ vlines: s.vlines.map(v => v.id === id ? { ...v, ...patch } : v) }));
   },
   removeVLine: (id: number) => {
-    set(s => ({
-      vlines: s.vlines.filter(v => v.id !== id),
-      selected: (s.selected?.kind === 'v' && s.selected.id === id) ? null : s.selected,
-    }));
+    set(s => {
+      const wasSelected = s.selected?.kind === 'v' && s.selected.id === id;
+      return {
+        vlines: s.vlines.filter(v => v.id !== id),
+        selected: wasSelected ? null : s.selected,
+        paletteMode: wasSelected ? false : s.paletteMode,
+      };
+    });
   },
   duplicateVLine: (id: number, newTime: number) => {
     const { vlines, nextVLineId } = get();
@@ -739,10 +748,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     set(s => ({ rects: s.rects.map(r => r.id === id ? { ...r, ...patch } : r) }));
   },
   removeRect: (id: number) => {
-    set(s => ({
-      rects: s.rects.filter(r => r.id !== id),
-      selected: (s.selected?.kind === 'rect' && s.selected.id === id) ? null : s.selected,
-    }));
+    set(s => {
+      const wasSelected = s.selected?.kind === 'rect' && s.selected.id === id;
+      return {
+        rects: s.rects.filter(r => r.id !== id),
+        selected: wasSelected ? null : s.selected,
+        paletteMode: wasSelected ? false : s.paletteMode,
+      };
+    });
   },
   duplicateRect: (id: number, time1: number, price1: number, time2: number, price2: number) => {
     const { rects, nextRectId } = get();
@@ -760,7 +773,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   selectLine: (target: LineSelection | null) => {
     set({ selected: target });
-    if (!target) return;
+    if (!target) {
+      // 編集モードを抜けたら（選択解除）パレットも自動でOFFにする（自動ONと対になる挙動）
+      if (get().paletteMode) set({ paletteMode: false });
+      return;
+    }
     // 水平線・垂直線・四角形を編集モードに入れたら、パレットが閉じていても自動でONにする
     // （選んだ図形のスタイルをパレット側へ取り込むところまで一気に済ませるため）
     if (!get().paletteMode) set({ paletteMode: true });
