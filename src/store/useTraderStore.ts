@@ -296,6 +296,16 @@ function processOrderRange(
   return { positions, pendingOrders, closedTrades, balance, nextId, changed };
 }
 
+// パレットモード中に、指定した図形へ現在のpaletteStyleを適用する（色・線種・太さ。
+// 四角形は線種を持たないため色・太さのみ）。新規選択時（selectLine）と、選択したまま
+// パレット側の設定を変えた時（setPaletteStyle）の両方から呼ばれる共通処理
+function applyPaletteStyleTo(get: () => TraderState, target: LineSelection): void {
+  const { paletteStyle } = get();
+  if (target.kind === 'h') get().updateLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
+  else if (target.kind === 'v') get().updateVLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
+  else get().updateRect(target.id, { color: paletteStyle.color, width: paletteStyle.width });
+}
+
 export const useTraderStore = create<TraderState>((set, get) => ({
   isLoaded: false,
   isLoading: false,
@@ -734,15 +744,16 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   selectLine: (target: LineSelection | null) => {
     set({ selected: target });
-    if (!target) return;
-    const { paletteMode, paletteStyle } = get();
-    if (!paletteMode) return;
-    if (target.kind === 'h') get().updateLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
-    else if (target.kind === 'v') get().updateVLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
-    else get().updateRect(target.id, { color: paletteStyle.color, width: paletteStyle.width });
+    if (!target || !get().paletteMode) return;
+    applyPaletteStyleTo(get, target);
   },
   togglePaletteMode: () => set(s => ({ paletteMode: !s.paletteMode })),
-  setPaletteStyle: patch => set(s => ({ paletteStyle: { ...s.paletteStyle, ...patch } })),
+  setPaletteStyle: patch => {
+    set(s => ({ paletteStyle: { ...s.paletteStyle, ...patch } }));
+    // 編集モード（選択中）のままパレットの設定を変えた時も、選び直さなくてもすぐ反映する
+    const { paletteMode, selected } = get();
+    if (paletteMode && selected) applyPaletteStyleTo(get, selected);
+  },
   setRectDraft: (patch) => {
     const { selected } = get();
     if (selected?.kind === 'rect') {
