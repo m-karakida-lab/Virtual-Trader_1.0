@@ -296,14 +296,31 @@ function processOrderRange(
   return { positions, pendingOrders, closedTrades, balance, nextId, changed };
 }
 
-// パレットモード中に、指定した図形へ現在のpaletteStyleを適用する（色・線種・太さ。
-// 四角形は線種を持たないため色・太さのみ）。新規選択時（selectLine）と、選択したまま
-// パレット側の設定を変えた時（setPaletteStyle）の両方から呼ばれる共通処理
+// パレットモード中に、選択中の図形へ現在のpaletteStyleを書き込む（色・線種・太さ。
+// 四角形は線種を持たないため色・太さのみ）。パレット側の設定を変えた時（setPaletteStyle）
+// から呼ばれる。「選択しただけ」では図形側は変えない（syncPaletteStyleFromと役割が逆）
 function applyPaletteStyleTo(get: () => TraderState, target: LineSelection): void {
   const { paletteStyle } = get();
   if (target.kind === 'h') get().updateLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
   else if (target.kind === 'v') get().updateVLine(target.id, { color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
   else get().updateRect(target.id, { color: paletteStyle.color, width: paletteStyle.width });
+}
+
+// パレットモードで図形を選択（編集モードに入る）した時に、その図形の現在のスタイルを
+// パレット側へ取り込む（選択しただけで図形の見た目が変わらないように）。四角形は線種を
+// 持たないため、パレット側のdashは変更しない
+function syncPaletteStyleFrom(set: (fn: (s: TraderState) => Partial<TraderState>) => void, get: () => TraderState, target: LineSelection): void {
+  const s = get();
+  if (target.kind === 'h') {
+    const line = s.lines.find(l => l.id === target.id);
+    if (line) set(() => ({ paletteStyle: { color: line.color, dash: line.dash, width: line.width } }));
+  } else if (target.kind === 'v') {
+    const v = s.vlines.find(vv => vv.id === target.id);
+    if (v) set(() => ({ paletteStyle: { color: v.color, dash: v.dash, width: v.width } }));
+  } else {
+    const r = s.rects.find(rr => rr.id === target.id);
+    if (r) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: r.color, width: r.width } }));
+  }
 }
 
 export const useTraderStore = create<TraderState>((set, get) => ({
@@ -745,7 +762,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   selectLine: (target: LineSelection | null) => {
     set({ selected: target });
     if (!target || !get().paletteMode) return;
-    applyPaletteStyleTo(get, target);
+    syncPaletteStyleFrom(set, get, target);
   },
   togglePaletteMode: () => set(s => ({ paletteMode: !s.paletteMode })),
   setPaletteStyle: patch => {
