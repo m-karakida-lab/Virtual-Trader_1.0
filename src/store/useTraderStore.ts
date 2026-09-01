@@ -760,7 +760,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   selectLine: (target: LineSelection | null) => {
     set({ selected: target });
-    if (!target || !get().paletteMode) return;
+    if (!target) return;
+    // 水平線・垂直線・四角形を編集モードに入れたら、パレットが閉じていても自動でONにする
+    // （選んだ図形のスタイルをパレット側へ取り込むところまで一気に済ませるため）
+    if (!get().paletteMode) set({ paletteMode: true });
     syncPaletteStyleFrom(set, get, target);
   },
   togglePaletteMode: () => set(s => ({ paletteMode: !s.paletteMode })),
