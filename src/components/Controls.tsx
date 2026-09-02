@@ -673,7 +673,7 @@ export function Controls() {
 
         {/* 日付ジャンプ（メニュー） */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
-          <MenuButton label="📅 日付" disabled={!isLoaded}>
+          <MenuButton label="📅 日付移動" disabled={!isLoaded}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <input
                 type="date"
