@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { createChart, LineStyle, type IChartApi, type ISeriesApi, type IPriceLine, type Time, type UTCTimestamp } from 'lightweight-charts';
+import { createChart, LineStyle, CrosshairMode, type IChartApi, type ISeriesApi, type IPriceLine, type Time, type UTCTimestamp } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, TimeframeSec } from '../types';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
@@ -99,7 +99,8 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         fontFamily: CHART_FONT_FAMILY,
       },
       grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } },
-      crosshair: { vertLine: { color: '#333' }, horzLine: { color: '#333' } },
+      // CandleChartと同じ理由でNormalにする（足の無い空白部分でも十字カーソルを出す）
+      crosshair: { mode: CrosshairMode.Normal, vertLine: { color: '#333' }, horzLine: { color: '#333' } },
       rightPriceScale: { borderColor: '#1e1e1e' },
       localization: { locale: 'en-US', dateFormat: 'yy MM/dd' },
       timeScale: {

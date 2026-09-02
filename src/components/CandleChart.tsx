@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react';
 import {
-  createChart, LineStyle,
+  createChart, LineStyle, CrosshairMode,
   type IChartApi, type ISeriesApi, type CandlestickSeriesOptions,
   type Time, type UTCTimestamp, type CandlestickData, type LineData, type IPriceLine,
   type SeriesMarker,
@@ -256,7 +256,11 @@ export function CandleChart() {
         vertLines: { color: '#1a1a1a' },
         horzLines: { color: '#1a1a1a' },
       },
+      // Magnet（デフォルト）は足の実データ点にしか吸着せず、ローソク足やインジケーターの
+      // 無い空白部分（価格レンジの外・右側の余白等）ではカーソルが出ない。Normalにすると
+      // マウス位置にそのまま追従し、何もない場所でも十字カーソルを出せる
       crosshair: {
+        mode: CrosshairMode.Normal,
         vertLine: { color: '#333' },
         horzLine: { color: '#333' },
       },
