@@ -531,7 +531,7 @@ export function Controls() {
             onClick={fitToScreen}
             disabled={!isLoaded}
             style={tfBtn(false, !isLoaded)}
-          >画面にフィット</button>
+          >表示をリセット</button>
           <button
             onClick={scrollToLatest}
             disabled={!isLoaded}

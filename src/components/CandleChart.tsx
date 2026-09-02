@@ -2061,7 +2061,7 @@ export function CandleChart() {
     seriesRef.current?.setMarkers(buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)));
   }, [positions, closedTrades, quoteCurrency]);
 
-  // 画面にフィット: TradingViewの「チャート表示をリセット」相当。全データを画面に
+  // 表示をリセット: TradingViewの「チャート表示をリセット」相当。全データを画面に
   // 収めるズームアウトではなく、時間軸のズーム・スクロール位置をデフォルトに戻し
   // （resetTimeScale）、価格軸の手動スケール調整（ドラッグ等）も解除してautoScaleへ戻す
   useEffect(() => {
