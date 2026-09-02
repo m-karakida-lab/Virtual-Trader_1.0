@@ -209,8 +209,6 @@ interface TraderState {
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
   selectLine: (target: LineSelection | null) => void;
-  setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
-  setRectDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   togglePaletteMode: () => void;
   setPaletteStyle: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   toggleEMA: () => void;
@@ -793,33 +791,6 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     // 編集モード（選択中）のままパレットの設定を変えた時も、選び直さなくてもすぐ反映する
     const { paletteMode, selected } = get();
     if (paletteMode && selected) applyPaletteStyleTo(get, selected);
-  },
-  setRectDraft: (patch) => {
-    const { selected } = get();
-    if (selected?.kind === 'rect') {
-      set(s => ({
-        rects: s.rects.map(r => r.id === selected.id ? { ...r, ...patch } : r),
-        rectDraft: { ...s.rectDraft, ...patch },
-      }));
-    } else {
-      set(s => ({ rectDraft: { ...s.rectDraft, ...patch } }));
-    }
-  },
-  setLineDraft: (patch) => {
-    const { selected } = get();
-    if (selected?.kind === 'h') {
-      set(s => ({
-        lines: s.lines.map(l => l.id === selected.id ? { ...l, ...patch } : l),
-        lineDraft: { ...s.lineDraft, ...patch },
-      }));
-    } else if (selected?.kind === 'v') {
-      set(s => ({
-        vlines: s.vlines.map(v => v.id === selected.id ? { ...v, ...patch } : v),
-        lineDraft: { ...s.lineDraft, ...patch },
-      }));
-    } else {
-      set(s => ({ lineDraft: { ...s.lineDraft, ...patch } }));
-    }
   },
   toggleEMA: () => set(s => ({ showEMA: !s.showEMA })),
   toggleSMA: () => set(s => ({ showSMA: !s.showSMA })),

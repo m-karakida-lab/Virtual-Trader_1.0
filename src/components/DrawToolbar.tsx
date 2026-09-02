@@ -1,16 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import { RECT_COLORS, LINE_COLORS, type LineWidth, type LineDash, type MagnetMode } from '../types';
+import type { MagnetMode } from '../types';
 
 // TradingView風の左端アイコンツールバー。クリックした瞬間にそのツールが有効化され、
 // 続けてチャート上をクリック/ドラッグするだけで配置できる（配置後は自動的に解除される）。
+// 色・線種・太さの編集は右上のPalettePanel（パレットモード）が一手に担う。
 // 実際の配置・既存図形の一覧/削除は Controls.tsx の「描画」メニュー側が担う。
 // 4画面時も1画面時と同じく、常に操作可能なメインパネル（CandleChart）に対して働く
-
-const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
-const DASH_OPTIONS: { v: LineDash; label: string }[] = [
-  { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
-];
 
 const ICONS: Record<string, JSX.Element> = {
   hline: (
@@ -122,127 +118,6 @@ function StyleArrow({ title, children }: { title: string; disabled: boolean; chi
   );
 }
 
-// 四角形の「次に描く色・太さ」（または選択中の四角形があればその色・太さ）を
-// その場で選べる矢印つきポップアップ。中身は setRectDraft に委譲するだけで、
-// 選択中の四角形があればそれを直接編集、無ければ次に描く四角形の既定値を変える
-// （Controls.tsx の「描画」メニュー内の四角形スタイルピッカーと同じ挙動）
-function RectStylePopup({ disabled }: { disabled: boolean }) {
-  const rectDraft = useTraderStore(s => s.rectDraft);
-  const setRectDraft = useTraderStore(s => s.setRectDraft);
-  const selected = useTraderStore(s => s.selected);
-  const rects = useTraderStore(s => s.rects);
-
-  const selectedRect = selected?.kind === 'rect' ? rects.find(r => r.id === selected.id) : undefined;
-  const activeStyle = selectedRect ?? rectDraft;
-
-  return (
-    <StyleArrow title="四角形の色・線種・太さ" disabled={disabled}>
-      <div style={{ display: 'flex', gap: '4px' }}>
-        {RECT_COLORS.map(c => (
-          <button
-            key={c}
-            onClick={() => setRectDraft({ color: c })}
-            style={{
-              width: '18px', height: '18px', backgroundColor: c,
-              border: activeStyle.color === c ? '2px solid #fff' : '2px solid transparent',
-              borderRadius: '3px', cursor: 'pointer', padding: 0,
-            }}
-          />
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '3px' }}>
-        {DASH_OPTIONS.map(d => (
-          <button
-            key={d.v}
-            onClick={() => setRectDraft({ dash: d.v })}
-            style={{
-              backgroundColor: activeStyle.dash === d.v ? '#2a2a2a' : '#161616',
-              color: activeStyle.dash === d.v ? '#e0e0e0' : '#666',
-              border: activeStyle.dash === d.v ? '1px solid #3a3a3a' : '1px solid #222',
-              borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-            }}
-          >{d.label}</button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '3px' }}>
-        {WIDTH_OPTIONS.map(w => (
-          <button
-            key={w}
-            onClick={() => setRectDraft({ width: w })}
-            style={{
-              backgroundColor: activeStyle.width === w ? '#2a2a2a' : '#161616',
-              color: activeStyle.width === w ? '#e0e0e0' : '#666',
-              border: activeStyle.width === w ? '1px solid #3a3a3a' : '1px solid #222',
-              borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-            }}
-          >{w}px</button>
-        ))}
-      </div>
-    </StyleArrow>
-  );
-}
-
-// 水平線・垂直線共通の「次に描く色・線種・太さ」（または選択中の線があればその設定）を
-// その場で選べる矢印つきポップアップ。水平線・垂直線どちらの矢印から開いても同じ
-// lineDraft/setLineDraft を共有する（Controls.tsx の水平線・垂直線スタイルピッカーと同じ）
-function LineStylePopup({ title, disabled }: { title: string; disabled: boolean }) {
-  const lineDraft = useTraderStore(s => s.lineDraft);
-  const setLineDraft = useTraderStore(s => s.setLineDraft);
-  const selected = useTraderStore(s => s.selected);
-  const lines = useTraderStore(s => s.lines);
-  const vlines = useTraderStore(s => s.vlines);
-
-  const selectedLine  = selected?.kind === 'h' ? lines.find(l => l.id === selected.id) : undefined;
-  const selectedVLine = selected?.kind === 'v' ? vlines.find(v => v.id === selected.id) : undefined;
-  const activeStyle = selectedLine ?? selectedVLine ?? lineDraft;
-
-  return (
-    <StyleArrow title={title} disabled={disabled}>
-      <div style={{ display: 'flex', gap: '4px' }}>
-        {LINE_COLORS.map(c => (
-          <button
-            key={c}
-            onClick={() => setLineDraft({ color: c })}
-            style={{
-              width: '18px', height: '18px', borderRadius: '50%', backgroundColor: c,
-              border: activeStyle.color === c ? '2px solid #fff' : '2px solid transparent',
-              cursor: 'pointer', padding: 0,
-            }}
-          />
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '3px' }}>
-        {DASH_OPTIONS.map(d => (
-          <button
-            key={d.v}
-            onClick={() => setLineDraft({ dash: d.v })}
-            style={{
-              backgroundColor: activeStyle.dash === d.v ? '#2a2a2a' : '#161616',
-              color: activeStyle.dash === d.v ? '#e0e0e0' : '#666',
-              border: activeStyle.dash === d.v ? '1px solid #3a3a3a' : '1px solid #222',
-              borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-            }}
-          >{d.label}</button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '3px' }}>
-        {WIDTH_OPTIONS.map(w => (
-          <button
-            key={w}
-            onClick={() => setLineDraft({ width: w })}
-            style={{
-              backgroundColor: activeStyle.width === w ? '#2a2a2a' : '#161616',
-              color: activeStyle.width === w ? '#e0e0e0' : '#666',
-              border: activeStyle.width === w ? '1px solid #3a3a3a' : '1px solid #222',
-              borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-            }}
-          >{w}px</button>
-        ))}
-      </div>
-    </StyleArrow>
-  );
-}
-
 const MAGNET_STRENGTH_OPTIONS: { v: Exclude<MagnetMode, 'off'>; label: string }[] = [
   { v: 'weak', label: '弱' }, { v: 'strong', label: '強' },
 ];
@@ -295,19 +170,10 @@ export function DrawToolbar() {
       backgroundColor: '#111', border: '1px solid #2a2a2a', borderRadius: '8px',
       padding: '6px', zIndex: 30,
     }}>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <ToolButton icon="hline" title="水平線" active={isDrawingLine} disabled={!isLoaded} onClick={toggleDrawLine} />
-        <LineStylePopup title="水平線の色・線種・太さ" disabled={!isLoaded} />
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <ToolButton icon="vline" title="垂直線" active={isDrawingVLine} disabled={!isLoaded} onClick={toggleDrawVLine} />
-        <LineStylePopup title="垂直線の色・線種・太さ" disabled={!isLoaded} />
-      </div>
+      <ToolButton icon="hline" title="水平線" active={isDrawingLine} disabled={!isLoaded} onClick={toggleDrawLine} />
+      <ToolButton icon="vline" title="垂直線" active={isDrawingVLine} disabled={!isLoaded} onClick={toggleDrawVLine} />
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />
-      <div style={{ display: 'flex', alignItems: 'center' }}>
-        <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
-        <RectStylePopup disabled={!isLoaded} />
-      </div>
+      <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <ToolButton icon="magnet" title="マグネット（足のOHLCに吸着）" active={magnetMode !== 'off'} disabled={!isLoaded} onClick={toggleMagnet} />
