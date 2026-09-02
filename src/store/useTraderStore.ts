@@ -216,7 +216,7 @@ interface TraderState {
   toggleBB: () => void;
   toggleCloud: () => void;
   toggleWeekLines: () => void;
-  toggleFullHistory: () => void;
+  advanceToEnd: () => void;
   toggleHistoryPanel: () => void;
   setChartMargins: (right: number, bottom: number) => void;
   setChartLayout: (layout: '1' | '4') => void;
@@ -797,7 +797,25 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   toggleBB: () => set(s => ({ showBB: !s.showBB })),
   toggleCloud: () => set(s => ({ showCloud: !s.showCloud })),
   toggleWeekLines: () => set(s => ({ showWeekLines: !s.showWeekLines })),
-  toggleFullHistory: () => set(s => ({ showFullHistory: !s.showFullHistory, isPlaying: false })),
+  // 「全体を見る」: 一時的なプレビューではなく、読み込んだデータの最後まで実際に
+  // カーソルを進める（通過した範囲の注文約定・TP/SL判定も行う。advanceを1本ずつ
+  // 呼ぶ代わりにprocessOrderRangeへ一括で渡すことで、本数が多くても一瞬で終わる）
+  advanceToEnd: () => {
+    const { cursor, candles, positions, pendingOrders, closedTrades, balance, nextId } = get();
+    if (candles.length === 0) return;
+    const lastIdx = candles.length - 1;
+    if (cursor >= lastIdx) { set({ showFullHistory: true, isPlaying: false }); return; }
+    const result = processOrderRange(candles, cursor, lastIdx, positions, pendingOrders, closedTrades, balance, nextId);
+    set({
+      cursor: lastIdx,
+      showFullHistory: true,
+      isPlaying: false,
+      ...(result.changed ? {
+        positions: result.positions, pendingOrders: result.pendingOrders,
+        closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
+      } : {}),
+    });
+  },
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),
   setChartMargins: (right: number, bottom: number) => set({ chartRightMargin: right, chartBottomMargin: bottom }),
   setChartLayout: (layout: '1' | '4') => set({ chartLayout: layout }),

@@ -199,7 +199,7 @@ export function Controls() {
   const toggleWeekLines = useTraderStore(s => s.toggleWeekLines);
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
-  const toggleFullHistory = useTraderStore(s => s.toggleFullHistory);
+  const advanceToEnd = useTraderStore(s => s.advanceToEnd);
   const lines          = useTraderStore(s => s.lines);
   const vlines          = useTraderStore(s => s.vlines);
   const rects          = useTraderStore(s => s.rects);
@@ -522,10 +522,10 @@ export function Controls() {
         {/* 表示モード */}
         <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
           <button
-            onClick={toggleFullHistory}
-            disabled={!isLoaded}
-            style={tfBtn(showFullHistory, !isLoaded)}
-          >{showFullHistory ? '全表示中' : '全体を見る'}</button>
+            onClick={advanceToEnd}
+            disabled={!isLoaded || (candles.length > 0 && cursor >= candles.length - 1)}
+            style={tfBtn(false, !isLoaded)}
+          >全体を見る</button>
           <button
             onClick={fitToScreen}
             disabled={!isLoaded}
