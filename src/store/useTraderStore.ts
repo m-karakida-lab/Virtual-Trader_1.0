@@ -795,7 +795,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   toggleBB: () => set(s => ({ showBB: !s.showBB })),
   toggleCloud: () => set(s => ({ showCloud: !s.showCloud })),
   toggleWeekLines: () => set(s => ({ showWeekLines: !s.showWeekLines })),
-  // 「全体を見る」: 一時的なプレビューではなく、読み込んだデータの最後まで実際に
+  // 「チャート全表示」: 一時的なプレビューではなく、読み込んだデータの最後まで実際に
   // カーソルを進める（通過した範囲の注文約定・TP/SL判定も行う。advanceを1本ずつ
   // 呼ぶ代わりにprocessOrderRangeへ一括で渡すことで、本数が多くても一瞬で終わる）
   advanceToEnd: () => {

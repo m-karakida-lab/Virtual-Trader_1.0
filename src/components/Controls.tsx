@@ -526,7 +526,7 @@ export function Controls() {
             onClick={advanceToEnd}
             disabled={!isLoaded || atEnd}
             style={tfBtn(false, !isLoaded)}
-          >全体を見る</button>
+          >チャート全表示</button>
           <button
             onClick={fitToScreen}
             disabled={!isLoaded}
