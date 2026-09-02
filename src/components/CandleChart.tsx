@@ -2131,6 +2131,18 @@ export function CandleChart() {
 
     prevCursorRef.current  = cursor;
     prevCandlesRef.current = candles;
+
+    // timeToCoordinate等の時刻ベース座標変換は、setData直後・ズーム/スクロール位置の
+    // 復元前後などレイアウト未確定なタイミングだと稀に古い座標を返し、雲や区切り線が
+    // ずれて描画されることがある。1フレーム後に再同期して、その場合でも正しい座標で描き直す
+    const raf = requestAnimationFrame(() => {
+      syncVLinesRef.current();
+      syncRectsRef.current();
+      syncWeekLinesRef.current();
+      syncCloudRef.current();
+      syncScrubberRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [candles, cursor]);
 
   // 時間軸の切替・新規CSV読み込み時、記憶しておいたズーム/スケール（縮尺）を復元したうえで、

@@ -549,6 +549,18 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncVLinesRef.current();
       syncRectsRef.current();
     }
+
+    // timeToCoordinate等の時刻ベース座標変換は、setData/setVisibleRange直後の
+    // レイアウト未確定なタイミングだと稀に古い座標を返し、雲や週区切り線がずれて
+    // 描画されることがある（CandleChart側の同種の注記を参照）。1フレーム後に
+    // 再同期して、その場合でも正しい座標で描き直す
+    const raf = requestAnimationFrame(() => {
+      syncCloudRef.current();
+      syncWeekLinesRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [data, cursorEnd, timeframeSec]);
 
   return (
