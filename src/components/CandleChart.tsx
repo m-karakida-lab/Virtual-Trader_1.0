@@ -2061,10 +2061,13 @@ export function CandleChart() {
     seriesRef.current?.setMarkers(buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)));
   }, [positions, closedTrades, quoteCurrency]);
 
-  // 画面にフィット: 現在チャートに表示されているデータ範囲をビューポートに合わせる
+  // 画面にフィット: TradingViewの「チャート表示をリセット」相当。全データを画面に
+  // 収めるズームアウトではなく、時間軸のズーム・スクロール位置をデフォルトに戻し
+  // （resetTimeScale）、価格軸の手動スケール調整（ドラッグ等）も解除してautoScaleへ戻す
   useEffect(() => {
     if (fitSignal === 0 || !chartRef.current) return;
-    chartRef.current.timeScale().fitContent();
+    chartRef.current.timeScale().resetTimeScale();
+    chartRef.current.priceScale('right').applyOptions({ autoScale: true });
   }, [fitSignal]);
 
   // 4画面時、他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）。
