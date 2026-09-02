@@ -5,14 +5,11 @@ import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 
 // "YYYY-MM-DD" + "HH:mm" を UTC 前提で Unix秒に変換
-function parseDateTimeAsUTC(dateStr: string, timeStr: string): number | null {
+function parseDateAsUTC(dateStr: string): number | null {
   const dm = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (!dm) return null;
-  const tm = (timeStr || '00:00').match(/^(\d{2}):(\d{2})(?::\d{2})?$/);
-  if (!tm) return null;
   const [, y, mo, d] = dm;
-  const [, h, mi] = tm;
-  return Math.floor(Date.UTC(+y, +mo - 1, +d, +h, +mi) / 1000);
+  return Math.floor(Date.UTC(+y, +mo - 1, +d, 0, 0) / 1000);
 }
 
 // Unix秒 → "YYYY-MM-DD"（UTC基準、datetime input の min/max 用）
@@ -267,9 +264,8 @@ export function Controls() {
   })() : '—';
 
   const [jumpDate, setJumpDate] = useState('');
-  const [jumpTime, setJumpTime] = useState('00:00');
   const handleJump = () => {
-    const sec = parseDateTimeAsUTC(jumpDate, jumpTime);
+    const sec = parseDateAsUTC(jumpDate);
     if (sec !== null) jumpToTime(sec);
   };
   const minDate = candles.length > 0 ? toDateUTC(candles[0].time) : undefined;
@@ -675,27 +671,17 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0, margin: '0 8px' }} />
 
-        {/* 日時ジャンプ（メニュー） */}
+        {/* 日付ジャンプ（メニュー） */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
-          <MenuButton label="📅 日時" disabled={!isLoaded}>
+          <MenuButton label="📅 日付" disabled={!isLoaded}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <input
                 type="date"
                 value={jumpDate}
                 onChange={e => setJumpDate(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter' && isLoaded && jumpDate) handleJump(); }}
                 min={minDate}
                 max={maxDate}
-                disabled={!isLoaded}
-                style={{
-                  backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-                  borderRadius: '3px', padding: '8px 8px', fontSize: '20px',
-                  colorScheme: 'dark',
-                }}
-              />
-              <input
-                type="time"
-                value={jumpTime}
-                onChange={e => setJumpTime(e.target.value)}
                 disabled={!isLoaded}
                 style={{
                   backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
