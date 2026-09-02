@@ -145,7 +145,6 @@ interface TraderState {
   showBB: boolean;
   showCloud: boolean;
   showWeekLines: boolean;
-  showFullHistory: boolean;
   showHistoryPanel: boolean; // 取引履歴・損益グラフのパネル表示
   chartRightMargin: number;  // チャート右側の価格軸の実測幅(px)。フロートパネルの配置クランプ用
   chartBottomMargin: number; // チャート下部の時間軸の実測高さ(px)。フロートパネルの配置クランプ用
@@ -370,7 +369,6 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   showBB: true,
   showCloud: true,
   showWeekLines: true,
-  showFullHistory: false,
   showHistoryPanel: false,
   chartRightMargin: 60,
   chartBottomMargin: 28,
@@ -409,7 +407,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         closedTrades: [], nextId: 1,
         isPlaying: false,
         lines: [], nextLineId: 1, vlines: [], nextVLineId: 1, rects: [], nextRectId: 1, selected: null,
-        showFullHistory: false, quoteCurrency, symbol,
+        quoteCurrency, symbol,
         dataVersion: get().dataVersion + 1,
       });
       setTimeout(() => {
@@ -804,11 +802,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const { cursor, candles, positions, pendingOrders, closedTrades, balance, nextId } = get();
     if (candles.length === 0) return;
     const lastIdx = candles.length - 1;
-    if (cursor >= lastIdx) { set({ showFullHistory: true, isPlaying: false }); return; }
+    if (cursor >= lastIdx) { set({ isPlaying: false }); return; }
     const result = processOrderRange(candles, cursor, lastIdx, positions, pendingOrders, closedTrades, balance, nextId);
     set({
       cursor: lastIdx,
-      showFullHistory: true,
       isPlaying: false,
       ...(result.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,

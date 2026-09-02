@@ -213,7 +213,6 @@ export function Controls() {
   const showBB        = useTraderStore(s => s.showBB);
   const showCloud     = useTraderStore(s => s.showCloud);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
-  const showFullHistory = useTraderStore(s => s.showFullHistory);
   const balance       = useTraderStore(s => s.balance);
   const initialBalance = useTraderStore(s => s.initialBalance);
   const setInitialBalance = useTraderStore(s => s.setInitialBalance);
@@ -239,6 +238,8 @@ export function Controls() {
   const totalPnl      = useTraderStore(selectUnrealizedPnL);
 
   const timeframeLabel = TIMEFRAMES.find(t => t.sec === timeframeSec)?.label ?? '';
+  // 最後の足まで進んでいる（=もう先に反応できる未来が無い）間は発注・速度変更を無効化する
+  const atEnd = candles.length > 0 && cursor >= candles.length - 1;
   const sym = currencySymbol(quoteCurrency);
   const priceStep = candles.length > 0 ? 1 / 10 ** pricePrecision(candles[0].close) : 0.00001;
 
@@ -298,13 +299,13 @@ export function Controls() {
         <div style={{ display: 'flex', gap: '3px' }}>
           <button
             onClick={() => setLotMode('fixed')}
-            disabled={!isLoaded || showFullHistory}
-            style={tfBtn(lotMode === 'fixed', !isLoaded || showFullHistory)}
+            disabled={!isLoaded || atEnd}
+            style={tfBtn(lotMode === 'fixed', !isLoaded || atEnd)}
           >固定</button>
           <button
             onClick={() => setLotMode('risk')}
-            disabled={!isLoaded || showFullHistory}
-            style={tfBtn(lotMode === 'risk', !isLoaded || showFullHistory)}
+            disabled={!isLoaded || atEnd}
+            style={tfBtn(lotMode === 'risk', !isLoaded || atEnd)}
           >リスク%</button>
         </div>
 
@@ -312,7 +313,7 @@ export function Controls() {
           <select
             value={lots}
             onChange={e => setLots(Number(e.target.value))}
-            disabled={!isLoaded || showFullHistory}
+            disabled={!isLoaded || atEnd}
             style={{
               backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
               borderRadius: '3px', padding: '6px 8px', fontSize: '15px', cursor: 'pointer',
@@ -330,7 +331,7 @@ export function Controls() {
               value={riskPercent}
               onChange={e => setRiskPercent(Number(e.target.value))}
               min={0.1} step={0.1}
-              disabled={!isLoaded || showFullHistory}
+              disabled={!isLoaded || atEnd}
               style={{
                 backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
                 borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '60px',
@@ -349,8 +350,8 @@ export function Controls() {
             <button
               key={t}
               onClick={() => setOrderType(t)}
-              disabled={!isLoaded || showFullHistory}
-              style={tfBtn(orderType === t, !isLoaded || showFullHistory)}
+              disabled={!isLoaded || atEnd}
+              style={tfBtn(orderType === t, !isLoaded || atEnd)}
             >{label}</button>
           ))}
         </div>
@@ -415,8 +416,8 @@ export function Controls() {
             style={pickBtn('#ef5350', pickTarget === 'sl', !isLoaded)}
           >📍</button>
         </div>
-        <button onClick={() => submitOrder('BUY')}  disabled={!isLoaded || showFullHistory} style={orderBtn('#0d47a1', !isLoaded || showFullHistory)}>BUY</button>
-        <button onClick={() => submitOrder('SELL')} disabled={!isLoaded || showFullHistory} style={orderBtn('#b71c1c', !isLoaded || showFullHistory)}>SELL</button>
+        <button onClick={() => submitOrder('BUY')}  disabled={!isLoaded || atEnd} style={orderBtn('#0d47a1', !isLoaded || atEnd)}>BUY</button>
+        <button onClick={() => submitOrder('SELL')} disabled={!isLoaded || atEnd} style={orderBtn('#b71c1c', !isLoaded || atEnd)}>SELL</button>
         {positions.length > 1 && (
           <button onClick={closeAll} style={orderBtn('#333', false)}>全決済</button>
         )}
@@ -523,7 +524,7 @@ export function Controls() {
         <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
           <button
             onClick={advanceToEnd}
-            disabled={!isLoaded || (candles.length > 0 && cursor >= candles.length - 1)}
+            disabled={!isLoaded || atEnd}
             style={tfBtn(false, !isLoaded)}
           >全体を見る</button>
           <button
@@ -720,7 +721,7 @@ export function Controls() {
           <input
             type="range" min={1} max={20} step={1} value={speed}
             onChange={e => setSpeed(Number(e.target.value))}
-            disabled={showFullHistory}
+            disabled={atEnd}
             style={{ width: '72px', accentColor: '#444' }}
           />
         </div>

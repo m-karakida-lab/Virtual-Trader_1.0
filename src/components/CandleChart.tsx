@@ -213,7 +213,6 @@ export function CandleChart() {
   const isLoaded = useTraderStore(s => s.isLoaded);
   const dataVersion = useTraderStore(s => s.dataVersion);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
-  const showFullHistory = useTraderStore(s => s.showFullHistory);
   const fitSignal  = useTraderStore(s => s.fitSignal);
   const scrollToLatestSignal = useTraderStore(s => s.scrollToLatestSignal);
   const centerSignal = useTraderStore(s => s.centerSignal);
@@ -408,8 +407,8 @@ export function CandleChart() {
       const ts = chartRef.current.timeScale();
       const exact = ts.timeToCoordinate(t as Time);
       if (exact !== null) return exact;
-      const { candles: cs, cursor, showFullHistory } = useTraderStore.getState();
-      const visible = showFullHistory ? cs : cs.slice(0, cursor + 1);
+      const { candles: cs, cursor } = useTraderStore.getState();
+      const visible = cs.slice(0, cursor + 1);
       if (visible.length === 0) return null;
       if (t <= visible[0].time) return ts.timeToCoordinate(visible[0].time as Time);
       if (t >= visible[visible.length - 1].time) return ts.timeToCoordinate(visible[visible.length - 1].time as Time);
@@ -703,8 +702,8 @@ export function CandleChart() {
     // ── 全期間スクラバー（YouTubeのシークバーのように、全体に対する現在の表示位置・
     // 幅をバーで示し、ドラッグで平行移動・クリックでジャンプできるようにする） ──────
     const getScrubberTotalBars = () => {
-      const { candles: cs, cursor: cur, showFullHistory: full } = useTraderStore.getState();
-      return full ? cs.length : cur + 1;
+      const { cursor: cur } = useTraderStore.getState();
+      return cur + 1;
     };
     const syncScrubber = () => {
       if (!chartRef.current || !scrubberTrackRef.current || !scrubberThumbRef.current) return;
@@ -801,8 +800,8 @@ export function CandleChart() {
         if (!chartRef.current) return;
         const range = chartRef.current.timeScale().getVisibleLogicalRange();
         if (!range) return;
-        const { candles: cs, cursor: cur, showFullHistory: full, timeframeSec: tf } = useTraderStore.getState();
-        const totalBars = full ? cs.length : cur + 1;
+        const { cursor: cur, timeframeSec: tf } = useTraderStore.getState();
+        const totalBars = cur + 1;
         if (totalBars <= 0) return;
         saveChartView(tf, { span: range.to - range.from, barsFromRight: totalBars - range.to });
       }, 400);
@@ -1155,8 +1154,8 @@ export function CandleChart() {
       const ts = chartRef.current.timeScale();
       const t = ts.coordinateToTime(x);
       if (t !== null) return t as number;
-      const { candles: cs, cursor, showFullHistory } = useTraderStore.getState();
-      const visible = showFullHistory ? cs : cs.slice(0, cursor + 1);
+      const { candles: cs, cursor } = useTraderStore.getState();
+      const visible = cs.slice(0, cursor + 1);
       if (visible.length === 0) return null;
       const firstX = ts.timeToCoordinate(visible[0].time as Time);
       const lastX = ts.timeToCoordinate(visible[visible.length - 1].time as Time);
@@ -1175,9 +1174,9 @@ export function CandleChart() {
       if (!seriesRef.current) return null;
       const rawPrice = seriesRef.current.coordinateToPrice(y);
       if (rawPrice === null) return null;
-      const { magnetMode, candles: cs, cursor, showFullHistory } = useTraderStore.getState();
+      const { magnetMode, candles: cs, cursor } = useTraderStore.getState();
       if (magnetMode === 'off' || cs.length === 0) return { price: rawPrice, y };
-      const visible = showFullHistory ? cs : cs.slice(0, cursor + 1);
+      const visible = cs.slice(0, cursor + 1);
       const t = pixelToTime(x);
       if (visible.length === 0 || t === null) return { price: rawPrice, y };
       const idx0 = Math.min(Math.max(candleIndexAt(visible, t), 0), visible.length - 1);
@@ -1280,9 +1279,9 @@ export function CandleChart() {
       const borderRectId = findRectBorderNear(x, y);
       if (borderRectId !== null) {
         if (!seriesRef.current || !chartRef.current) return;
-        const { rects: rectsAtDown, candles: csAtDown, cursor: curAtDown, showFullHistory: fullAtDown } = useTraderStore.getState();
+        const { rects: rectsAtDown, candles: csAtDown, cursor: curAtDown } = useTraderStore.getState();
         const r = rectsAtDown.find(rr => rr.id === borderRectId);
-        const visibleAtDown = fullAtDown ? csAtDown : csAtDown.slice(0, curAtDown + 1);
+        const visibleAtDown = csAtDown.slice(0, curAtDown + 1);
         const startTime = pixelToTime(x);
         const startPrice = seriesRef.current.coordinateToPrice(y);
         if (!r || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
@@ -1466,8 +1465,8 @@ export function CandleChart() {
         const t = pixelToTime(x);
         const p = seriesRef.current.coordinateToPrice(y);
         if (t === null || p === null) return;
-        const { candles: csMove, cursor: curMove, showFullHistory: fullMove } = useTraderStore.getState();
-        const visibleMove = fullMove ? csMove : csMove.slice(0, curMove + 1);
+        const { candles: csMove, cursor: curMove } = useTraderStore.getState();
+        const visibleMove = csMove.slice(0, curMove + 1);
         if (visibleMove.length === 0) return;
         pendingRectMoveDelta = { idx: candleIndexAt(visibleMove, t) - rectMoveStart.startIdx, dp: p - rectMoveStart.startPrice };
         if (!rafScheduled) {
@@ -1478,8 +1477,8 @@ export function CandleChart() {
             if (!chartRef.current || !seriesRef.current) return;
             const el = rectElsRef.current.get(draggingRectMoveId);
             if (!el) return;
-            const { candles: csRaf, cursor: curRaf, showFullHistory: fullRaf } = useTraderStore.getState();
-            const visibleRaf = fullRaf ? csRaf : csRaf.slice(0, curRaf + 1);
+            const { candles: csRaf, cursor: curRaf } = useTraderStore.getState();
+            const visibleRaf = csRaf.slice(0, curRaf + 1);
             if (visibleRaf.length === 0) return;
             const newIdx1 = Math.min(Math.max(rectMoveStart.idx1 + pendingRectMoveDelta.idx, 0), visibleRaf.length - 1);
             const newIdx2 = Math.min(Math.max(rectMoveStart.idx2 + pendingRectMoveDelta.idx, 0), visibleRaf.length - 1);
@@ -1606,8 +1605,8 @@ export function CandleChart() {
       }
       if (draggingRectMoveId !== null) {
         if (pendingRectMoveDelta !== null && rectMoveStart !== null) {
-          const { candles: csUp, cursor: curUp, showFullHistory: fullUp } = useTraderStore.getState();
-          const visibleUp = fullUp ? csUp : csUp.slice(0, curUp + 1);
+          const { candles: csUp, cursor: curUp } = useTraderStore.getState();
+          const visibleUp = csUp.slice(0, curUp + 1);
           if (visibleUp.length > 0) {
             const newIdx1 = Math.min(Math.max(rectMoveStart.idx1 + pendingRectMoveDelta.idx, 0), visibleUp.length - 1);
             const newIdx2 = Math.min(Math.max(rectMoveStart.idx2 + pendingRectMoveDelta.idx, 0), visibleUp.length - 1);
@@ -2062,23 +2061,6 @@ export function CandleChart() {
     seriesRef.current?.setMarkers(buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)));
   }, [positions, closedTrades, quoteCurrency]);
 
-  // 全表示モード: 読み込んだ全データを一括表示（cursor を無視）
-  useEffect(() => {
-    if (!seriesRef.current || candles.length === 0 || !showFullHistory) return;
-    seriesRef.current.setData(candles.map(toBar));
-    recomputeEmaFull(candles, candles.length - 1);
-    recomputeSMAFull(candles, candles.length - 1);
-    recomputeBBFull(candles, candles.length - 1);
-    recomputeCloudFull(candles, candles.length - 1);
-    chartRef.current?.timeScale().fitContent();
-    chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
-    // fitContent 後の確定した可視範囲で再同期（範囲変更イベントに頼らず確実に揃える）
-    syncVLinesRef.current();
-    syncRectsRef.current();
-    syncWeekLinesRef.current();
-    syncScrubberRef.current();
-  }, [candles, showFullHistory]);
-
   // 画面にフィット: 現在チャートに表示されているデータ範囲をビューポートに合わせる
   useEffect(() => {
     if (fitSignal === 0 || !chartRef.current) return;
@@ -2111,7 +2093,7 @@ export function CandleChart() {
 
   // リプレイモード: カーソル変化時にデータ更新（ローソク足 + EMA200）
   useEffect(() => {
-    if (!seriesRef.current || candles.length === 0 || showFullHistory) return;
+    if (!seriesRef.current || candles.length === 0) return;
 
     const isStep =
       candles === prevCandlesRef.current &&
@@ -2142,7 +2124,7 @@ export function CandleChart() {
 
     prevCursorRef.current  = cursor;
     prevCandlesRef.current = candles;
-  }, [candles, cursor, showFullHistory]);
+  }, [candles, cursor]);
 
   // 時間軸の切替・新規CSV読み込み時、記憶しておいたズーム/スケール（縮尺）を復元したうえで、
   // 常に最新足に固定する（右端からの位置=barsFromRightではなく、常にrightOffset分の位置に揃える）
@@ -2154,14 +2136,14 @@ export function CandleChart() {
     restoredViewKeyRef.current = key;
 
     const saved = loadChartView(timeframeSec);
-    const totalBars = showFullHistory ? candles.length : cursor + 1;
+    const totalBars = cursor + 1;
     // 記憶したズーム幅（span）が現在の表示可能本数を超える場合（読み込み直後でcursorが
     // 先頭に戻っている等）は復元すると破綻したlogical rangeになるため復元をスキップする
     if (saved && totalBars > 0 && saved.span <= totalBars) {
       chartRef.current.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, totalBars));
     }
     chartRef.current.timeScale().scrollToRealTime();
-  }, [timeframeSec, dataVersion, candles, cursor, showFullHistory]);
+  }, [timeframeSec, dataVersion, candles, cursor]);
 
   // 指定時刻を中心に表示（縮尺=現在の表示本数は維持したまま移動）
   // リプレイモード側の setData/scrollToRealTime より後に実行し、最終的な表示位置を確定させる。

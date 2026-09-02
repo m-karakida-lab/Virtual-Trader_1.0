@@ -8,7 +8,6 @@ export function FloatingControls() {
   const togglePlay = useTraderStore(s => s.togglePlay);
   const isPlaying = useTraderStore(s => s.isPlaying);
   const isLoaded  = useTraderStore(s => s.isLoaded);
-  const showFullHistory = useTraderStore(s => s.showFullHistory);
   const cursor    = useTraderStore(s => s.cursor);
   const candles   = useTraderStore(s => s.candles);
   const chartRightMargin  = useTraderStore(s => s.chartRightMargin);
@@ -16,7 +15,7 @@ export function FloatingControls() {
 
   const atEnd   = cursor >= candles.length - 1;
   const atStart = cursor <= 0;
-  const disabled = !isLoaded || showFullHistory;
+  const disabled = !isLoaded;
 
   // null = デフォルト位置（右下）。ドラッグ後は px 座標で固定。
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);

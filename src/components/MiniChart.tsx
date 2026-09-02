@@ -60,7 +60,6 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const symbol = useTraderStore(s => s.symbol);
   const promoteSlotToMain = useTraderStore(s => s.promoteSlotToMain);
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
-  const showFullHistory = useTraderStore(s => s.showFullHistory);
   const showEMA = useTraderStore(s => s.showEMA);
   const showSMA = useTraderStore(s => s.showSMA);
   const showBB = useTraderStore(s => s.showBB);
@@ -491,7 +490,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   // 超える（＝まだ閉じていない）足は先出しになるため描画しない
   useEffect(() => {
     if (!seriesRef.current || data.length === 0) return;
-    const visible = showFullHistory || cursorEnd === undefined
+    const visible = cursorEnd === undefined
       ? data
       : data.filter(c => c.time + timeframeSec <= cursorEnd);
     if (visible.length === 0) return;
@@ -549,7 +548,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncVLinesRef.current();
       syncRectsRef.current();
     }
-  }, [data, cursorEnd, showFullHistory, timeframeSec]);
+  }, [data, cursorEnd, timeframeSec]);
 
   return (
     <div
