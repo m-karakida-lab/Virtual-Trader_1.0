@@ -179,6 +179,7 @@ export function Controls() {
   const setDraftPrice = useTraderStore(s => s.setDraftPrice);
   const setDraftTP    = useTraderStore(s => s.setDraftTP);
   const setDraftSL    = useTraderStore(s => s.setDraftSL);
+  const clearDraft    = useTraderStore(s => s.clearDraft);
   const togglePickTarget = useTraderStore(s => s.togglePickTarget);
   const pickTarget    = useTraderStore(s => s.pickTarget);
   const setLots       = useTraderStore(s => s.setLots);
@@ -412,6 +413,16 @@ export function Controls() {
             style={pickBtn('#ef5350', pickTarget === 'sl', !isLoaded)}
           >📍</button>
         </div>
+        {(draftPrice !== null || draftTP !== null || draftSL !== null || pickTarget !== null) && (
+          <button
+            onClick={clearDraft}
+            title="価格・TP・SLの下書きをクリア"
+            style={{
+              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+              borderRadius: '3px', padding: '6px 10px', fontSize: '15px', cursor: 'pointer',
+            }}
+          >クリア</button>
+        )}
         <button onClick={() => submitOrder('BUY')}  disabled={!isLoaded || atEnd} style={orderBtn('#0d47a1', !isLoaded || atEnd)}>BUY</button>
         <button onClick={() => submitOrder('SELL')} disabled={!isLoaded || atEnd} style={orderBtn('#b71c1c', !isLoaded || atEnd)}>SELL</button>
         {positions.length > 1 && (

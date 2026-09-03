@@ -173,6 +173,7 @@ interface TraderState {
   setDraftPrice: (v: number | null) => void;
   setDraftTP: (v: number | null) => void;
   setDraftSL: (v: number | null) => void;
+  clearDraft: () => void;
   togglePickTarget: (t: 'price' | 'tp' | 'sl') => void;
   pickPrice: (price: number) => void;
   submitOrder: (side: Side) => void;
@@ -532,6 +533,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   setDraftPrice: (v: number | null) => set({ draftPrice: v }),
   setDraftTP: (v: number | null) => set({ draftTP: v }),
   setDraftSL: (v: number | null) => set({ draftSL: v }),
+  clearDraft: () => set({ draftPrice: null, draftTP: null, draftSL: null, pickTarget: null }),
 
   togglePickTarget: (t: 'price' | 'tp' | 'sl') => {
     set(s => ({
