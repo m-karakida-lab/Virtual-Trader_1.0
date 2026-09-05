@@ -1,9 +1,53 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import {
-  isFileSystemAccessSupported, pickAndAddFolder, loadSavedFolders, removeFolder,
-  hasReadPermission, requestReadPermission, listCsvFiles,
-} from '../lib/folderBookmark';
+import { isFileSystemAccessSupported, loadOpenHistory, addToHistory, pickFiles, type OpenHistoryEntry } from '../lib/openHistory';
+
+// クリックで開閉するドロップダウン（下方向に開く。Controls.tsxのMenuButtonと似ているが
+// あちらは下部バー用に上方向へ開くため、開く向きだけ違う専用の実装を持つ）
+function OpenMenuButton({
+  label, disabled, children,
+}: {
+  label: string; disabled: boolean; children: React.ReactNode;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  return (
+    <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        disabled={disabled}
+        style={{
+          backgroundColor: '#e0e0e0', color: '#111', border: 'none', borderRadius: '3px',
+          padding: '4px 10px', fontSize: '14px', fontWeight: 700,
+          cursor: disabled ? 'not-allowed' : 'pointer', opacity: disabled ? 0.5 : 1,
+        }}
+      >{label} {open ? '▴' : '▾'}</button>
+      {open && (
+        <div
+          onClick={() => setOpen(false)}
+          style={{
+            position: 'absolute', top: 'calc(100% + 6px)', left: 0,
+            backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
+            boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 60,
+            minWidth: '260px', maxWidth: '90vw', overflow: 'hidden',
+          }}
+        >
+          {children}
+        </div>
+      )}
+    </div>
+  );
+}
 
 export function FileLoader() {
   const loadFiles   = useTraderStore(s => s.loadFiles);
@@ -14,65 +58,31 @@ export function FileLoader() {
   const loadedFileLabel = useTraderStore(s => s.loadedFileLabel);
 
   const supported = isFileSystemAccessSupported();
-  const [folders, setFolders] = useState<FileSystemDirectoryHandle[]>([]);
-  const [needsPermission, setNeedsPermission] = useState<Set<FileSystemDirectoryHandle>>(new Set());
+  const [history, setHistory] = useState<OpenHistoryEntry[]>([]);
 
-  // 起動時にブックマーク済みフォルダがあれば復元を試みる（読み込みはせず、ボタンを出すだけ）
   useEffect(() => {
     if (!supported) return;
-    (async () => {
-      const saved = await loadSavedFolders();
-      setFolders(saved);
-      const needy = new Set<FileSystemDirectoryHandle>();
-      for (const h of saved) {
-        if (!(await hasReadPermission(h))) needy.add(h);
-      }
-      setNeedsPermission(needy);
-    })();
+    loadOpenHistory().then(setHistory);
   }, [supported]);
 
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // File System Access API 非対応ブラウザ（Safari/Firefox）向けのフォールバック。
+  // 履歴は持てないため素の<input type=file>で選ぶだけ
+  const handleFallbackChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     if (e.target.files && e.target.files.length > 0) {
       loadFiles(e.target.files);
     }
   };
 
-  const loadFromFolder = async (handle: FileSystemDirectoryHandle) => {
-    const csvFiles = await listCsvFiles(handle);
-    if (csvFiles.length === 0) return;
-    const files = await Promise.all(csvFiles.map(f => f.getFile()));
+  // startInを渡すとそのファイルの親フォルダを初期位置にダイアログを開く。未指定なら既定位置
+  const openPicker = async (startIn?: FileSystemFileHandle) => {
+    const result = await pickFiles(startIn);
+    if (result === null) return; // キャンセル
+    const { files, handles } = result;
+    if (files.length === 0) return;
     loadFiles(files);
-  };
-
-  const addFolder = async () => {
-    try {
-      const handle = await pickAndAddFolder();
-      if (!handle) return;
-      setFolders(await loadSavedFolders());
-      await loadFromFolder(handle);
-    } catch {
-      // ユーザーがピッカーをキャンセルした場合など
-    }
-  };
-
-  const quickLoad = async (handle: FileSystemDirectoryHandle) => {
-    await loadFromFolder(handle);
-  };
-
-  const grantAccess = async (handle: FileSystemDirectoryHandle) => {
-    if (await requestReadPermission(handle)) {
-      setNeedsPermission(prev => {
-        const next = new Set(prev);
-        next.delete(handle);
-        return next;
-      });
-      await loadFromFolder(handle);
-    }
-  };
-
-  const unbookmark = async (handle: FileSystemDirectoryHandle) => {
-    await removeFolder(handle);
-    setFolders(await loadSavedFolders());
+    const label = handles.length > 1 ? `${handles[0].name} 他${handles.length - 1}件` : handles[0].name;
+    const next = await addToHistory(handles[0], label);
+    setHistory(next);
   };
 
   return (
@@ -86,23 +96,45 @@ export function FileLoader() {
       backgroundColor: '#111',
     }}>
       <span style={{ color: '#555', fontSize: '14px' }}>CSV</span>
-      {/* ファイル名表示はOS/ブラウザ標準のものを隠し、loadedFileLabelを自前で出す
-          （バンドル読み込み時に実際の拡張子に関わらず.vtdと表示したいため） */}
-      <label style={{
-        backgroundColor: '#e0e0e0', color: '#111', borderRadius: '3px',
-        padding: '4px 10px', fontSize: '14px', fontWeight: 700,
-        cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? 0.5 : 1,
-      }}>
-        ファイル選択
-        <input
-          type="file"
-          accept=".csv,.vtd"
-          multiple
-          onChange={handleChange}
-          disabled={isLoading}
-          style={{ display: 'none' }}
-        />
-      </label>
+
+      {supported ? (
+        <OpenMenuButton label="ファイル選択" disabled={isLoading}>
+          <div
+            onClick={() => openPicker()}
+            style={{
+              padding: '10px 14px', fontSize: '14px', color: '#e0e0e0', cursor: 'pointer',
+              borderBottom: history.length > 0 ? '1px solid #2a2a2a' : 'none',
+            }}
+          >ファイルを開く...</div>
+          {history.map((entry, i) => (
+            <div
+              key={i}
+              onClick={() => openPicker(entry.handle)}
+              style={{
+                padding: '8px 14px', fontSize: '13px', color: '#aaa', cursor: 'pointer',
+                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}
+            >{entry.label}</div>
+          ))}
+        </OpenMenuButton>
+      ) : (
+        <label style={{
+          backgroundColor: '#e0e0e0', color: '#111', borderRadius: '3px',
+          padding: '4px 10px', fontSize: '14px', fontWeight: 700,
+          cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? 0.5 : 1,
+        }}>
+          ファイル選択
+          <input
+            type="file"
+            accept=".csv,.vtd"
+            multiple
+            onChange={handleFallbackChange}
+            disabled={isLoading}
+            style={{ display: 'none' }}
+          />
+        </label>
+      )}
+
       <span style={{ color: '#888', fontSize: '14px' }}>{loadedFileLabel}</span>
       {canSave && (
         <button
@@ -122,52 +154,6 @@ export function FileLoader() {
         }}>
           {loadingMsg}
         </span>
-      )}
-
-      {supported && (
-        <>
-          <span style={{ width: '1px', height: '18px', backgroundColor: '#2a2a2a' }} />
-
-          {folders.map((h, i) => (
-            needsPermission.has(h) ? (
-              <button key={h.name + i} onClick={() => grantAccess(h)} style={{
-                backgroundColor: '#3a2a0d', color: '#ffb74d', border: '1px solid #5a4a1d',
-                borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
-              }}>🔓 {h.name}</button>
-            ) : (
-              <span key={h.name + i} style={{ display: 'inline-flex', alignItems: 'center', gap: '2px' }}>
-                <button
-                  onClick={() => quickLoad(h)}
-                  disabled={isLoading}
-                  style={{
-                    backgroundColor: '#0d47a1', color: '#fff', border: 'none',
-                    borderRadius: '3px 0 0 3px', padding: '4px 10px', fontSize: '13px',
-                    cursor: isLoading ? 'not-allowed' : 'pointer', fontWeight: 700,
-                  }}
-                >⚡ {h.name}</button>
-                <button
-                  onClick={() => unbookmark(h)}
-                  title="ブックマーク解除"
-                  disabled={isLoading}
-                  style={{
-                    backgroundColor: '#0d47a1', color: '#9fc0ea', border: 'none',
-                    borderRadius: '0 3px 3px 0', padding: '4px 8px', fontSize: '13px',
-                    cursor: isLoading ? 'not-allowed' : 'pointer', borderLeft: '1px solid #1565c0',
-                  }}
-                >✕</button>
-              </span>
-            )
-          ))}
-
-          <button
-            onClick={addFolder}
-            disabled={isLoading}
-            style={{
-              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-              borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
-            }}
-          >📁 フォルダを追加</button>
-        </>
       )}
     </div>
   );

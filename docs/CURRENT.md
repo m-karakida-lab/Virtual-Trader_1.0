@@ -13,14 +13,14 @@
 - **チャート**: lightweight-charts 4（TradingView製 ローソク足専用）
 - **データ処理**: @duckdb/duckdb-wasm 1.29（ブラウザ内 SQL エンジン）
 - **状態管理**: Zustand 4
-- **永続化**: CSVデータ・取引状態は永続化なし（リロードで消える）。フォルダブックマークは IndexedDB、チャートのズーム/スケールと再生速度は localStorage に保存
+- **永続化**: CSVデータ・取引状態は永続化なし（リロードで消える）。ファイルを開いた履歴は IndexedDB、チャートのズーム/スケールと再生速度は localStorage に保存
 - **デフォルト**: 4画面レイアウト・メイン時間軸15m。インジケーターはBB・雲・区切り線がON、EMA200はOFF
 
 ## 主要機能
 
 ### データ読み込み
 - Axiory MT4形式 1分足 CSV の読み込み（複数ファイル対応、ファイル名昇順で結合）
-- **フォルダブックマーク**（Chrome/Edgeのみ、File System Access API）: 複数フォルダを登録可能。「📁 フォルダを追加」で選んだフォルダを IndexedDB に配列で保存し、配下のCSVを全件自動読み込み。登録済みフォルダは「⚡ {フォルダ名}」チップでワンクリック再読み込み、「✕」でブックマーク解除（個別ファイル選択UIはなし）
+- **ファイルを開く履歴**（Chrome/Edgeのみ、File System Access API）: 「ファイル選択▾」を押すとドロップダウンで「ファイルを開く...」＋直近に開いたファイルの履歴（最大12件、`src/lib/openHistory.ts`、IndexedDB保存）が並ぶ。履歴を選ぶとそのファイルの親フォルダを初期位置にしてネイティブのファイル選択ダイアログが開く（`showOpenFilePicker`の`startIn`）。File System Access APIはOSの絶対パスを渡さない仕様のため、履歴の表示名はファイル名のみ（フォルダ名やパスは出せない）。明示的な「登録」操作は無く、ファイルを開くたびに自動で履歴の先頭に積まれる。Safari/Firefox等の非対応ブラウザでは通常の`<input type=file>`にフォールバックする（履歴機能自体が出ない）
 - 読み込み完了時は「✓ N本 読み込み完了」を5秒間表示してから消える
 - 1分足 → 任意時間軸への自動集計（DuckDB SQL）。**15m / 1H / 4H / 1D / 1W / MN を切替可能**。週足・月足はカレンダー基準（週=月曜始まり、月=1日始まり）で`date_trunc`集計、それ以外は`floor(ts/sec)`の固定長バケット集計
 - **表示は日本時間(JST)に変換済み**: CSV（Axiory MT4形式）のブローカーサーバー時間はEU夏時間ルール（GMT+2冬/GMT+3夏）に従う前提で自動変換。チャート・日付ジャンプ・取引履歴など全表示箇所がJST基準
@@ -88,7 +88,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - **プロセス境界**: シングルプロセス（ブラウザのみ）。バックエンドなし
 - **DuckDB-wasm**: jsDelivr CDN からバンドル取得。App マウント時に先読み開始
 - **状態管理**: Zustand store 1本（`useTraderStore`）+ セレクタ（`selectUnrealizedPnL`, `selectPositionPnL`）
-- **永続化**: フォルダハンドルのみ IndexedDB（`src/lib/folderBookmark.ts`）。他は全てメモリ
+- **永続化**: ファイルを開いた履歴のみ IndexedDB（`src/lib/openHistory.ts`）。他は全てメモリ
 - **外部 API**: なし（File System Access API はブラウザ機能、外部通信ではない）
 
 ## 主要コンポーネント / モジュール責務
@@ -103,7 +103,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`。MN足は`computeYearBoundaries`＝年区切り、1D/1W足は`computeMonthBoundaries`＝月区切り、4H足は`computeWeekBoundaries`＝週区切り（月曜始まり）、15m/1Hは`computeDayBoundaries`＝日区切り）。CandleChart/MiniChart共通
 - `src/lib/pips.ts` — 価格帯から pip単位・表示精度を推定（JPYクロス判定）
 - `src/lib/crosshairSync.ts` — 4画面の十字カーソル同期用。`priceAtTime(candles, time, timeframeSec)`で、指定時刻直前に確定している足の終値を返す。時刻が先頭の足より前、または末尾の足の期間（`time + timeframeSec`）を超える場合はnull（そのパネルにはまだ存在しない未来のためクロスヘアを出さない）
-- `src/lib/folderBookmark.ts` — File System Access API のフォルダハンドル保存/復元（IndexedDB）、CSV一覧取得
+- `src/lib/openHistory.ts` — File System Access API でファイルを開いた履歴の保存/復元（IndexedDB）、`showOpenFilePicker`のラッパー
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal`/`scrollToLatestSignal` を increment → CandleChart の useEffect が検知）
 - `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画。雲（先行スパンA/B間）の塗りつぶしは`<canvas>`オーバーレイに自前描画
 - `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインの現在足が閉じた時刻までに切り詰めて描画するだけ（発注・描画ツールなし）。EMA/BB/雲・区切り線はメインパネルのON/OFF設定に連動して同じものを表示。パネル本体クリックでその時間軸をメインパネルに切り替え可能（`mousedown`/`mouseup`の移動量で判定し、パン/ズームのドラッグとは区別）。ヘッダーの時間軸ドロップダウン（`ChartHeader`）から選ぶとメインには昇格せず、この枠の表示時間軸だけが変わる
@@ -113,7 +113,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/components/DrawToolbar.tsx` — チャート左端に固定表示する描画ツール起動用アイコンパネル（水平線・垂直線・ものさし・四角形・マグネット・パレットモード）。クリックで`isDrawingLine`等のstore状態をトグルするだけで、実際の配置・描画ロジックはすべて`CandleChart`側（既存の`isDrawing*`監視）が担う
 - `src/components/PalettePanel.tsx` — パレットモードON時だけ表示するドラッグ移動可能な常設スタイル選択ウィンドウ。`FloatingControls`と同じドラッグ実装。図形とのやり取り（選択時の取り込み/変更時の書き込み）はここではなく`store`の`syncPaletteStyleFrom`/`applyPaletteStyleTo`ヘルパーが担う（このコンポーネントは`paletteStyle`の読み書きのみ）
 - `src/components/HistoryPanel.tsx` — エクイティカーブ + 取引履歴テーブル（オーバーレイパネル）
-- `src/components/FileLoader.tsx` — CSV ファイルピッカー + フォルダブックマーク + 「💾 vtd保存」ボタン（`rawCsvText !== null`の時だけ表示）。選択中ファイル名の表示はOS標準の`<input type=file>`表記を使わず、`label`でラップして`input`自体は非表示にし、store の`loadedFileLabel`を自前で描画している（バンドル検出時に実際の拡張子に関わらず`.vtd`と表示するため）
+- `src/components/FileLoader.tsx` — 「ファイル選択▾」ドロップダウン（開く履歴、File System Access API対応時のみ）+ 「💾 vtd保存」ボタン（`rawCsvText !== null`の時だけ表示）。選択中ファイル名の表示はOS標準の`<input type=file>`表記を使わず、store の`loadedFileLabel`を自前で描画している（バンドル検出時に実際の拡張子に関わらず`.vtd`と表示するため）
 - `src/components/ErrorBoundary.tsx` — レンダー/エフェクト中の例外を捕捉し、黒画面の代わりにエラー内容と直近のエラー履歴を表示する（`main.tsx`でAppを包む）
 - `src/lib/errorLog.ts` — 例外をlocalStorage（`vt:errorLog`、直近20件）に記録する。`window.onerror`/`unhandledrejection`（`main.tsx`）とErrorBoundaryの両方から書き込む。原因不明の不具合を後から追跡するための仕組み
 
@@ -144,7 +144,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - ズーム/スケールの保存は「表示中の本数」を基準に相対化するため、リプレイモード中は`candles.length`ではなく`cursor + 1`（実際にsetDataされている本数）を使うこと。`candles.length`を使うと未来分を含めてズーム率がずれる
 - CSV読み込み直後（`cursor === 0`）は表示本数が1本しかないため、以前保存した（本数の多い時の）ズーム幅`span`をそのまま`relativeViewToLogicalRange`に渡すと、範囲外に大きくはみ出た破綻したlogical range（例: `{from:-95, to:10}`）になる。`scrollToRealTime()`はパン位置しか動かさないためこの破綻したズーム幅は直せない。`saved.span <= totalBars`のときだけ復元を適用するガードで回避している
 - CSV再読込で `lines`/`vlines`/`rects`/`closedTrades`/`positions`/`pendingOrders` は全リセット。時間軸切替では保持
-- フォルダブックマークは Chrome/Edge のみ対応（File System Access API）。Safari/Firefoxでは機能自体が非表示になる
+- ファイルを開く履歴は Chrome/Edge のみ対応（File System Access API）。Safari/Firefoxでは通常の`<input type=file>`にフォールバックし、履歴機能自体が出ない
+- 履歴に保存する`FileSystemFileHandle`は「次に`showOpenFilePicker`の`startIn`へ渡す起点」としてのみ使い、中身は二度と読まない。File System Access APIはOSの絶対パスを渡さない仕様のため、フォルダ名・パスでの表示は原理的に不可能（表示名は`handle.name`＝ファイル名止まり）
 - フロートパネルの位置クランプは `chart.priceScale('right').width()` / `chart.timeScale().height()` の実測値をストア経由で共有している。チャートのリサイズ・精度変更時に更新される
 - `setTimeframe`（4画面メインパネル切替・時間軸ボタン）でのカーソル復元は、新しい足の**終了時刻**が旧カーソル足の終了時刻以下かで選ぶこと（`newCandles[i].time + sec <= currentClose`）。開始時刻だけで比較すると、切替先の未確定（まだ閉じていない）足が選ばれてしまい、切替直後にローソク足が1本先出しで進んで見える
 - `FloatingControls` は `offsetParent`（直近の`position:relative`祖先）基準でクランプする。1画面・4画面どちらでもチャート表示欄全体（`App.tsx`のflex:1コンテナ）が親なので、4画面時もメインパネル以外の領域に自由に移動できる
@@ -179,6 +180,6 @@ npm run typecheck
 ## TODO / 既知の不具合
 
 - DuckDB バンドルの CDN 依存（オフライン不可）
-- セッション永続化なし（リロードで CSV 再読み込みが必要。フォルダブックマークのみ復元可）
+- セッション永続化なし（リロードで CSV 再読み込みが必要。開いた履歴からのワンクリック再読み込みはできない。ダイアログの初期位置が復元されるだけ）
 - 高速再生（20x）時にヒゲ部分のちらつきが残る場合がある（実害小、保留中）
 - 非JPYクオートペアの損益は実際の円換算をしていない（クオート通貨のまま表示）
