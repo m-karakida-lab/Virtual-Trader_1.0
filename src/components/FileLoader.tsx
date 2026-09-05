@@ -57,6 +57,7 @@ export function FileLoader() {
   const loadingMsg  = useTraderStore(s => s.loadingMsg);
   const saveChartFile = useTraderStore(s => s.saveChartFile);
   const canSave     = useTraderStore(s => s.rawCsvText !== null);
+  const canOverwrite = useTraderStore(s => s.rawFileHandle !== null);
   const loadedFileLabel = useTraderStore(s => s.loadedFileLabel);
 
   const supported = isFileSystemAccessSupported();
@@ -75,11 +76,12 @@ export function FileLoader() {
     }
   };
 
-  // ファイルを直接選ぶ（フォルダ情報が取れないため履歴には残らない）
+  // ファイルを直接選ぶ（フォルダ情報が取れないため履歴には残らない）。
+  // 単一ファイル選択時はそのファイルハンドルも渡す（vtd保存で上書きに使うため）
   const openFilesDirect = async () => {
-    const files = await pickFiles();
-    if (files === null || files.length === 0) return;
-    loadFiles(files);
+    const result = await pickFiles();
+    if (result === null || result.files.length === 0) return;
+    loadFiles(result.files, result.files.length === 1 ? result.handles[0] : undefined);
   };
 
   // フォルダを選んでから、そのフォルダを初期位置にファイル選択ダイアログを開く。
@@ -87,9 +89,9 @@ export function FileLoader() {
   const openViaFolder = async (folder?: FileSystemDirectoryHandle) => {
     const dir = folder ?? await pickFolder();
     if (dir === null) return; // キャンセル
-    const files = await pickFiles(dir);
-    if (files === null || files.length === 0) return;
-    loadFiles(files);
+    const result = await pickFiles(dir);
+    if (result === null || result.files.length === 0) return;
+    loadFiles(result.files, result.files.length === 1 ? result.handles[0] : undefined);
     const next = await addToHistory(dir);
     setHistory(next);
   };
@@ -153,12 +155,14 @@ export function FileLoader() {
       {canSave && (
         <button
           onClick={saveChartFile}
-          title="水平線・垂直線・四角形をCSVと1つのファイルにまとめて保存（同じファイル選択欄からそのまま再読込できる）"
+          title={canOverwrite
+            ? '水平線・垂直線・四角形をCSVと1つのファイルにまとめて上書き保存する（元のファイルへ直接書き込み）'
+            : '水平線・垂直線・四角形をCSVと1つのファイルにまとめて保存（同じファイル選択欄からそのまま再読込できる）'}
           style={{
             backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
             borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
           }}
-        >💾 vtd保存</button>
+        >💾 vtd{canOverwrite ? '上書き保存' : '保存'}</button>
       )}
 
       {loadingMsg && (

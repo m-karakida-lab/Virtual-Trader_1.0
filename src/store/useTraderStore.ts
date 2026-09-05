@@ -5,6 +5,7 @@ import { TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
 import { splitVtdBundle, buildVtdBundle } from '../lib/vtd';
+import { writeToHandle } from '../lib/openHistory';
 
 const DEFAULT_INITIAL_BALANCE = 1_000_000;
 const DEFAULT_TIMEFRAME: TimeframeSec = 900; // 15m
@@ -123,6 +124,7 @@ interface TraderState {
   quoteCurrency: string; // 残高・損益の単位（読み込んだペアのクオート通貨。例: EURUSD→USD）
   symbol: string; // 読み込んだ通貨ペアのシンボル（例: "USDJPY"）。チャートヘッダー表示用
   rawCsvText: string | null; // 保存機能用。単一ファイル読み込み時のみ保持（複数ファイルは非対応）
+  rawFileHandle: FileSystemFileHandle | null; // File System Access APIで開いた時のみ保持。上書き保存に使う
   loadedFileLabel: string; // ファイル選択欄の代わりに表示するラベル（バンドル検出時は.vtd表記に正規化、複数ファイルは件数表示）
   lots: number;          // 発注ロット数（固定モード時に使用）
   lotMode: 'fixed' | 'risk'; // ロット指定方法
@@ -177,8 +179,8 @@ interface TraderState {
 
   setInitialBalance: (v: number) => void;
   resetAccount: () => void;
-  loadFiles: (files: FileList | File[]) => Promise<void>;
-  saveChartFile: () => void;
+  loadFiles: (files: FileList | File[], fileHandle?: FileSystemFileHandle) => Promise<void>;
+  saveChartFile: () => Promise<void>;
   setTimeframe: (sec: TimeframeSec) => Promise<void>;
   advance: () => boolean;
   stepBack: () => boolean;
@@ -364,6 +366,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   quoteCurrency: 'JPY',
   symbol: '',
   rawCsvText: null,
+  rawFileHandle: null,
   loadedFileLabel: '選択されていません',
   lots: 10_000,
   lotMode: 'risk',
@@ -413,7 +416,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   crosshairSourceId: null,
   crosshairTime: null,
 
-  loadFiles: async (files: FileList | File[]) => {
+  loadFiles: async (files: FileList | File[], fileHandle?: FileSystemFileHandle) => {
     const fileArray = Array.from(files);
     if (fileArray.length === 0) return;
 
@@ -458,6 +461,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         selected: null, drawHistory: [],
         quoteCurrency, symbol,
         rawCsvText,
+        rawFileHandle: fileArray.length === 1 ? (fileHandle ?? null) : null,
         // ファイル選択欄はOS/ブラウザ標準のファイル名表示に頼らず、この文字列を自前で出す。
         // バンドル（描画データ入り）と分かっているものは、実際の拡張子に関わらず.vtd表記に揃える
         loadedFileLabel: fileArray.length === 1
@@ -473,14 +477,32 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     }
   },
 
-  // 水平線・垂直線・四角形を、読み込んだ元CSVと1つのファイルにまとめてダウンロードする。
+  // 水平線・垂直線・四角形を、読み込んだ元CSVと1つのファイルにまとめて保存する。
   // 中身は実質CSV+JSONトレーラーだが、素のデータCSVと見分けが付くよう拡張子は.vtdにする
   // （read_csv側は拡張子を見ないため、読込時に.csv/.vtdどちらでも中身のマーカーだけで判定する）。
-  // rawCsvTextは単一ファイル読み込み時のみ保持しているため、複数ファイル読み込み後は何もしない
-  saveChartFile: () => {
-    const { rawCsvText, loadedFileLabel, lines, vlines, rects } = get();
+  // rawCsvTextは単一ファイル読み込み時のみ保持しているため、複数ファイル読み込み後は何もしない。
+  // File System Access APIでファイルハンドルを持っている場合（rawFileHandle）は、ネイティブの
+  // 保存ダイアログを介さずそのファイルへ直接上書きする。ハンドルが無い場合（Safari/Firefox、
+  // ドラッグ&ドロップ、複数ファイル読み込み等）や上書きに失敗した場合（権限拒否・ファイルが
+  // 移動/削除された等）は、従来通りダウンロードにフォールバックする
+  saveChartFile: async () => {
+    const { rawCsvText, rawFileHandle, loadedFileLabel, lines, vlines, rects } = get();
     if (rawCsvText === null) return;
     const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects });
+
+    if (rawFileHandle !== null) {
+      try {
+        await writeToHandle(rawFileHandle, bundle);
+        set({ loadingMsg: `✓ ${loadedFileLabel} に上書き保存しました` });
+        setTimeout(() => {
+          if (get().loadingMsg.startsWith('✓')) set({ loadingMsg: '' });
+        }, 4000);
+        return;
+      } catch (e) {
+        set({ error: `上書き保存に失敗したためダウンロードします: ${String(e)}` });
+      }
+    }
+
     const blob = new Blob([bundle], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');

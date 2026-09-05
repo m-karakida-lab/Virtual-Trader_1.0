@@ -88,8 +88,9 @@ export async function pickFolder(): Promise<FileSystemDirectoryHandle | null> {
 
 // ファイルを直接選ぶダイアログ。startInを渡すとそのフォルダを初期位置にする
 // （ハンドルが古くて解決できない場合はブラウザ側が黙って既定位置にフォールバックする）。
-// キャンセル（AbortError）時はnull
-export async function pickFiles(startIn?: FileSystemDirectoryHandle): Promise<File[] | null> {
+// キャンセル（AbortError）時はnull。ハンドルも一緒に返す（単一ファイル選択時の
+// 上書き保存＝saveChartFileでcreateWritableするために使う）
+export async function pickFiles(startIn?: FileSystemDirectoryHandle): Promise<{ files: File[]; handles: FileSystemFileHandle[] } | null> {
   const picker = (window as unknown as {
     showOpenFilePicker: (opts: {
       multiple: boolean;
@@ -103,5 +104,19 @@ export async function pickFiles(startIn?: FileSystemDirectoryHandle): Promise<Fi
   } catch {
     return null;
   }
-  return Promise.all(handles.map(h => h.getFile()));
+  const files = await Promise.all(handles.map(h => h.getFile()));
+  return { files, handles };
+}
+
+type WritableFileHandle = FileSystemFileHandle & {
+  createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }>;
+};
+
+// 選択済みのファイルハンドルへ直接書き込む（ネイティブの保存ダイアログを介さない
+// 本当の上書き保存）。書き込み権限が無ければブラウザが自動でプロンプトを出す
+// （createWritable自体がreadwrite権限を要求する。ユーザー操作の延長で呼ぶ必要がある）
+export async function writeToHandle(handle: FileSystemFileHandle, text: string): Promise<void> {
+  const writable = await (handle as WritableFileHandle).createWritable();
+  await writable.write(text);
+  await writable.close();
 }
