@@ -4,6 +4,7 @@ import { RECT_COLORS } from '../types';
 import { TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
+import { splitVtdBundle, buildVtdBundle } from '../lib/vtd';
 
 const DEFAULT_INITIAL_BALANCE = 1_000_000;
 const DEFAULT_TIMEFRAME: TimeframeSec = 900; // 15m
@@ -109,6 +110,8 @@ interface TraderState {
   closedTrades: ClosedTrade[]; // 決済済みトレード履歴（チャート上のマーカー表示用）
   quoteCurrency: string; // 残高・損益の単位（読み込んだペアのクオート通貨。例: EURUSD→USD）
   symbol: string; // 読み込んだ通貨ペアのシンボル（例: "USDJPY"）。チャートヘッダー表示用
+  rawCsvText: string | null; // 保存機能用。単一ファイル読み込み時のみ保持（複数ファイルは非対応）
+  rawFileName: string | null; // 保存時のデフォルトファイル名（読み込んだファイル名をそのまま使う）
   lots: number;          // 発注ロット数（固定モード時に使用）
   lotMode: 'fixed' | 'risk'; // ロット指定方法
   riskPercent: number;       // リスクモード時: 残高に対する許容損失の割合（%）
@@ -162,6 +165,7 @@ interface TraderState {
   setInitialBalance: (v: number) => void;
   resetAccount: () => void;
   loadFiles: (files: FileList | File[]) => Promise<void>;
+  saveChartFile: () => void;
   setTimeframe: (sec: TimeframeSec) => Promise<void>;
   advance: () => boolean;
   stepBack: () => boolean;
@@ -336,6 +340,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   closedTrades: [],
   quoteCurrency: 'JPY',
   symbol: '',
+  rawCsvText: null,
+  rawFileName: null,
   lots: 10_000,
   lotMode: 'risk',
   riskPercent: 3,
@@ -389,8 +395,22 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
     set({ isLoading: true, error: null, loadingMsg: '初期化中...' });
     try {
+      // 保存済みバンドル（CSV+描画データ）の検出は単一ファイル読み込みのみ対応する。
+      // 複数ファイル（年ごとの大容量CSVの結合読み込み）まで対応すると、DuckDB用の
+      // arrayBuffer読み込みと二重にテキストを読むことになり大容量時に遅くなるため
+      let filesToLoad = fileArray;
+      let drawings: ReturnType<typeof splitVtdBundle>['drawings'] = null;
+      let rawCsvText: string | null = null;
+      if (fileArray.length === 1) {
+        const text = await fileArray[0].text();
+        const split = splitVtdBundle(text);
+        drawings = split.drawings;
+        rawCsvText = split.csvText;
+        filesToLoad = [new File([split.csvText], fileArray[0].name, { type: 'text/csv' })];
+      }
+
       const db = await initDuckDB();
-      await loadCSVFiles(db, fileArray, (current, total, name) => {
+      await loadCSVFiles(db, filesToLoad, (current, total, name) => {
         set({ loadingMsg: `${current}/${total}: ${name}` });
       });
       set({ loadingMsg: '集計中...' });
@@ -400,6 +420,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       const symbol = detectPairSymbol(fileArray[0].name);
       // ユーザーが初期残高を手動で変更していなければ、クオート通貨に応じたデフォルトに合わせる
       const newInitialBalance = isInitialBalanceCustom ? initialBalance : defaultBalanceFor(quoteCurrency);
+      const nextIdOf = (arr: { id: number }[]): number => arr.reduce((m, x) => Math.max(m, x.id), 0) + 1;
       set({
         candles, cursor: 0, isLoaded: true,
         isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,
@@ -407,8 +428,12 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         positions: [], pendingOrders: [], nextOrderId: 1,
         closedTrades: [], nextId: 1,
         isPlaying: false,
-        lines: [], nextLineId: 1, vlines: [], nextVLineId: 1, rects: [], nextRectId: 1, selected: null,
+        lines: drawings?.lines ?? [], nextLineId: nextIdOf(drawings?.lines ?? []),
+        vlines: drawings?.vlines ?? [], nextVLineId: nextIdOf(drawings?.vlines ?? []),
+        rects: drawings?.rects ?? [], nextRectId: nextIdOf(drawings?.rects ?? []),
+        selected: null,
         quoteCurrency, symbol,
+        rawCsvText, rawFileName: rawCsvText !== null ? fileArray[0].name : null,
         dataVersion: get().dataVersion + 1,
       });
       setTimeout(() => {
@@ -417,6 +442,21 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     } catch (e) {
       set({ error: String(e), isLoading: false, loadingMsg: '' });
     }
+  },
+
+  // 水平線・垂直線・四角形を、読み込んだ元CSVと1つのファイルにまとめてダウンロードする。
+  // rawCsvTextは単一ファイル読み込み時のみ保持しているため、複数ファイル読み込み後は何もしない
+  saveChartFile: () => {
+    const { rawCsvText, rawFileName, lines, vlines, rects } = get();
+    if (rawCsvText === null) return;
+    const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects });
+    const blob = new Blob([bundle], { type: 'text/csv' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = rawFileName ?? 'chart.csv';
+    a.click();
+    URL.revokeObjectURL(url);
   },
 
   setTimeframe: async (sec: TimeframeSec) => {

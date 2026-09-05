@@ -25,6 +25,7 @@
 - 1分足 → 任意時間軸への自動集計（DuckDB SQL）。**15m / 1H / 4H / 1D / 1W / MN を切替可能**。週足・月足はカレンダー基準（週=月曜始まり、月=1日始まり）で`date_trunc`集計、それ以外は`floor(ts/sec)`の固定長バケット集計
 - **表示は日本時間(JST)に変換済み**: CSV（Axiory MT4形式）のブローカーサーバー時間はEU夏時間ルール（GMT+2冬/GMT+3夏）に従う前提で自動変換。チャート・日付ジャンプ・取引履歴など全表示箇所がJST基準
 - 通貨記号の自動検出: ファイル名（例 `EURUSD_2025_all.csv`）からクオート通貨を判定し記号表示を切替（実際の円換算はしない、クオート通貨のまま）
+- **書き込み（水平線・垂直線・四角形）の保存/読込**: 単一ファイル読み込み時のみ「💾 保存」ボタンが現れ、読み込んだCSVの行データ＋区切り文字列＋描画データのJSONを1つのファイルにまとめてダウンロードする（`src/lib/vtd.ts`、拡張子はそのまま`.csv`）。ファイル選択欄から同じ形式のファイルを選ぶと、CSV部分は通常通りDuckDBへ、区切り文字列より後ろのJSONは水平線・垂直線・四角形として自動復元される。マーカーの無い普通のCSVは今まで通りそのまま読み込める（後方互換）。複数ファイル同時読み込み時は保存機能自体が使えない（元CSVを1本に確定できないため）。ズーム位置・時間軸選択・ポジション/注文などトレード状態は保存対象外
 
 ### チャート表示・描画
 - ローソク足 + **200EMA**（増分計算、デフォルトOFF）、**SMA14**（単純移動平均、増分計算、デフォルトOFF）、**ボリンジャーバンド**（期間20、ミドル=青実線、±1σ=シルバー点線、±2σ=シルバー実線、増分計算、デフォルトON）、**一目均衡表の雲**（先行スパンA/Bのみ、26**本**先行、色分け塗りつぶし、デフォルトON）、**区間区切り**（15m/1Hは日替わり、4Hは週替わり、1D/1Wは月替わり、MNは年替わりで最初に出現した足の時刻を境界とする、控えめなドット線、デフォルトON）、ON/OFF切替可。これらはすべて4画面時のミニチャート3枚にも連動して反映される（`src/lib/indicators.ts`・`src/lib/weekLines.ts`を共有）
@@ -95,6 +96,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/duckdb.ts` — DuckDB 初期化・複数CSV読み込み（パイプライン処理）・任意時間軸集計クエリ（`queryCandles`の戻り値は`brokerToJST`でJST変換済み。週足/月足は`date_trunc`、それ以外は`floor(ts/sec)`で集計）
 - `src/lib/timezone.ts` — CSVのブローカーサーバー時間（GMT+2冬/GMT+3夏、EU夏時間ルール）→ JSTへの変換
 - `src/lib/currency.ts` — ファイル名から通貨ペア検出（`detectPairSymbol`）・クオート通貨/記号マッピング
+- `src/lib/vtd.ts` — CSV＋描画データの1ファイル化（`splitVtdBundle`/`buildVtdBundle`）。区切り文字列より前はDuckDBにとって普通のCSVそのものなので`duckdb.ts`側は無改造
 - `src/lib/chartTheme.ts` — TradingView風のチャート共通スタイル定数（フォント・軸文字色/サイズ）
 - `src/lib/chartViewState.ts` — チャートのズーム/スケールを時間軸ごとにlocalStorageへ保存/復元。絶対時刻ではなく「右端から何本目〜何本分」の相対位置で持つため、別データセットでも同じ拡大率で再現される
 - `src/lib/indicators.ts` — EMA/SMA/BB/雲の計算ロジック（全体再計算版）。MiniChartが使用。CandleChartは増分計算の最適化版を別途持つ。ただし雲のずらし先時刻を返す`cloudDisplacedTime`だけは CandleChart / MiniChart 双方がここを共用する（本数ベースでずらす実装を1箇所に閉じるため）
@@ -111,7 +113,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/components/DrawToolbar.tsx` — チャート左端に固定表示する描画ツール起動用アイコンパネル（水平線・垂直線・ものさし・四角形・マグネット・パレットモード）。クリックで`isDrawingLine`等のstore状態をトグルするだけで、実際の配置・描画ロジックはすべて`CandleChart`側（既存の`isDrawing*`監視）が担う
 - `src/components/PalettePanel.tsx` — パレットモードON時だけ表示するドラッグ移動可能な常設スタイル選択ウィンドウ。`FloatingControls`と同じドラッグ実装。図形とのやり取り（選択時の取り込み/変更時の書き込み）はここではなく`store`の`syncPaletteStyleFrom`/`applyPaletteStyleTo`ヘルパーが担う（このコンポーネントは`paletteStyle`の読み書きのみ）
 - `src/components/HistoryPanel.tsx` — エクイティカーブ + 取引履歴テーブル（オーバーレイパネル）
-- `src/components/FileLoader.tsx` — CSV ファイルピッカー + フォルダブックマーク
+- `src/components/FileLoader.tsx` — CSV ファイルピッカー + フォルダブックマーク + 「💾 保存」ボタン（`rawCsvText !== null`の時だけ表示）
 - `src/components/ErrorBoundary.tsx` — レンダー/エフェクト中の例外を捕捉し、黒画面の代わりにエラー内容と直近のエラー履歴を表示する（`main.tsx`でAppを包む）
 - `src/lib/errorLog.ts` — 例外をlocalStorage（`vt:errorLog`、直近20件）に記録する。`window.onerror`/`unhandledrejection`（`main.tsx`）とErrorBoundaryの両方から書き込む。原因不明の不具合を後から追跡するための仕組み
 
@@ -121,6 +123,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `chart.timeScale().setVisibleLogicalRange({from, to})`へ渡す`from`/`to`は`Logical`という nominal 型だが、`let x: SomeType = range;`のように`LogicalRange`型の変数へ一度代入してから再代入すると型エラーになる。常に`number`型のローカル変数から組み立てた「その場のオブジェクトリテラル」を直接渡すこと（既存の`centerOnTime`エフェクトも同じ書き方）
 
 - ボリンジャーバンドはEMA同様、`showBB`がOFFでも裏で計算を継続し`visible:false`で隠すだけ（ON/OFF切替時の再計算漏れを避けるため）。移動窓の合計・二乗和（`bbSumRef`/`bbSumSqRef`）で差分更新し、`recomputeBBFull`は時間軸切替・日付ジャンプ等の非連続更新時のみ呼ぶ
+- `rawCsvText`（保存用に保持している元CSVテキスト）は**単一ファイル読み込み時のみ**セットする。複数ファイル読み込み時にテキストを二重に読むと大容量CSV（年単位の1分足）で読み込みが遅くなるため、意図的に対応していない（`saveChartFile`は`rawCsvText === null`なら何もしない）。`vtd.ts`の区切り文字列は証券会社の生CSVには絶対に現れない前提の実装であり、万一衝突すると読込側がその位置以降を切り捨てる（実用上のリスクはほぼ無いが、新しい区切り文字列に変える場合はこの前提を踏襲すること）
 - DuckDB-wasm は SharedArrayBuffer を使うため、Vite dev server に `COOP/COEP` ヘッダが必要（`vite.config.ts` に設定済み）
 - `read_csv` に `all_varchar=true` と `ignore_errors=true` が必須
 - P&L 計算は**クオート通貨そのまま**（円換算しない）。EURUSDなら結果はUSD相当

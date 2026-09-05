@@ -9,6 +9,8 @@ export function FileLoader() {
   const loadFiles   = useTraderStore(s => s.loadFiles);
   const isLoading   = useTraderStore(s => s.isLoading);
   const loadingMsg  = useTraderStore(s => s.loadingMsg);
+  const saveChartFile = useTraderStore(s => s.saveChartFile);
+  const canSave     = useTraderStore(s => s.rawCsvText !== null);
 
   const supported = isFileSystemAccessSupported();
   const [folders, setFolders] = useState<FileSystemDirectoryHandle[]>([]);
@@ -91,6 +93,17 @@ export function FileLoader() {
         disabled={isLoading}
         style={{ color: '#888', fontSize: '14px' }}
       />
+      {canSave && (
+        <button
+          onClick={saveChartFile}
+          title="水平線・垂直線・四角形をCSVと1つのファイルにまとめて保存（同じファイル選択欄からそのまま再読込できる）"
+          style={{
+            backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+            borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
+          }}
+        >💾 保存</button>
+      )}
+
       {loadingMsg && (
         <span style={{
           color: isLoading ? '#666' : '#66bb6a',
