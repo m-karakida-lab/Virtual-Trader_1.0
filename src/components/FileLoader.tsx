@@ -1,6 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import { isFileSystemAccessSupported, loadOpenHistory, addToHistory, pickFiles, type OpenHistoryEntry } from '../lib/openHistory';
+import {
+  isFileSystemAccessSupported, loadOpenHistory, addToHistory, pickFolder, pickFiles, type OpenHistoryEntry,
+} from '../lib/openHistory';
 
 // クリックで開閉するドロップダウン（下方向に開く。Controls.tsxのMenuButtonと似ているが
 // あちらは下部バー用に上方向へ開くため、開く向きだけ違う専用の実装を持つ）
@@ -73,15 +75,22 @@ export function FileLoader() {
     }
   };
 
-  // startInを渡すとそのファイルの親フォルダを初期位置にダイアログを開く。未指定なら既定位置
-  const openPicker = async (startIn?: FileSystemFileHandle) => {
-    const result = await pickFiles(startIn);
-    if (result === null) return; // キャンセル
-    const { files, handles } = result;
-    if (files.length === 0) return;
+  // ファイルを直接選ぶ（フォルダ情報が取れないため履歴には残らない）
+  const openFilesDirect = async () => {
+    const files = await pickFiles();
+    if (files === null || files.length === 0) return;
     loadFiles(files);
-    const label = handles.length > 1 ? `${handles[0].name} 他${handles.length - 1}件` : handles[0].name;
-    const next = await addToHistory(handles[0], label);
+  };
+
+  // フォルダを選んでから、そのフォルダを初期位置にファイル選択ダイアログを開く。
+  // 履歴クリック時（startIn指定あり）は最初のフォルダ選択をスキップして直接ファイル選択へ
+  const openViaFolder = async (folder?: FileSystemDirectoryHandle) => {
+    const dir = folder ?? await pickFolder();
+    if (dir === null) return; // キャンセル
+    const files = await pickFiles(dir);
+    if (files === null || files.length === 0) return;
+    loadFiles(files);
+    const next = await addToHistory(dir);
     setHistory(next);
   };
 
@@ -100,21 +109,26 @@ export function FileLoader() {
       {supported ? (
         <OpenMenuButton label="ファイル選択" disabled={isLoading}>
           <div
-            onClick={() => openPicker()}
+            onClick={openFilesDirect}
+            style={{ padding: '10px 14px', fontSize: '14px', color: '#e0e0e0', cursor: 'pointer' }}
+          >ファイルを開く...</div>
+          <div
+            onClick={() => openViaFolder()}
             style={{
               padding: '10px 14px', fontSize: '14px', color: '#e0e0e0', cursor: 'pointer',
               borderBottom: history.length > 0 ? '1px solid #2a2a2a' : 'none',
             }}
-          >ファイルを開く...</div>
+          >📁 フォルダを開く...</div>
           {history.map((entry, i) => (
             <div
               key={i}
-              onClick={() => openPicker(entry.handle)}
+              onClick={() => openViaFolder(entry.handle)}
+              title={entry.label}
               style={{
                 padding: '8px 14px', fontSize: '13px', color: '#aaa', cursor: 'pointer',
                 whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
               }}
-            >{entry.label}</div>
+            >📁 {entry.label}</div>
           ))}
         </OpenMenuButton>
       ) : (

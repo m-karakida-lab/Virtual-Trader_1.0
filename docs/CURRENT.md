@@ -20,7 +20,7 @@
 
 ### データ読み込み
 - Axiory MT4形式 1分足 CSV の読み込み（複数ファイル対応、ファイル名昇順で結合）
-- **ファイルを開く履歴**（Chrome/Edgeのみ、File System Access API）: 「ファイル選択▾」を押すとドロップダウンで「ファイルを開く...」＋直近に開いたファイルの履歴（最大12件、`src/lib/openHistory.ts`、IndexedDB保存）が並ぶ。履歴を選ぶとそのファイルの親フォルダを初期位置にしてネイティブのファイル選択ダイアログが開く（`showOpenFilePicker`の`startIn`）。File System Access APIはOSの絶対パスを渡さない仕様のため、履歴の表示名はファイル名のみ（フォルダ名やパスは出せない）。明示的な「登録」操作は無く、ファイルを開くたびに自動で履歴の先頭に積まれる。Safari/Firefox等の非対応ブラウザでは通常の`<input type=file>`にフォールバックする（履歴機能自体が出ない）
+- **フォルダを開いた履歴**（Chrome/Edgeのみ、File System Access API）: 「ファイル選択▾」を押すとドロップダウンで「ファイルを開く...」（直接ファイル選択、履歴に残らない）／「📁 フォルダを開く...」（フォルダ選択→そのフォルダを初期位置にファイル選択ダイアログが続けて開く）／直近に開いたフォルダの履歴（最大12件、`src/lib/openHistory.ts`、IndexedDB保存）が並ぶ。履歴を選ぶとそのフォルダを初期位置にファイル選択ダイアログが開く（`showOpenFilePicker`の`startIn`）。`showOpenFilePicker`単体の戻り値にはフォルダ情報が一切含まれない（親フォルダをたどるAPIが存在しない）ため、履歴は`showDirectoryPicker`を経由した場合にしか作れない。明示的な「登録」操作は無く、フォルダ経由で開くたびに自動で履歴の先頭に積まれる。Safari/Firefox等の非対応ブラウザでは通常の`<input type=file>`にフォールバックする（履歴機能自体が出ない）
 - 読み込み完了時は「✓ N本 読み込み完了」を5秒間表示してから消える
 - 1分足 → 任意時間軸への自動集計（DuckDB SQL）。**15m / 1H / 4H / 1D / 1W / MN を切替可能**。週足・月足はカレンダー基準（週=月曜始まり、月=1日始まり）で`date_trunc`集計、それ以外は`floor(ts/sec)`の固定長バケット集計
 - **表示は日本時間(JST)に変換済み**: CSV（Axiory MT4形式）のブローカーサーバー時間はEU夏時間ルール（GMT+2冬/GMT+3夏）に従う前提で自動変換。チャート・日付ジャンプ・取引履歴など全表示箇所がJST基準
@@ -88,7 +88,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - **プロセス境界**: シングルプロセス（ブラウザのみ）。バックエンドなし
 - **DuckDB-wasm**: jsDelivr CDN からバンドル取得。App マウント時に先読み開始
 - **状態管理**: Zustand store 1本（`useTraderStore`）+ セレクタ（`selectUnrealizedPnL`, `selectPositionPnL`）
-- **永続化**: ファイルを開いた履歴のみ IndexedDB（`src/lib/openHistory.ts`）。他は全てメモリ
+- **永続化**: フォルダを開いた履歴のみ IndexedDB（`src/lib/openHistory.ts`）。他は全てメモリ
 - **外部 API**: なし（File System Access API はブラウザ機能、外部通信ではない）
 
 ## 主要コンポーネント / モジュール責務
@@ -103,7 +103,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`。MN足は`computeYearBoundaries`＝年区切り、1D/1W足は`computeMonthBoundaries`＝月区切り、4H足は`computeWeekBoundaries`＝週区切り（月曜始まり）、15m/1Hは`computeDayBoundaries`＝日区切り）。CandleChart/MiniChart共通
 - `src/lib/pips.ts` — 価格帯から pip単位・表示精度を推定（JPYクロス判定）
 - `src/lib/crosshairSync.ts` — 4画面の十字カーソル同期用。`priceAtTime(candles, time, timeframeSec)`で、指定時刻直前に確定している足の終値を返す。時刻が先頭の足より前、または末尾の足の期間（`time + timeframeSec`）を超える場合はnull（そのパネルにはまだ存在しない未来のためクロスヘアを出さない）
-- `src/lib/openHistory.ts` — File System Access API でファイルを開いた履歴の保存/復元（IndexedDB）、`showOpenFilePicker`のラッパー
+- `src/lib/openHistory.ts` — File System Access API でフォルダを開いた履歴の保存/復元（IndexedDB）、`showDirectoryPicker`/`showOpenFilePicker`のラッパー
 - `src/store/useTraderStore.ts` — 全アプリ状態 + アクション。注文約定・TP/SL判定は`processOrderRange`（ローソク足の高安レンジで判定、SL優先）。チャート操作系は「シグナル」パターン（`fitSignal`/`centerSignal`/`scrollToLatestSignal` を increment → CandleChart の useEffect が検知）
 - `src/components/CandleChart.tsx` — lightweight-charts ラッパー。ローソク足は1コマ前進時`update()`差分更新、それ以外`setData()`。水平線・垂直線・注文・TP/SL・draft値はすべて統一ドラッグシステム（`DragTarget`判別）。垂直線・区切り線・ものさし・RRプレビューはDOMオーバーレイで自前描画。雲（先行スパンA/B間）の塗りつぶしは`<canvas>`オーバーレイに自前描画
 - `src/components/MiniChart.tsx` — 4画面レイアウトの表示専用パネル。指定時間軸で自前にDuckDB集計し、メインの現在足が閉じた時刻までに切り詰めて描画するだけ（発注・描画ツールなし）。EMA/BB/雲・区切り線はメインパネルのON/OFF設定に連動して同じものを表示。パネル本体クリックでその時間軸をメインパネルに切り替え可能（`mousedown`/`mouseup`の移動量で判定し、パン/ズームのドラッグとは区別）。ヘッダーの時間軸ドロップダウン（`ChartHeader`）から選ぶとメインには昇格せず、この枠の表示時間軸だけが変わる
@@ -144,8 +144,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - ズーム/スケールの保存は「表示中の本数」を基準に相対化するため、リプレイモード中は`candles.length`ではなく`cursor + 1`（実際にsetDataされている本数）を使うこと。`candles.length`を使うと未来分を含めてズーム率がずれる
 - CSV読み込み直後（`cursor === 0`）は表示本数が1本しかないため、以前保存した（本数の多い時の）ズーム幅`span`をそのまま`relativeViewToLogicalRange`に渡すと、範囲外に大きくはみ出た破綻したlogical range（例: `{from:-95, to:10}`）になる。`scrollToRealTime()`はパン位置しか動かさないためこの破綻したズーム幅は直せない。`saved.span <= totalBars`のときだけ復元を適用するガードで回避している
 - CSV再読込で `lines`/`vlines`/`rects`/`closedTrades`/`positions`/`pendingOrders` は全リセット。時間軸切替では保持
-- ファイルを開く履歴は Chrome/Edge のみ対応（File System Access API）。Safari/Firefoxでは通常の`<input type=file>`にフォールバックし、履歴機能自体が出ない
-- 履歴に保存する`FileSystemFileHandle`は「次に`showOpenFilePicker`の`startIn`へ渡す起点」としてのみ使い、中身は二度と読まない。File System Access APIはOSの絶対パスを渡さない仕様のため、フォルダ名・パスでの表示は原理的に不可能（表示名は`handle.name`＝ファイル名止まり）
+- フォルダを開いた履歴は Chrome/Edge のみ対応（File System Access API）。Safari/Firefoxでは通常の`<input type=file>`にフォールバックし、履歴機能自体が出ない
+- 履歴に保存する`FileSystemDirectoryHandle`は「次に`showOpenFilePicker`の`startIn`へ渡す起点」としてのみ使い、中身（`.values()`での列挙）は読まない。File System Access APIはOSの絶対パスを渡さない仕様のため、表示名は`handle.name`＝フォルダ名止まり（親フォルダを辿る手段が無く、フルパスは原理的に取得不可能）。「ファイルを開く...」（直接ファイル選択）はフォルダ情報が一切取れないため履歴を作れない。フォルダ由来の履歴だけを持つのはこの制約のためであって、意図的な機能省略ではない
 - フロートパネルの位置クランプは `chart.priceScale('right').width()` / `chart.timeScale().height()` の実測値をストア経由で共有している。チャートのリサイズ・精度変更時に更新される
 - `setTimeframe`（4画面メインパネル切替・時間軸ボタン）でのカーソル復元は、新しい足の**終了時刻**が旧カーソル足の終了時刻以下かで選ぶこと（`newCandles[i].time + sec <= currentClose`）。開始時刻だけで比較すると、切替先の未確定（まだ閉じていない）足が選ばれてしまい、切替直後にローソク足が1本先出しで進んで見える
 - `FloatingControls` は `offsetParent`（直近の`position:relative`祖先）基準でクランプする。1画面・4画面どちらでもチャート表示欄全体（`App.tsx`のflex:1コンテナ）が親なので、4画面時もメインパネル以外の領域に自由に移動できる
