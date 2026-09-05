@@ -95,51 +95,60 @@ export default function App() {
       )}
       <FileLoader />
 
-      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
-        {chartLayout === '4' ? (
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
-          }}>
-            {QUAD_POSITIONS.map((pos, slot) => (
-              <div key={slot} style={{ gridRow: pos.row, gridColumn: pos.col, position: 'relative', minWidth: 0, minHeight: 0 }}>
-                {slot === quadMainSlot
-                  ? <CandleChart />
-                  : <MiniChart
-                      timeframeSec={quadTimeframes[slot]}
-                      label={TIMEFRAMES.find(tf => tf.sec === quadTimeframes[slot])!.label}
-                      slot={slot}
-                    />}
-              </div>
-            ))}
-          </div>
-        ) : (
-          <CandleChart />
-        )}
-        <FloatingControls />
-        <DrawToolbar />
-        <PalettePanel />
-        {error && (
-          <div style={{
-            position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)',
-            backgroundColor: '#3a0d0d', color: '#ff7b72', border: '1px solid #ef5350',
-            borderRadius: '6px', padding: '12px 20px', fontSize: '15px', fontWeight: 700,
-            boxShadow: '0 4px 16px rgba(0,0,0,0.6)', whiteSpace: 'nowrap', zIndex: 50,
-            pointerEvents: 'none',
-          }}>
-            {error}
-          </div>
-        )}
-        {!isLoaded && (
-          <div style={{
-            position: 'absolute', inset: 0,
-            display: 'flex', alignItems: 'center', justifyContent: 'center',
-            color: '#2a2a2a', fontSize: '15px', pointerEvents: 'none',
-          }}>
-            CSV を選択してください
-          </div>
-        )}
-        {showHistoryPanel && <HistoryPanel />}
+      <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden', display: 'flex' }}>
+        {/* 描画ツールバー用の独立した列。チャート画面に重ねず、価格軸と同じく専用スペースを確保する */}
+        <div style={{
+          flexShrink: 0, display: 'flex', alignItems: 'center',
+          padding: '8px', borderRight: '1px solid #2a2a2a',
+        }}>
+          <DrawToolbar />
+        </div>
+
+        <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+          {chartLayout === '4' ? (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
+            }}>
+              {QUAD_POSITIONS.map((pos, slot) => (
+                <div key={slot} style={{ gridRow: pos.row, gridColumn: pos.col, position: 'relative', minWidth: 0, minHeight: 0 }}>
+                  {slot === quadMainSlot
+                    ? <CandleChart />
+                    : <MiniChart
+                        timeframeSec={quadTimeframes[slot]}
+                        label={TIMEFRAMES.find(tf => tf.sec === quadTimeframes[slot])!.label}
+                        slot={slot}
+                      />}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <CandleChart />
+          )}
+          <FloatingControls />
+          <PalettePanel />
+          {error && (
+            <div style={{
+              position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)',
+              backgroundColor: '#3a0d0d', color: '#ff7b72', border: '1px solid #ef5350',
+              borderRadius: '6px', padding: '12px 20px', fontSize: '15px', fontWeight: 700,
+              boxShadow: '0 4px 16px rgba(0,0,0,0.6)', whiteSpace: 'nowrap', zIndex: 50,
+              pointerEvents: 'none',
+            }}>
+              {error}
+            </div>
+          )}
+          {!isLoaded && (
+            <div style={{
+              position: 'absolute', inset: 0,
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              color: '#2a2a2a', fontSize: '15px', pointerEvents: 'none',
+            }}>
+              CSV を選択してください
+            </div>
+          )}
+          {showHistoryPanel && <HistoryPanel />}
+        </div>
       </div>
 
       <Controls />

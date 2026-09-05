@@ -2,11 +2,13 @@ import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
 import type { MagnetMode } from '../types';
 
-// TradingView風の左端アイコンツールバー。クリックした瞬間にそのツールが有効化され、
+// TradingView風のアイコンツールバー。クリックした瞬間にそのツールが有効化され、
 // 続けてチャート上をクリック/ドラッグするだけで配置できる（配置後は自動的に解除される）。
 // 色・線種・太さの編集は右上のPalettePanel（パレットモード）が一手に担う。
 // 実際の配置・既存図形の一覧/削除は Controls.tsx の「描画」メニュー側が担う。
-// 4画面時も1画面時と同じく、常に操作可能なメインパネル（CandleChart）に対して働く
+// 4画面時も1画面時と同じく、常に操作可能なメインパネル（CandleChart）に対して働く。
+// 自身は絶対配置を持たず、App.tsx側でチャート領域の左に確保した専用列に配置される
+// （以前はチャート上への絶対配置オーバーレイでローソク足と重なっていた）
 
 const ICONS: Record<string, JSX.Element> = {
   hline: (
@@ -165,7 +167,6 @@ export function DrawToolbar() {
 
   return (
     <div style={{
-      position: 'absolute', left: '10px', top: '50%', transform: 'translateY(-50%)',
       display: 'flex', flexDirection: 'column', gap: '4px',
       backgroundColor: '#111', border: '1px solid #2a2a2a', borderRadius: '8px',
       padding: '6px', zIndex: 30,
