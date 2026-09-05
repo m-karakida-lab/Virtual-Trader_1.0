@@ -48,6 +48,25 @@ function saveSpeed(speed: number): void {
   }
 }
 
+// 1画面/4画面の表示レイアウトは localStorage に記憶し、次回起動時も前回の状態から始める
+const CHART_LAYOUT_STORAGE_KEY = 'vt:chartLayout';
+
+function loadSavedChartLayout(): '1' | '4' {
+  try {
+    return localStorage.getItem(CHART_LAYOUT_STORAGE_KEY) === '1' ? '1' : '4';
+  } catch {
+    return '4';
+  }
+}
+
+function saveChartLayout(layout: '1' | '4'): void {
+  try {
+    localStorage.setItem(CHART_LAYOUT_STORAGE_KEY, layout);
+  } catch {
+    // localStorage が使えない場合は無視
+  }
+}
+
 // マグネットの強さ（弱/強）は localStorage に記憶する。ON/OFF自体は他の描画ツールと
 // 同じく起動のたびOFFに戻るが、「弱/強のどちらを使うか」は毎回選び直したくないため
 const MAGNET_STRENGTH_STORAGE_KEY = 'vt:magnetStrength';
@@ -413,7 +432,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   scrollToLatestSignal: 0,
   centerSignal: 0,
   centerTarget: 0,
-  chartLayout: '4',
+  chartLayout: loadSavedChartLayout(),
   ...loadSavedQuad(),
   dataVersion: 0,
   crosshairSourceId: null,
@@ -941,7 +960,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),
   setChartMargins: (right: number, bottom: number) => set({ chartRightMargin: right, chartBottomMargin: bottom }),
-  setChartLayout: (layout: '1' | '4') => set({ chartLayout: layout }),
+  setChartLayout: (layout: '1' | '4') => {
+    saveChartLayout(layout);
+    set({ chartLayout: layout });
+  },
 
   // 4画面のミニ枠（メインでない枠）の表示時間軸を変更。メイン枠が指定された場合は
   // 通常のメイン時間軸切替として扱う（setTimeframeに委譲、データ再取得を伴うため）
