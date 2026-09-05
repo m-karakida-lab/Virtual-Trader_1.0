@@ -1695,6 +1695,13 @@ export function CandleChart() {
       }
 
       if (!(e.metaKey || e.ctrlKey)) return;
+
+      if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
+        e.preventDefault();
+        useTraderStore.getState().undo();
+        return;
+      }
+
       if (!seriesRef.current || !chartRef.current) return;
 
       if (e.key === 'c' || e.key === 'C') {

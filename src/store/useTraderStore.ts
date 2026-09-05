@@ -9,6 +9,18 @@ import { splitVtdBundle, buildVtdBundle } from '../lib/vtd';
 const DEFAULT_INITIAL_BALANCE = 1_000_000;
 const DEFAULT_TIMEFRAME: TimeframeSec = 900; // 15m
 
+// 水平線・垂直線・四角形のUndo用スナップショット。lines/vlines/rectsはどの操作でも
+// 必ず新しい配列を作る（他要素をmutateしない）ため、参照をそのまま保持するだけでよい
+interface DrawSnapshot {
+  lines: DrawnLine[];
+  vlines: DrawnVLine[];
+  rects: DrawnRect[];
+  nextLineId: number;
+  nextVLineId: number;
+  nextRectId: number;
+}
+const MAX_DRAW_UNDO = 50;
+
 // クオート通貨ごとの初期残高デフォルト（JPYは100万、それ以外は1万。USD/EUR/GBP等で100万は非現実的なため）
 function defaultBalanceFor(currency: string): number {
   return currency === 'JPY' ? 1_000_000 : 10_000;
@@ -134,6 +146,7 @@ interface TraderState {
   rects: DrawnRect[];
   nextRectId: number;
   isDrawingRect: boolean;
+  drawHistory: DrawSnapshot[]; // 水平線・垂直線・四角形のUndo用スナップショット（最新が末尾）
   magnetMode: MagnetMode; // 描画時に価格を足の高値/安値/始値/終値へ吸着させる強さ
   magnetStrength: Exclude<MagnetMode, 'off'>; // OFF→ON時に使う強さ（localStorageに記憶）
   selected: LineSelection | null; // 水平線・垂直線・四角形のいずれか選択中の1つ
@@ -210,6 +223,7 @@ interface TraderState {
   removeRect: (id: number) => void;
   duplicateRect: (id: number, time1: number, price1: number, time2: number, price2: number) => void;
   toggleDrawRect: () => void;
+  undo: () => void; // 水平線・垂直線・四角形の直前の変更を1つ戻す
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
   selectLine: (target: LineSelection | null) => void;
@@ -298,6 +312,15 @@ function processOrderRange(
   return { positions, pendingOrders, closedTrades, balance, nextId, changed };
 }
 
+// 水平線・垂直線・四角形を変更する12個のアクション（追加/更新/削除/複製×3種）の先頭で
+// 必ず呼ぶ。変更前の状態をUndoスタックに積む（ドラッグ中の逐次プレビューはstoreを経由
+// せずチャート側で直接動かしているため、ここではmouseup等の1コミット＝1手にしかならない）
+function pushDrawHistory(get: () => TraderState, set: (fn: (s: TraderState) => Partial<TraderState>) => void): void {
+  const { lines, vlines, rects, nextLineId, nextVLineId, nextRectId, drawHistory } = get();
+  const snapshot: DrawSnapshot = { lines, vlines, rects, nextLineId, nextVLineId, nextRectId };
+  set(() => ({ drawHistory: [...drawHistory, snapshot].slice(-MAX_DRAW_UNDO) }));
+}
+
 // パレットモード中に、選択中の図形へ現在のpaletteStyleを書き込む（色・線種・太さ）。
 // パレット側の設定を変えた時（setPaletteStyle）から呼ばれる。
 // 「選択しただけ」では図形側は変えない（syncPaletteStyleFromと役割が逆）
@@ -364,6 +387,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   rects: [],
   nextRectId: 1,
   isDrawingRect: false,
+  drawHistory: [],
   magnetMode: 'off',
   magnetStrength: loadSavedMagnetStrength(),
   selected: null,
@@ -431,7 +455,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         lines: drawings?.lines ?? [], nextLineId: nextIdOf(drawings?.lines ?? []),
         vlines: drawings?.vlines ?? [], nextVLineId: nextIdOf(drawings?.vlines ?? []),
         rects: drawings?.rects ?? [], nextRectId: nextIdOf(drawings?.rects ?? []),
-        selected: null,
+        selected: null, drawHistory: [],
         quoteCurrency, symbol,
         rawCsvText,
         // ファイル選択欄はOS/ブラウザ標準のファイル名表示に頼らず、この文字列を自前で出す。
@@ -719,6 +743,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
 
   addLine: (price: number) => {
+    pushDrawHistory(get, set);
     // 丸めない（表示側で toFixed するだけにし、線の位置は連続値で持つ）
     const { lines, nextLineId, lineDraft } = get();
     set({
@@ -730,9 +755,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     get().selectLine({ kind: 'h', id: nextLineId });
   },
   updateLine: (id: number, patch: Partial<Omit<DrawnLine, 'id'>>) => {
+    pushDrawHistory(get, set);
     set(s => ({ lines: s.lines.map(l => l.id === id ? { ...l, ...patch } : l) }));
   },
   removeLine: (id: number) => {
+    pushDrawHistory(get, set);
     set(s => {
       const wasSelected = s.selected?.kind === 'h' && s.selected.id === id;
       return {
@@ -749,11 +776,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const { lines, nextLineId } = get();
     const src = lines.find(l => l.id === id);
     if (!src) return;
+    pushDrawHistory(get, set);
     set({ lines: [...lines, { ...src, id: nextLineId, price: newPrice }], nextLineId: nextLineId + 1 });
   },
   toggleDrawLine: () => set(s => ({ isDrawingLine: !s.isDrawingLine, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, pickTarget: null })),
 
   addVLine: (time: number) => {
+    pushDrawHistory(get, set);
     const { vlines, nextVLineId, lineDraft } = get();
     set({
       vlines: [...vlines, { id: nextVLineId, time, ...lineDraft }],
@@ -763,9 +792,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     get().selectLine({ kind: 'v', id: nextVLineId });
   },
   updateVLine: (id: number, patch: Partial<Omit<DrawnVLine, 'id'>>) => {
+    pushDrawHistory(get, set);
     set(s => ({ vlines: s.vlines.map(v => v.id === id ? { ...v, ...patch } : v) }));
   },
   removeVLine: (id: number) => {
+    pushDrawHistory(get, set);
     set(s => {
       const wasSelected = s.selected?.kind === 'v' && s.selected.id === id;
       return {
@@ -779,12 +810,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const { vlines, nextVLineId } = get();
     const src = vlines.find(v => v.id === id);
     if (!src) return;
+    pushDrawHistory(get, set);
     set({ vlines: [...vlines, { ...src, id: nextVLineId, time: newTime }], nextVLineId: nextVLineId + 1 });
   },
   toggleDrawVLine: () => set(s => ({ isDrawingVLine: !s.isDrawingVLine, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, pickTarget: null })),
   toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, pickTarget: null })),
 
   addRect: (time1: number, price1: number, time2: number, price2: number) => {
+    pushDrawHistory(get, set);
     const { rects, nextRectId, rectDraft } = get();
     set({
       rects: [...rects, { id: nextRectId, time1, price1, time2, price2, ...rectDraft }],
@@ -794,9 +827,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     get().selectLine({ kind: 'rect', id: nextRectId });
   },
   updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => {
+    pushDrawHistory(get, set);
     set(s => ({ rects: s.rects.map(r => r.id === id ? { ...r, ...patch } : r) }));
   },
   removeRect: (id: number) => {
+    pushDrawHistory(get, set);
     set(s => {
       const wasSelected = s.selected?.kind === 'rect' && s.selected.id === id;
       return {
@@ -810,9 +845,22 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const { rects, nextRectId } = get();
     const src = rects.find(r => r.id === id);
     if (!src) return;
+    pushDrawHistory(get, set);
     set({ rects: [...rects, { ...src, id: nextRectId, time1, price1, time2, price2 }], nextRectId: nextRectId + 1 });
   },
   toggleDrawRect: () => set(s => ({ isDrawingRect: !s.isDrawingRect, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, pickTarget: null })),
+
+  undo: () => {
+    const { drawHistory } = get();
+    if (drawHistory.length === 0) return;
+    const prev = drawHistory[drawHistory.length - 1];
+    set({
+      lines: prev.lines, vlines: prev.vlines, rects: prev.rects,
+      nextLineId: prev.nextLineId, nextVLineId: prev.nextVLineId, nextRectId: prev.nextRectId,
+      drawHistory: drawHistory.slice(0, -1),
+      selected: null, paletteMode: false,
+    });
+  },
   setMagnetMode: mode => {
     if (mode !== 'off') saveMagnetStrength(mode);
     set(s => ({ magnetMode: mode, magnetStrength: mode !== 'off' ? mode : s.magnetStrength }));
