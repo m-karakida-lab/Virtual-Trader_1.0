@@ -97,7 +97,7 @@ function isTimeframeSec(v: unknown): v is TimeframeSec {
   return typeof v === 'number' && TIMEFRAMES.some(tf => tf.sec === v);
 }
 
-function loadSavedQuad(): { quadTimeframes: TimeframeSec[]; quadMainSlot: number } {
+function loadSavedQuad(): { quadTimeframes: TimeframeSec[]; quadMainSlot: number; timeframeSec: TimeframeSec } {
   try {
     const raw = localStorage.getItem(QUAD_STORAGE_KEY);
     if (!raw) throw new Error('no saved quad');
@@ -108,13 +108,12 @@ function loadSavedQuad(): { quadTimeframes: TimeframeSec[]; quadMainSlot: number
     }
     const slot = Number(parsed.quadMainSlot);
     if (!Number.isInteger(slot) || slot < 0 || slot >= QUAD_SLOT_COUNT) throw new Error('invalid quadMainSlot');
-    // メイン時間軸（timeframeSec）自体は再生速度と違い永続化せず常にDEFAULT_TIMEFRAMEで起動するため、
-    // メイン枠（quadMainSlot）が保持する時間軸もそれに揃えておく（揃えないと起動直後だけ
-    // 「メイン枠の見出し」と「実際に表示される時間軸」が食い違う）
-    tfs[slot] = DEFAULT_TIMEFRAME;
-    return { quadTimeframes: tfs, quadMainSlot: slot };
+    // メイン枠（quadMainSlot）が保持する時間軸を、起動時のメイン時間軸（timeframeSec）として
+    // そのまま引き継ぐ（`setTimeframe`が呼ばれるたびquadTimeframes[quadMainSlot]も更新して
+    // 保存しているため、ここには前回終了時点の実際のメイン時間軸が入っている）
+    return { quadTimeframes: tfs, quadMainSlot: slot, timeframeSec: tfs[slot] };
   } catch {
-    return { quadTimeframes: DEFAULT_QUAD_TIMEFRAMES, quadMainSlot: 0 };
+    return { quadTimeframes: DEFAULT_QUAD_TIMEFRAMES, quadMainSlot: 0, timeframeSec: DEFAULT_TIMEFRAME };
   }
 }
 
@@ -375,7 +374,6 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   isLoading: false,
   loadingMsg: '',
   candles: [],
-  timeframeSec: DEFAULT_TIMEFRAME,
   cursor: 0,
   initialBalance: DEFAULT_INITIAL_BALANCE,
   isInitialBalanceCustom: false,
