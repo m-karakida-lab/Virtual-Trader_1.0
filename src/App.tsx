@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { FileLoader } from './components/FileLoader';
 import { CandleChart } from './components/CandleChart';
 import { MiniChart } from './components/MiniChart';
@@ -28,9 +28,35 @@ export default function App() {
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const quadTimeframes = useTraderStore(s => s.quadTimeframes);
   const quadMainSlot  = useTraderStore(s => s.quadMainSlot);
+  const loadFiles  = useTraderStore(s => s.loadFiles);
 
   // 画面表示時点で DuckDB WASM を先読み（ファイル選択前に初期化を済ませる）
   useEffect(() => { initDuckDB().catch(() => {}); }, []);
+
+  // 画面全体へのCSV/vtdファイルのドラッグ&ドロップ読み込み。子要素をまたぐたびに
+  // dragenter/dragleaveが発火するため、カウンタで「本当に画面外に出たか」を判定する
+  const [isDragOver, setIsDragOver] = useState(false);
+  const dragCounter = useRef(0);
+  const onDragEnter = (e: React.DragEvent) => {
+    e.preventDefault();
+    if (!e.dataTransfer.types.includes('Files')) return;
+    dragCounter.current += 1;
+    setIsDragOver(true);
+  };
+  const onDragOver = (e: React.DragEvent) => {
+    e.preventDefault(); // これが無いとブラウザ標準の「ドロップでファイルを開く」に奪われる
+  };
+  const onDragLeave = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = Math.max(0, dragCounter.current - 1);
+    if (dragCounter.current === 0) setIsDragOver(false);
+  };
+  const onDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    dragCounter.current = 0;
+    setIsDragOver(false);
+    if (e.dataTransfer.files.length > 0) loadFiles(e.dataTransfer.files);
+  };
 
   // エラーは数秒で自動的に消す
   useEffect(() => {
@@ -40,14 +66,33 @@ export default function App() {
   }, [error, clearError]);
 
   return (
-    <div style={{
-      display: 'flex',
-      flexDirection: 'column',
-      height: '100vh',
-      backgroundColor: '#0d0d0d',
-      color: '#e0e0e0',
-      fontFamily: '"SF Mono", "Fira Code", monospace',
-    }}>
+    <div
+      onDragEnter={onDragEnter}
+      onDragOver={onDragOver}
+      onDragLeave={onDragLeave}
+      onDrop={onDrop}
+      style={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100vh',
+        backgroundColor: '#0d0d0d',
+        color: '#e0e0e0',
+        fontFamily: '"SF Mono", "Fira Code", monospace',
+        position: 'relative',
+      }}
+    >
+      {isDragOver && (
+        <div style={{
+          position: 'absolute', inset: '8px', zIndex: 100,
+          border: '2px dashed #42a5f5', borderRadius: '8px',
+          backgroundColor: 'rgba(13,71,161,0.15)',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          fontSize: '18px', fontWeight: 700, color: '#42a5f5',
+          pointerEvents: 'none',
+        }}>
+          ここにドロップして読み込む
+        </div>
+      )}
       <FileLoader />
 
       <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
