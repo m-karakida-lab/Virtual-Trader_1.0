@@ -57,7 +57,7 @@ export function FileLoader() {
   const loadingMsg  = useTraderStore(s => s.loadingMsg);
   const saveChartFile = useTraderStore(s => s.saveChartFile);
   const canSave     = useTraderStore(s => s.rawCsvText !== null);
-  const canOverwrite = useTraderStore(s => s.rawFileHandle !== null);
+  const canOverwrite = useTraderStore(s => s.rawFileHandle !== null && s.rawFileIsBundle);
   const loadedFileLabel = useTraderStore(s => s.loadedFileLabel);
 
   const supported = isFileSystemAccessSupported();

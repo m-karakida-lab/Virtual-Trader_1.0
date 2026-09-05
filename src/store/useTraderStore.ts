@@ -125,6 +125,8 @@ interface TraderState {
   symbol: string; // 読み込んだ通貨ペアのシンボル（例: "USDJPY"）。チャートヘッダー表示用
   rawCsvText: string | null; // 保存機能用。単一ファイル読み込み時のみ保持（複数ファイルは非対応）
   rawFileHandle: FileSystemFileHandle | null; // File System Access APIで開いた時のみ保持。上書き保存に使う
+  rawFileIsBundle: boolean; // rawFileHandleが指すファイルが既にvtdバンドル（マーカー入り）だったか。
+                             // falseなら素のCSVを開いた直後で、上書きすると元データが壊れるため直接書き込みを許可しない
   loadedFileLabel: string; // ファイル選択欄の代わりに表示するラベル（バンドル検出時は.vtd表記に正規化、複数ファイルは件数表示）
   lots: number;          // 発注ロット数（固定モード時に使用）
   lotMode: 'fixed' | 'risk'; // ロット指定方法
@@ -367,6 +369,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   symbol: '',
   rawCsvText: null,
   rawFileHandle: null,
+  rawFileIsBundle: false,
   loadedFileLabel: '選択されていません',
   lots: 10_000,
   lotMode: 'risk',
@@ -462,6 +465,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         quoteCurrency, symbol,
         rawCsvText,
         rawFileHandle: fileArray.length === 1 ? (fileHandle ?? null) : null,
+        // drawings!==null は、開いたファイル自体が既にvtdバンドル（マーカー入り）だったことを意味する。
+        // 素のCSVを開いただけの場合はfalseにし、上書き保存で元データを壊さないようにする
+        rawFileIsBundle: fileArray.length === 1 && drawings !== null,
         // ファイル選択欄はOS/ブラウザ標準のファイル名表示に頼らず、この文字列を自前で出す。
         // バンドル（描画データ入り）と分かっているものは、実際の拡張子に関わらず.vtd表記に揃える
         loadedFileLabel: fileArray.length === 1
@@ -481,16 +487,17 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // 中身は実質CSV+JSONトレーラーだが、素のデータCSVと見分けが付くよう拡張子は.vtdにする
   // （read_csv側は拡張子を見ないため、読込時に.csv/.vtdどちらでも中身のマーカーだけで判定する）。
   // rawCsvTextは単一ファイル読み込み時のみ保持しているため、複数ファイル読み込み後は何もしない。
-  // File System Access APIでファイルハンドルを持っている場合（rawFileHandle）は、ネイティブの
-  // 保存ダイアログを介さずそのファイルへ直接上書きする。ハンドルが無い場合（Safari/Firefox、
-  // ドラッグ&ドロップ、複数ファイル読み込み等）や上書きに失敗した場合（権限拒否・ファイルが
-  // 移動/削除された等）は、従来通りダウンロードにフォールバックする
+  // 直接上書き（writeToHandle）が許されるのは、開いたファイル自体が既にvtdバンドルだった場合
+  // （rawFileIsBundle）だけ。素のCSVを開んだ直後にrawFileHandleへ書き込むと、そのCSVの中身が
+  // 黙ってバンドル形式に書き換わってしまう（実際に踏んだ不具合: 拡張子は.csvのままなのに
+  // 中身だけvtdになり、しかも表示は「.vtdに保存しました」で紛らわしかった）。
+  // 素のCSVの初回保存は必ずダウンロード（新しい.vtdファイルとして書き出す）に倒す
   saveChartFile: async () => {
-    const { rawCsvText, rawFileHandle, loadedFileLabel, lines, vlines, rects } = get();
+    const { rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects } = get();
     if (rawCsvText === null) return;
     const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects });
 
-    if (rawFileHandle !== null) {
+    if (rawFileHandle !== null && rawFileIsBundle) {
       try {
         await writeToHandle(rawFileHandle, bundle);
         set({ loadingMsg: `✓ ${loadedFileLabel} に上書き保存しました` });
