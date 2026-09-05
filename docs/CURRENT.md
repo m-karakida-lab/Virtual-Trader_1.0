@@ -131,6 +131,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 自動再生は `requestAnimationFrame` で実装（`setInterval` は高速再生時に描画ノイズが出る）
 - ドラッグ系操作（水平線・垂直線・ものさし・注文・TP/SL・draft）は開始時にチャートの `handleScroll`/`handleScale` を無効化し、終了時に必ず再有効化する。新規ドラッグ操作追加時はこの作法に従う
 - 水平線・垂直線・TP/SL・draft価格は丸めない（量子化するとズーム次第でカクつく）。表示側のみ `toFixed(pricePrecision(price))`
+- `onMouseDown`のヒット判定順序は「四角形（角→辺→枠→本体）→ 水平線」。水平線は`priceToCoordinate`が近ければx座標を問わず画面全幅でヒットするため、四角形より先に判定すると重なった四角形の編集操作を覆い隠してしまう。新しい「全幅でヒットする」系のオーバーレイ（水平線・区切り線等）を追加する際も、四角形の判定より後に置くこと（`findHLineNear`はこの理由で`findPriceTargetNear`から分離してある）
 - DOMオーバーレイ（垂直線・区切り線・ものさし・RRプレビュー）は `z-index` 10〜13 を使用。新規追加時はこの範囲を踏まえること。雲の`<canvas>`は`z-index: 5`（他オーバーレイより背面、ただし実装上lightweight-charts本体の描画canvasより手前になるためローソク足の上に半透明で重なる）
 - 雲の塗りつぶしは`timeToCoordinate`で座標変換しているが、表示範囲（ズーム位置の復元・パン等）がローソク足の実データ範囲より外側に及ぶと、範囲外の時刻も外挿されて不自然な塊が描画されてしまう。ローソク足の最初の本（`candles[0].time`）より左側には描画しないようガードしている
 - `jumpToTime`（日付ジャンプ）は過去日付へのジャンプで`cursor`を戻さないこと（`Math.max(idx, oldCursor)`）。`cursor`はリプレイの進行位置＝データの開示境界そのものなので、ここを巻き戻すと「過去日付へジャンプしたら、そこより後の足がごっそり隠れてジャンプ先が最新足になる」という直感に反する挙動になる。表示位置だけ動かしたいときは`centerTarget`/`centerSignal`（後述）を使う

@@ -1003,13 +1003,22 @@ export function CandleChart() {
       return orderSlLineMapRef.current;
     };
 
-    const findPriceTargetNear = (y: number): DragTarget | null => {
+    // 水平線のみの近傍判定。四角形とy座標が重なる場合、水平線はx座標を問わず画面全幅で
+    // ヒットしてしまい四角形の枠・本体を覆い隠すため、mousedownでは四角形の判定より後に呼ぶ
+    // （四角形の編集を優先する）
+    const findHLineNear = (y: number): number | null => {
       if (!seriesRef.current) return null;
-      const { lines: currentLines, pendingOrders: currentOrders, positions: currentPositions } = useTraderStore.getState();
+      const { lines: currentLines } = useTraderStore.getState();
       for (const line of currentLines) {
         const ly = seriesRef.current.priceToCoordinate(line.price);
-        if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return { kind: 'hline', id: line.id };
+        if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return line.id;
       }
+      return null;
+    };
+
+    const findPriceTargetNear = (y: number): DragTarget | null => {
+      if (!seriesRef.current) return null;
+      const { pendingOrders: currentOrders, positions: currentPositions } = useTraderStore.getState();
       for (const order of currentOrders) {
         const ly = seriesRef.current.priceToCoordinate(order.price);
         if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return { kind: 'order', id: order.id };
@@ -1251,7 +1260,6 @@ export function CandleChart() {
         draggingTarget = target;
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'ns-resize';
-        if (target.kind === 'hline') useTraderStore.getState().selectLine({ kind: 'h', id: target.id });
         return;
       }
       const vId = findVLineNear(x);
@@ -1304,10 +1312,24 @@ export function CandleChart() {
       }
 
       const bodyRectId = findRectBodyNear(x, y);
-      const { selected: currentSelected } = useTraderStore.getState();
       if (bodyRectId !== null) {
         useTraderStore.getState().selectLine({ kind: 'rect', id: bodyRectId });
-      } else if (currentSelected !== null) {
+        return;
+      }
+
+      // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
+      // 当たらなかった場合にのみ選択・ドラッグ対象にする（四角形の編集を優先する）
+      const hlineId = findHLineNear(y);
+      if (hlineId !== null) {
+        draggingTarget = { kind: 'hline', id: hlineId };
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'ns-resize';
+        useTraderStore.getState().selectLine({ kind: 'h', id: hlineId });
+        return;
+      }
+
+      const { selected: currentSelected } = useTraderStore.getState();
+      if (currentSelected !== null) {
         // 図形の外（余白）をクリックしたら選択解除する（TradingView等と同じ挙動）
         useTraderStore.getState().selectLine(null);
       }
@@ -1527,7 +1549,13 @@ export function CandleChart() {
         const edge = findRectEdgeNear(x, y);
         if (edge !== null) { container.style.cursor = edge.field === 'time1' || edge.field === 'time2' ? 'ew-resize' : 'ns-resize'; return; }
         const border = findRectBorderNear(x, y);
-        container.style.cursor = border !== null ? 'move' : 'default';
+        if (border !== null) { container.style.cursor = 'move'; return; }
+        const bodyRectId = findRectBodyNear(x, y);
+        if (bodyRectId !== null) { container.style.cursor = 'default'; return; }
+        // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
+        // 当たらなかった場合にのみカーソルを変える（mousedown側の優先順位と揃える）
+        const hlineId = findHLineNear(y);
+        container.style.cursor = hlineId !== null ? 'ns-resize' : 'default';
       }
     };
 
