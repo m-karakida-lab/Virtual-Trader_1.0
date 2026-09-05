@@ -111,7 +111,7 @@ interface TraderState {
   quoteCurrency: string; // 残高・損益の単位（読み込んだペアのクオート通貨。例: EURUSD→USD）
   symbol: string; // 読み込んだ通貨ペアのシンボル（例: "USDJPY"）。チャートヘッダー表示用
   rawCsvText: string | null; // 保存機能用。単一ファイル読み込み時のみ保持（複数ファイルは非対応）
-  rawFileName: string | null; // 保存時のデフォルトファイル名（読み込んだファイル名をそのまま使う）
+  loadedFileLabel: string; // ファイル選択欄の代わりに表示するラベル（バンドル検出時は.vtd表記に正規化、複数ファイルは件数表示）
   lots: number;          // 発注ロット数（固定モード時に使用）
   lotMode: 'fixed' | 'risk'; // ロット指定方法
   riskPercent: number;       // リスクモード時: 残高に対する許容損失の割合（%）
@@ -341,7 +341,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   quoteCurrency: 'JPY',
   symbol: '',
   rawCsvText: null,
-  rawFileName: null,
+  loadedFileLabel: '選択されていません',
   lots: 10_000,
   lotMode: 'risk',
   riskPercent: 3,
@@ -433,7 +433,12 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         rects: drawings?.rects ?? [], nextRectId: nextIdOf(drawings?.rects ?? []),
         selected: null,
         quoteCurrency, symbol,
-        rawCsvText, rawFileName: rawCsvText !== null ? fileArray[0].name : null,
+        rawCsvText,
+        // ファイル選択欄はOS/ブラウザ標準のファイル名表示に頼らず、この文字列を自前で出す。
+        // バンドル（描画データ入り）と分かっているものは、実際の拡張子に関わらず.vtd表記に揃える
+        loadedFileLabel: fileArray.length === 1
+          ? (drawings !== null ? fileArray[0].name.replace(/\.(csv|vtd)$/i, '') + '.vtd' : fileArray[0].name)
+          : `${fileArray.length}件のCSV`,
         dataVersion: get().dataVersion + 1,
       });
       setTimeout(() => {
@@ -449,14 +454,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // （read_csv側は拡張子を見ないため、読込時に.csv/.vtdどちらでも中身のマーカーだけで判定する）。
   // rawCsvTextは単一ファイル読み込み時のみ保持しているため、複数ファイル読み込み後は何もしない
   saveChartFile: () => {
-    const { rawCsvText, rawFileName, lines, vlines, rects } = get();
+    const { rawCsvText, loadedFileLabel, lines, vlines, rects } = get();
     if (rawCsvText === null) return;
     const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects });
     const blob = new Blob([bundle], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = (rawFileName ?? 'chart').replace(/\.(csv|vtd)$/i, '') + '.vtd';
+    a.download = loadedFileLabel.replace(/\.(csv|vtd)$/i, '') + '.vtd';
     a.click();
     URL.revokeObjectURL(url);
   },

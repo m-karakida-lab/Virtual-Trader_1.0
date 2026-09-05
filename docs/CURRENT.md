@@ -113,7 +113,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/components/DrawToolbar.tsx` — チャート左端に固定表示する描画ツール起動用アイコンパネル（水平線・垂直線・ものさし・四角形・マグネット・パレットモード）。クリックで`isDrawingLine`等のstore状態をトグルするだけで、実際の配置・描画ロジックはすべて`CandleChart`側（既存の`isDrawing*`監視）が担う
 - `src/components/PalettePanel.tsx` — パレットモードON時だけ表示するドラッグ移動可能な常設スタイル選択ウィンドウ。`FloatingControls`と同じドラッグ実装。図形とのやり取り（選択時の取り込み/変更時の書き込み）はここではなく`store`の`syncPaletteStyleFrom`/`applyPaletteStyleTo`ヘルパーが担う（このコンポーネントは`paletteStyle`の読み書きのみ）
 - `src/components/HistoryPanel.tsx` — エクイティカーブ + 取引履歴テーブル（オーバーレイパネル）
-- `src/components/FileLoader.tsx` — CSV ファイルピッカー + フォルダブックマーク + 「💾 保存」ボタン（`rawCsvText !== null`の時だけ表示）
+- `src/components/FileLoader.tsx` — CSV ファイルピッカー + フォルダブックマーク + 「💾 保存」ボタン（`rawCsvText !== null`の時だけ表示）。選択中ファイル名の表示はOS標準の`<input type=file>`表記を使わず、`label`でラップして`input`自体は非表示にし、store の`loadedFileLabel`を自前で描画している（バンドル検出時に実際の拡張子に関わらず`.vtd`と表示するため）
 - `src/components/ErrorBoundary.tsx` — レンダー/エフェクト中の例外を捕捉し、黒画面の代わりにエラー内容と直近のエラー履歴を表示する（`main.tsx`でAppを包む）
 - `src/lib/errorLog.ts` — 例外をlocalStorage（`vt:errorLog`、直近20件）に記録する。`window.onerror`/`unhandledrejection`（`main.tsx`）とErrorBoundaryの両方から書き込む。原因不明の不具合を後から追跡するための仕組み
 

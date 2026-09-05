@@ -11,6 +11,7 @@ export function FileLoader() {
   const loadingMsg  = useTraderStore(s => s.loadingMsg);
   const saveChartFile = useTraderStore(s => s.saveChartFile);
   const canSave     = useTraderStore(s => s.rawCsvText !== null);
+  const loadedFileLabel = useTraderStore(s => s.loadedFileLabel);
 
   const supported = isFileSystemAccessSupported();
   const [folders, setFolders] = useState<FileSystemDirectoryHandle[]>([]);
@@ -85,14 +86,24 @@ export function FileLoader() {
       backgroundColor: '#111',
     }}>
       <span style={{ color: '#555', fontSize: '14px' }}>CSV</span>
-      <input
-        type="file"
-        accept=".csv,.vtd"
-        multiple
-        onChange={handleChange}
-        disabled={isLoading}
-        style={{ color: '#888', fontSize: '14px' }}
-      />
+      {/* ファイル名表示はOS/ブラウザ標準のものを隠し、loadedFileLabelを自前で出す
+          （バンドル読み込み時に実際の拡張子に関わらず.vtdと表示したいため） */}
+      <label style={{
+        backgroundColor: '#e0e0e0', color: '#111', borderRadius: '3px',
+        padding: '4px 10px', fontSize: '14px', fontWeight: 700,
+        cursor: isLoading ? 'not-allowed' : 'pointer', opacity: isLoading ? 0.5 : 1,
+      }}>
+        ファイル選択
+        <input
+          type="file"
+          accept=".csv,.vtd"
+          multiple
+          onChange={handleChange}
+          disabled={isLoading}
+          style={{ display: 'none' }}
+        />
+      </label>
+      <span style={{ color: '#888', fontSize: '14px' }}>{loadedFileLabel}</span>
       {canSave && (
         <button
           onClick={saveChartFile}
