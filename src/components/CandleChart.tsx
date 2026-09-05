@@ -874,12 +874,11 @@ export function CandleChart() {
       const width = Math.abs(x2 - x1);
       const height = Math.abs(y2 - y1);
 
-      // ドラッグ方向に依存させず、常に画面左→右（時系列順）を基準に差分を出す
-      const leftIsStart = x1 <= x2;
-      const leftPrice  = leftIsStart ? measureStart.price : endPrice;
-      const rightPrice = leftIsStart ? endPrice : measureStart.price;
-      const priceDiff = rightPrice - leftPrice;
-      const pct = (priceDiff / leftPrice) * 100;
+      // 色・符号はドラッグの始点→終点（下から上にドラッグしたら＋）で決める。
+      // 画面左→右（時系列順）で決めると、時間方向にわずかでも逆行しただけで
+      // 上方向にドラッグしたのに赤（マイナス）表示になってしまう
+      const priceDiff = endPrice - measureStart.price;
+      const pct = (priceDiff / measureStart.price) * 100;
       const up = priceDiff >= 0;
       const color = up ? '#26a69a' : '#ef5350';
 
@@ -910,7 +909,7 @@ export function CandleChart() {
         }
       }
 
-      const pipSize = inferPipSize(leftPrice);
+      const pipSize = inferPipSize(measureStart.price);
       const pips = priceDiff / pipSize;
 
       label.innerHTML = '';
@@ -918,7 +917,7 @@ export function CandleChart() {
       priceLine.style.color = color;
       priceLine.style.fontWeight = '700';
       priceLine.style.fontSize = '16px';
-      priceLine.textContent = `${priceDiff >= 0 ? '+' : ''}${priceDiff.toFixed(pricePrecision(leftPrice))} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
+      priceLine.textContent = `${priceDiff >= 0 ? '+' : ''}${priceDiff.toFixed(pricePrecision(measureStart.price))} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
       const pipsLine = document.createElement('div');
       pipsLine.style.color = color;
       pipsLine.style.fontSize = '14px';
