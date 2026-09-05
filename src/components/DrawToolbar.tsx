@@ -12,19 +12,19 @@ import type { MagnetMode } from '../types';
 
 const ICONS: Record<string, JSX.Element> = {
   hline: (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="3" y1="12" x2="21" y2="12" />
       <circle cx="7" cy="12" r="2" fill="currentColor" stroke="none" />
     </svg>
   ),
   vline: (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="12" y1="3" x2="12" y2="21" />
       <circle cx="12" cy="7" r="2" fill="currentColor" stroke="none" />
     </svg>
   ),
   ruler: (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
       <rect x="3" y="9" width="18" height="6" rx="1" />
       <line x1="7" y1="9" x2="7" y2="12" />
       <line x1="11" y1="9" x2="11" y2="12" />
@@ -33,19 +33,19 @@ const ICONS: Record<string, JSX.Element> = {
     </svg>
   ),
   rect: (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
       <rect x="4" y="6" width="16" height="12" rx="1" />
     </svg>
   ),
   magnet: (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M7 4h4v9a3 3 0 0 1-6 0V9" />
       <path d="M17 4h-4v9a3 3 0 0 0 6 0V9" />
       <path d="M3 9h4M17 9h4" />
     </svg>
   ),
   palette: (
-    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+    <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M12 3a9 9 0 1 0 0 18c1.1 0 1.6-.6 1.6-1.5 0-.4-.15-.75-.4-1.05-.25-.3-.4-.65-.4-1.05 0-.9.7-1.6 1.6-1.6h1.6c2 0 3.6-1.6 3.6-3.6C19.6 6.3 16.2 3 12 3z" />
       <circle cx="7.5" cy="10.5" r="1.2" fill="currentColor" stroke="none" />
       <circle cx="10.5" cy="7" r="1.2" fill="currentColor" stroke="none" />
@@ -63,7 +63,7 @@ function ToolButton({
       disabled={disabled}
       title={title}
       style={{
-        width: '40px', height: '40px',
+        width: '32px', height: '32px',
         display: 'flex', alignItems: 'center', justifyContent: 'center',
         backgroundColor: disabled ? 'transparent' : active ? '#2a2a2a' : 'transparent',
         color: disabled ? '#333' : active ? '#42a5f5' : '#888',
@@ -98,13 +98,13 @@ function StyleArrow({ title, children }: { title: string; disabled: boolean; chi
         onClick={() => setOpen(o => !o)}
         title={title}
         style={{
-          width: '18px', height: '40px',
+          width: '14px', height: '32px',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
           backgroundColor: 'transparent', color: '#666',
           border: 'none', borderRadius: '4px', cursor: 'pointer', padding: 0,
         }}
       >
-        <svg viewBox="0 0 24 24" width="12" height="12" fill="currentColor"><path d="M8 5l8 7-8 7z" /></svg>
+        <svg viewBox="0 0 24 24" width="10" height="10" fill="currentColor"><path d="M8 5l8 7-8 7z" /></svg>
       </button>
       {open && (
         <div style={{
@@ -166,11 +166,7 @@ export function DrawToolbar() {
   const togglePaletteMode = useTraderStore(s => s.togglePaletteMode);
 
   return (
-    <div style={{
-      display: 'flex', flexDirection: 'column', gap: '4px',
-      backgroundColor: '#111', border: '1px solid #2a2a2a', borderRadius: '8px',
-      padding: '6px', zIndex: 30,
-    }}>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
       <ToolButton icon="hline" title="水平線" active={isDrawingLine} disabled={!isLoaded} onClick={toggleDrawLine} />
       <ToolButton icon="vline" title="垂直線" active={isDrawingVLine} disabled={!isLoaded} onClick={toggleDrawVLine} />
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />

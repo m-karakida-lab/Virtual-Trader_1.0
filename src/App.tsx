@@ -96,10 +96,11 @@ export default function App() {
       <FileLoader />
 
       <div style={{ flex: 1, minHeight: 0, position: 'relative', overflow: 'hidden', display: 'flex' }}>
-        {/* 描画ツールバー用の独立した列。チャート画面に重ねず、価格軸と同じく専用スペースを確保する */}
+        {/* 描画ツールバー用の独立した列。チャート画面に重ねず、価格軸と同じく専用スペースを確保する。
+            アイコンぴったりの幅（padding最小限）にして、ボタンサイズの割に間延びしないようにする */}
         <div style={{
           flexShrink: 0, display: 'flex', alignItems: 'center',
-          padding: '8px', borderRight: '1px solid #2a2a2a',
+          padding: '4px', backgroundColor: '#111', borderRight: '1px solid #2a2a2a',
         }}>
           <DrawToolbar />
         </div>
