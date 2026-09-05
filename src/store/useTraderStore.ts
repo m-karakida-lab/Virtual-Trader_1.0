@@ -445,16 +445,18 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
 
   // 水平線・垂直線・四角形を、読み込んだ元CSVと1つのファイルにまとめてダウンロードする。
+  // 中身は実質CSV+JSONトレーラーだが、素のデータCSVと見分けが付くよう拡張子は.vtdにする
+  // （read_csv側は拡張子を見ないため、読込時に.csv/.vtdどちらでも中身のマーカーだけで判定する）。
   // rawCsvTextは単一ファイル読み込み時のみ保持しているため、複数ファイル読み込み後は何もしない
   saveChartFile: () => {
     const { rawCsvText, rawFileName, lines, vlines, rects } = get();
     if (rawCsvText === null) return;
     const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects });
-    const blob = new Blob([bundle], { type: 'text/csv' });
+    const blob = new Blob([bundle], { type: 'text/plain' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = rawFileName ?? 'chart.csv';
+    a.download = (rawFileName ?? 'chart').replace(/\.(csv|vtd)$/i, '') + '.vtd';
     a.click();
     URL.revokeObjectURL(url);
   },

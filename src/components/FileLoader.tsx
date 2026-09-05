@@ -87,7 +87,7 @@ export function FileLoader() {
       <span style={{ color: '#555', fontSize: '14px' }}>CSV</span>
       <input
         type="file"
-        accept=".csv"
+        accept=".csv,.vtd"
         multiple
         onChange={handleChange}
         disabled={isLoading}
