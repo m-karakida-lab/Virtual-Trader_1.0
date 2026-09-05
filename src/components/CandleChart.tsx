@@ -45,6 +45,9 @@ const EMA_PERIOD = 200;
 const SMA_PERIOD = 14;
 const BB_PERIOD = 20;
 const DRAG_TOLERANCE_PX = 6;
+// 四角形の角・辺ハンドルは見た目が小さく掴みにくいという声を受けて、ヒット判定だけ
+// DRAG_TOLERANCE_PXより広く取る（水平線・垂直線・TP/SL等の他のドラッグ対象は対象外）
+const RECT_HANDLE_HIT_PX = 12;
 const MIN_JUMP_SPAN_BARS = 30; // 日時ジャンプ時、表示幅がこの本数分未満にはならないようにする
 
 // 一目均衡表「雲」（先行スパンA/B）
@@ -501,7 +504,7 @@ export function CandleChart() {
     syncVLines();
 
     // ── 四角形の位置を再計算して DOM に反映（枠線のみ、選択中は破線＋4隅・4辺のハンドル） ──
-    const RECT_HANDLE_SIZE = 8;
+    const RECT_HANDLE_SIZE = 10;
     // 4隅+4辺の中点にハンドルを配置する（0-3=4隅、4-7=上/下/左/右の中点）。
     // syncRects（store確定後）だけでなく、コーナー/辺ドラッグ中のrAFプレビューからも
     // 同じフレームで呼ぶことで、ドラッグ中に本体だけ動いてハンドルが取り残されるのを防ぐ
@@ -1086,7 +1089,7 @@ export function CandleChart() {
           [x2, y2, 'time2', 'price2'],
         ];
         for (const [cx, cy, timeField, priceField] of corners) {
-          if (Math.hypot(cx - x, cy - y) <= DRAG_TOLERANCE_PX) {
+          if (Math.hypot(cx - x, cy - y) <= RECT_HANDLE_HIT_PX) {
             return { rectId: r.id, timeField, priceField };
           }
         }
@@ -1120,7 +1123,7 @@ export function CandleChart() {
           [Math.max(x1, x2), midY, rightField],
         ];
         for (const [ex, ey, field] of edges) {
-          if (Math.hypot(ex - x, ey - y) <= DRAG_TOLERANCE_PX) {
+          if (Math.hypot(ex - x, ey - y) <= RECT_HANDLE_HIT_PX) {
             return { rectId: r.id, field };
           }
         }
