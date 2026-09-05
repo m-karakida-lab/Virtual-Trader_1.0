@@ -938,6 +938,19 @@ export function CandleChart() {
       label.style.top = `${y2}px`;
     };
 
+    // ものさしドラッグを開始する。「ものさし」ツール選択中の左クリックドラッグと、
+    // ツール選択に関わらず使えるホイールクリック（中央ボタン）ドラッグの両方から呼ばれる
+    const startMeasuring = (x: number, y: number) => {
+      if (!seriesRef.current || !chartRef.current) return;
+      const price = seriesRef.current.coordinateToPrice(y);
+      const time = chartRef.current.timeScale().coordinateToTime(x);
+      if (price === null || time === null) return;
+      measureStart = { x, y, price, time: time as number };
+      measuringDrag = true;
+      chart.applyOptions({ handleScroll: false, handleScale: false });
+      updateMeasureBox(x, y, x, y);
+    };
+
     // ── 既存ライン（水平線・垂直線・注文・TP/SL）のドラッグ移動 ──────
     let draggingTarget: DragTarget | null = null;
     let draggingVId: number | null = null;
@@ -1219,6 +1232,14 @@ export function CandleChart() {
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
+      // ホイールクリック（中央ボタン）ドラッグは、ものさしツールを選択していなくても
+      // 常に計測に使える。ブラウザ標準のオートスクロールカーソルは無効化する
+      if (e.button === 1) {
+        e.preventDefault();
+        startMeasuring(x, y);
+        return;
+      }
+
       if (pick !== null) return;
 
       if (isR) {
@@ -1234,14 +1255,7 @@ export function CandleChart() {
       }
 
       if (isM) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const price = seriesRef.current.coordinateToPrice(y);
-        const time = chartRef.current.timeScale().coordinateToTime(x);
-        if (price === null || time === null) return;
-        measureStart = { x, y, price, time: time as number };
-        measuringDrag = true;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        updateMeasureBox(x, y, x, y);
+        startMeasuring(x, y);
         return;
       }
 
@@ -1580,7 +1594,11 @@ export function CandleChart() {
       if (measuringDrag) {
         measuringDrag = false;
         chart.applyOptions({ handleScroll: true, handleScale: true });
-        // ドラッグ終了後も最後の計測結果を表示したまま残す（次のドラッグ開始 or モード解除まで）
+        // 一回の計測で自動的に解除する（連続測定にはしない）。ホイールクリックでの計測は
+        // もともとisMeasuring=falseなのでsetStateは実質no-op、表示だけ明示的に隠す
+        // （React effectはisMeasuringの変化でしか発火せず、false→falseでは反応しないため）
+        useTraderStore.setState({ isMeasuring: false });
+        if (measureOverlayRef.current) measureOverlayRef.current.style.display = 'none';
         return;
       }
       if (draggingDraft !== null) {
