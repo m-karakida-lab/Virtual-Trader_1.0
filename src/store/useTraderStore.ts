@@ -394,7 +394,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   nextRectId: 1,
   isDrawingRect: false,
   drawHistory: [],
-  magnetMode: 'off',
+  magnetMode: loadSavedMagnetStrength(), // デフォルトでON（起動のたびON、強さは前回記憶した方から始まる）
   magnetStrength: loadSavedMagnetStrength(),
   selected: null,
   lineDraft: { color: '#42a5f5', dash: 'solid', width: 2 },
