@@ -99,7 +99,5 @@ export interface DrawnRect {
   width: LineWidth;
 }
 
-export const RECT_COLORS = ['#2962ff', '#ef5350', '#ffca28', '#26a69a']; // 青・赤・黄・緑
-
 // 水平線・垂直線・四角形を問わず「選択中の1つ」を表す
 export type LineSelection = { kind: 'h' | 'v' | 'rect'; id: number };

@@ -1,7 +1,6 @@
 import { create } from 'zustand';
 import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, LineDash, LineWidth, LineSelection, MagnetMode } from '../types';
-import { RECT_COLORS } from '../types';
-import { TIMEFRAMES } from '../types';
+import { LINE_COLORS, TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
 import { splitVtdBundle, buildVtdBundle } from '../lib/vtd';
@@ -415,7 +414,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   magnetStrength: loadSavedMagnetStrength(),
   selected: null,
   lineDraft: { color: '#e0e0e0', dash: 'solid', width: 2 },
-  rectDraft: { color: RECT_COLORS[0], dash: 'solid', width: 2 },
+  rectDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 }, // パレットにある青（#42a5f5）
   paletteMode: false,
   paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2 },
   showEMA: false,
