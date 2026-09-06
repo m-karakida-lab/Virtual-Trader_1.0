@@ -50,6 +50,9 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const rectOverlayRef = useRef<HTMLDivElement>(null);
   const rectElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
   const syncRectsRef = useRef<() => void>(() => {});
+  const textOverlayRef = useRef<HTMLDivElement>(null);
+  const textElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  const syncTextsRef = useRef<() => void>(() => {});
   const mouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   const [data, setData] = useState<Candle[]>([]);
 
@@ -70,6 +73,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const lines = useTraderStore(s => s.lines);
   const vlines = useTraderStore(s => s.vlines);
   const rects = useTraderStore(s => s.rects);
+  const texts = useTraderStore(s => s.texts);
   const mySourceId = String(slot);
   // メインの現在足が閉じた時点（=これより先の情報は「未来」として隠す境界）
   const cursorEnd = cursorTime !== undefined ? cursorTime + mainTimeframeSec : undefined;
@@ -363,12 +367,50 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     };
     syncRectsRef.current = syncRects;
 
+    // テキストボックスの位置を再計算してDOMに反映（表示専用、ドラッグ操作なし）
+    const syncTexts = () => {
+      if (!chartRef.current || !seriesRef.current || !textOverlayRef.current) return;
+      const { texts: currentTexts } = useTraderStore.getState();
+      const overlay = textOverlayRef.current;
+      const existing = textElsRef.current;
+      const nextIds = new Set(currentTexts.map(t => t.id));
+
+      for (const [id, el] of existing) {
+        if (!nextIds.has(id)) { el.remove(); existing.delete(id); }
+      }
+
+      for (const t of currentTexts) {
+        let el = existing.get(t.id);
+        if (!el) {
+          el = document.createElement('div');
+          el.style.position = 'absolute';
+          el.style.pointerEvents = 'none';
+          el.style.whiteSpace = 'pre';
+          el.style.fontSize = '11px';
+          el.style.fontFamily = CHART_FONT_FAMILY;
+          el.style.padding = '1px 3px';
+          overlay.appendChild(el);
+          existing.set(t.id, el);
+        }
+        const x = timeToX(t.time);
+        const y = seriesRef.current.priceToCoordinate(t.price);
+        if (x === null || y === null) { el.style.display = 'none'; continue; }
+        el.style.display = 'block';
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        el.style.color = t.color;
+        el.textContent = t.text;
+      }
+    };
+    syncTextsRef.current = syncTexts;
+
     const ro = new ResizeObserver(() => {
       chart.applyOptions({ width: container.clientWidth, height: container.clientHeight });
       syncCloud();
       syncWeekLines();
       syncVLines();
       syncRects();
+      syncTexts();
     });
     ro.observe(container);
 
@@ -379,6 +421,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncWeekLines();
       syncVLines();
       syncRects();
+      syncTexts();
       if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
       saveViewTimer = window.setTimeout(() => {
         if (!chartRef.current) return;
@@ -400,6 +443,8 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       vlineElsRef.current.clear();
       rectElsRef.current.forEach(el => el.remove());
       rectElsRef.current.clear();
+      textElsRef.current.forEach(el => el.remove());
+      textElsRef.current.clear();
       priceLineMapRef.current.clear();
       chart.remove();
       chartRef.current = null;
@@ -442,6 +487,10 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   useEffect(() => {
     syncRectsRef.current();
   }, [rects]);
+
+  useEffect(() => {
+    syncTextsRef.current();
+  }, [texts]);
 
   // 他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）
   useEffect(() => {
@@ -529,6 +578,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     syncWeekLinesRef.current();
     syncVLinesRef.current();
     syncRectsRef.current();
+    syncTextsRef.current();
 
     // カーソル進行のたびに毎回フィットすると、序盤の少数本だけを見て過剰拡大されるため、
     // 新規データ読み込み時（全期間の時間幅）だけ一度フィットし、以降は同じスケールを維持する。
@@ -548,6 +598,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncWeekLinesRef.current();
       syncVLinesRef.current();
       syncRectsRef.current();
+      syncTextsRef.current();
     }
 
     // timeToCoordinate等の時刻ベース座標変換は、setData/setVisibleRange直後の
@@ -559,6 +610,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncWeekLinesRef.current();
       syncVLinesRef.current();
       syncRectsRef.current();
+      syncTextsRef.current();
     });
     return () => cancelAnimationFrame(raf);
   }, [data, cursorEnd, timeframeSec]);
@@ -593,6 +645,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       />
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
       <div ref={rectOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
+      <div ref={textOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={vlineOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />
       <div ref={containerRef} style={{ width: '100%', height: '100%' }} />

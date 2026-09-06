@@ -37,6 +37,11 @@ const ICONS: Record<string, JSX.Element> = {
       <rect x="4" y="6" width="16" height="12" rx="1" />
     </svg>
   ),
+  text: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <path d="M5 6h14M12 6v13" strokeLinecap="round" />
+    </svg>
+  ),
   magnet: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M7 4h4v9a3 3 0 0 1-6 0V9" />
@@ -148,10 +153,12 @@ export function DrawToolbar() {
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
+  const isDrawingText  = useTraderStore(s => s.isDrawingText);
   const toggleDrawLine  = useTraderStore(s => s.toggleDrawLine);
   const toggleDrawVLine = useTraderStore(s => s.toggleDrawVLine);
   const toggleMeasure   = useTraderStore(s => s.toggleMeasure);
   const toggleDrawRect  = useTraderStore(s => s.toggleDrawRect);
+  const toggleDrawText  = useTraderStore(s => s.toggleDrawText);
   const magnetMode      = useTraderStore(s => s.magnetMode);
   const toggleMagnet    = useTraderStore(s => s.toggleMagnet);
 
@@ -161,6 +168,7 @@ export function DrawToolbar() {
       <ToolButton icon="vline" title="垂直線" active={isDrawingVLine} disabled={!isLoaded} onClick={toggleDrawVLine} />
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />
       <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
+      <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <ToolButton icon="magnet" title="マグネット（足のOHLCに吸着）" active={magnetMode !== 'off'} disabled={!isLoaded} onClick={toggleMagnet} />

@@ -171,6 +171,9 @@ export function CandleChart() {
   const rectHandleElsRef = useRef<HTMLDivElement[]>([]); // 選択中の四角形の4隅ハンドル（常に1個の四角形分のみ）
   const syncRectsRef = useRef<() => void>(() => {});
   const rectDraftBoxRef = useRef<HTMLDivElement>(null);
+  const textOverlayRef = useRef<HTMLDivElement>(null);
+  const textElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  const syncTextsRef = useRef<() => void>(() => {});
   const weekLineElsRef = useRef<HTMLDivElement[]>([]);
   const weekBoundariesRef = useRef<number[]>([]);
   const syncWeekLinesRef = useRef<() => void>(() => {});
@@ -197,11 +200,13 @@ export function CandleChart() {
   const lines     = useTraderStore(s => s.lines);
   const vlines    = useTraderStore(s => s.vlines);
   const rects     = useTraderStore(s => s.rects);
+  const texts     = useTraderStore(s => s.texts);
   const selected  = useTraderStore(s => s.selected);
   const isDrawingLine  = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
+  const isDrawingText  = useTraderStore(s => s.isDrawingText);
   const pickTarget     = useTraderStore(s => s.pickTarget);
   const orderType      = useTraderStore(s => s.orderType);
   const draftPrice     = useTraderStore(s => s.draftPrice);
@@ -592,6 +597,52 @@ export function CandleChart() {
     syncRectsRef.current = syncRects;
     syncRects();
 
+    // ── テキストボックスの位置を再計算してDOMに反映 ──────────────────────
+    // 四角形と同じく実体はDOM要素（pointer-events:none）で、当たり判定は手動で行う。
+    // サイズは内容依存でtime/priceからは決まらないため、rectと違い幅・高さは
+    // 決め打ちせずDOMの自然なサイズに任せる（当たり判定はそのDOM要素の実測サイズを使う）
+    const syncTexts = () => {
+      if (!chartRef.current || !seriesRef.current || !textOverlayRef.current) return;
+      const { texts: currentTexts, selected } = useTraderStore.getState();
+      const overlay = textOverlayRef.current;
+      const existing = textElsRef.current;
+      const nextIds = new Set(currentTexts.map(t => t.id));
+      const selectedTextId = selected?.kind === 'text' ? selected.id : null;
+
+      for (const [id, el] of existing) {
+        if (!nextIds.has(id)) { el.remove(); existing.delete(id); }
+      }
+
+      for (const t of currentTexts) {
+        let el = existing.get(t.id);
+        if (!el) {
+          el = document.createElement('div');
+          el.style.position = 'absolute';
+          el.style.pointerEvents = 'none';
+          el.style.whiteSpace = 'pre';
+          el.style.fontSize = '14px';
+          el.style.fontFamily = CHART_FONT_FAMILY;
+          el.style.padding = '2px 4px';
+          el.style.borderRadius = '2px';
+          overlay.appendChild(el);
+          existing.set(t.id, el);
+        }
+        const x = timeToX(t.time);
+        const y = seriesRef.current.priceToCoordinate(t.price);
+        if (x === null || y === null) { el.style.display = 'none'; continue; }
+        el.style.display = 'block';
+        el.style.left = `${x}px`;
+        el.style.top = `${y}px`;
+        el.style.color = t.color;
+        el.textContent = t.text;
+        const isSelected = t.id === selectedTextId;
+        el.style.border = isSelected ? '1px dashed #42a5f5' : '1px solid transparent';
+        el.style.backgroundColor = isSelected ? 'rgba(66,165,245,0.12)' : 'transparent';
+      }
+    };
+    syncTextsRef.current = syncTexts;
+    syncTexts();
+
     // ── 週区切り線の位置を再計算して DOM に反映（控えめなドット線、固定スタイル） ──
     const syncWeekLines = () => {
       if (!chartRef.current || !weekOverlayRef.current) return;
@@ -814,12 +865,12 @@ export function CandleChart() {
       }, 400);
     };
 
-    const onRangeChange = () => { syncVLines(); syncRects(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView(); };
+    const onRangeChange = () => { syncVLines(); syncRects(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView(); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
     chart.subscribeClick(param => {
-      const { isDrawingLine: drawingH, isDrawingVLine: drawingV, pickTarget, addLine, addVLine, pickPrice } = useTraderStore.getState();
+      const { isDrawingLine: drawingH, isDrawingVLine: drawingV, isDrawingText: drawingT, pickTarget, addLine, addVLine, addText, pickPrice } = useTraderStore.getState();
       if (!param.point || !seriesRef.current) return;
 
       if (pickTarget !== null) {
@@ -835,6 +886,17 @@ export function CandleChart() {
       if (drawingV && chartRef.current) {
         const time = chartRef.current.timeScale().coordinateToTime(param.point.x);
         if (time !== null) addVLine(time as number);
+        return;
+      }
+      if (drawingT && chartRef.current) {
+        const time = chartRef.current.timeScale().coordinateToTime(param.point.x);
+        const price = seriesRef.current.coordinateToPrice(param.point.y);
+        if (time === null || price === null) return;
+        // window.promptはブロッキングのため、その間チャート側のクリック検知は止まっている。
+        // キャンセル・空文字の場合はテキストツールをOFFに戻す（水平線・垂直線と同じく1回配置で解除する挙動に揃える）
+        const content = window.prompt('テキストを入力');
+        if (content && content.trim() !== '') addText(time as number, price, content.trim());
+        else useTraderStore.setState({ isDrawingText: false });
       }
     });
 
@@ -959,6 +1021,12 @@ export function CandleChart() {
     let draggingDraft: 'price' | 'tp' | 'sl' | null = null;
     let draggingRectCorner: RectCorner | null = null;
     let draggingRectEdge: RectEdge | null = null;
+    // ── テキストボックスの移動ドラッグ ─────────────────────────────
+    // 掴んだ位置とテキスト要素の左上とのピクセルオフセットを保持し、ドラッグ中は
+    // そのオフセット分だけずらした位置に要素を追従させる（垂直線ドラッグと同じ考え方）
+    let draggingTextId: number | null = null;
+    let textGrabDX = 0, textGrabDY = 0;
+    let pendingTextXY: { x: number; y: number } | null = null;
     let pendingPrice: number | null = null;
     let pendingVX: number | null = null;
     let pendingDraftPrice: number | null = null;
@@ -1173,6 +1241,23 @@ export function CandleChart() {
       return null;
     };
 
+    // テキストボックスの近傍判定。実体はDOM要素なので、time/priceから座標を再計算せず
+    // 直接そのDOM要素の実測位置・サイズ（offsetLeft/Top/Width/Height）を使う
+    // （文字数でサイズが変わるため、rectのような座標計算では判定できない）
+    const findTextNear = (x: number, y: number): number | null => {
+      const { texts: currentTexts } = useTraderStore.getState();
+      for (const t of currentTexts) {
+        const el = textElsRef.current.get(t.id);
+        if (!el || el.style.display === 'none') continue;
+        const left = el.offsetLeft - DRAG_TOLERANCE_PX;
+        const top = el.offsetTop - DRAG_TOLERANCE_PX;
+        const right = el.offsetLeft + el.offsetWidth + DRAG_TOLERANCE_PX;
+        const bottom = el.offsetTop + el.offsetHeight + DRAG_TOLERANCE_PX;
+        if (x >= left && x <= right && y >= top && y <= bottom) return t.id;
+      }
+      return null;
+    };
+
     // 四角形の頂点のX座標→時刻変換。lightweight-chartsのcoordinateToTimeをそのまま使う
     // （足に吸着する＝ドラッグ幅が1本未満だと細くなるが、それ自体は仕様として許容する）。
     // 唯一のクランプは「実際に表示されている足（リプレイ中ならcursorまで）の範囲より外側は
@@ -1229,7 +1314,7 @@ export function CandleChart() {
     };
 
     const onMouseDown = (e: MouseEvent) => {
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, pickTarget: pick } = useTraderStore.getState();
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -1261,7 +1346,7 @@ export function CandleChart() {
         return;
       }
 
-      if (dH || dV) return;
+      if (dH || dV || dT) return;
 
       const draft = findDraftNear(y);
       if (draft !== null) {
@@ -1330,6 +1415,20 @@ export function CandleChart() {
       const bodyRectId = findRectBodyNear(x, y);
       if (bodyRectId !== null) {
         useTraderStore.getState().selectLine({ kind: 'rect', id: bodyRectId });
+        return;
+      }
+
+      const textId = findTextNear(x, y);
+      if (textId !== null) {
+        const el = textElsRef.current.get(textId);
+        if (el) {
+          draggingTextId = textId;
+          textGrabDX = x - el.offsetLeft;
+          textGrabDY = y - el.offsetTop;
+          chart.applyOptions({ handleScroll: false, handleScale: false });
+          container.style.cursor = 'move';
+        }
+        useTraderStore.getState().selectLine({ kind: 'text', id: textId });
         return;
       }
 
@@ -1539,6 +1638,22 @@ export function CandleChart() {
         return;
       }
 
+      if (draggingTextId !== null) {
+        pendingTextXY = { x: x - textGrabDX, y: y - textGrabDY };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingTextId === null || pendingTextXY === null) return;
+            const el = textElsRef.current.get(draggingTextId);
+            if (!el) return;
+            el.style.left = `${pendingTextXY.x}px`;
+            el.style.top = `${pendingTextXY.y}px`;
+          });
+        }
+        return;
+      }
+
       // 価格軸ドラッグ等、こちらで検知できないスケール変更にも追従させる（コメントは冒頭のlet宣言を参照）
       if (!overlayResyncScheduled) {
         overlayResyncScheduled = true;
@@ -1546,14 +1661,15 @@ export function CandleChart() {
           overlayResyncScheduled = false;
           syncVLines();
           syncRects();
+          syncTexts();
           syncWeekLines();
           syncCloud();
         });
       }
 
       // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, pickTarget: pick } = useTraderStore.getState();
-      if (!dH && !dV && !isM && !isR && pick === null) {
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
+      if (!dH && !dV && !isM && !isR && !dT && pick === null) {
         const draft = findDraftNear(y);
         if (draft !== null) { container.style.cursor = 'ns-resize'; return; }
         const target = findPriceTargetNear(y);
@@ -1568,6 +1684,8 @@ export function CandleChart() {
         if (border !== null) { container.style.cursor = 'move'; return; }
         const bodyRectId = findRectBodyNear(x, y);
         if (bodyRectId !== null) { container.style.cursor = 'default'; return; }
+        const textId = findTextNear(x, y);
+        if (textId !== null) { container.style.cursor = 'move'; return; }
         // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
         // 当たらなかった場合にのみカーソルを変える（mousedown側の優先順位と揃える）
         const hlineId = findHLineNear(y);
@@ -1676,9 +1794,39 @@ export function CandleChart() {
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';
       }
+      if (draggingTextId !== null) {
+        if (pendingTextXY !== null && seriesRef.current) {
+          const time = pixelToTime(pendingTextXY.x);
+          const price = seriesRef.current.coordinateToPrice(pendingTextXY.y);
+          if (time !== null && price !== null) {
+            useTraderStore.getState().updateText(draggingTextId, { time, price });
+          }
+        }
+        draggingTextId = null;
+        pendingTextXY = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
+      }
+    };
+
+    // テキストボックスのダブルクリックで内容を編集する（削除は選択してDelete/Backspaceキー）
+    const onDblClick = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const x = e.clientX - rect.left;
+      const y = e.clientY - rect.top;
+      const textId = findTextNear(x, y);
+      if (textId === null) return;
+      const { texts: currentTexts } = useTraderStore.getState();
+      const t = currentTexts.find(tt => tt.id === textId);
+      if (!t) return;
+      const content = window.prompt('テキストを編集', t.text);
+      if (content !== null && content.trim() !== '') {
+        useTraderStore.getState().updateText(textId, { text: content.trim() });
+      }
     };
 
     container.addEventListener('mousedown', onMouseDown);
+    container.addEventListener('dblclick', onDblClick);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
 
@@ -1689,11 +1837,12 @@ export function CandleChart() {
       if (tag === 'input' || tag === 'textarea') return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        const { selected: sel, removeLine, removeVLine, removeRect } = useTraderStore.getState();
+        const { selected: sel, removeLine, removeVLine, removeRect, removeText } = useTraderStore.getState();
         if (!sel) return;
         if (sel.kind === 'h') removeLine(sel.id);
         else if (sel.kind === 'v') removeVLine(sel.id);
-        else removeRect(sel.id);
+        else if (sel.kind === 'rect') removeRect(sel.id);
+        else removeText(sel.id);
         return;
       }
 
@@ -1737,7 +1886,7 @@ export function CandleChart() {
           const newId = useTraderStore.getState().nextVLineId - 1;
           store.selectLine({ kind: 'v', id: newId });
           clipboard = { kind: 'v', id: newId };
-        } else {
+        } else if (clipboard.kind === 'rect') {
           const src = store.rects.find(r => r.id === clipboard!.id);
           if (!src) return;
           const x1 = timeToX(src.time1), x2 = timeToX(src.time2);
@@ -1752,6 +1901,18 @@ export function CandleChart() {
           const newId = useTraderStore.getState().nextRectId - 1;
           store.selectLine({ kind: 'rect', id: newId });
           clipboard = { kind: 'rect', id: newId };
+        } else {
+          const src = store.texts.find(t => t.id === clipboard!.id);
+          if (!src) return;
+          const x = timeToX(src.time), y = seriesRef.current.priceToCoordinate(src.price);
+          if (x === null || y === null) return;
+          const newTime = pixelToTime(x + PASTE_OFFSET_PX);
+          const newPrice = seriesRef.current.coordinateToPrice(y + PASTE_OFFSET_PX);
+          if (newTime === null || newPrice === null) return;
+          store.duplicateText(src.id, newTime, newPrice);
+          const newId = useTraderStore.getState().nextTextId - 1;
+          store.selectLine({ kind: 'text', id: newId });
+          clipboard = { kind: 'text', id: newId };
         }
       }
     };
@@ -1765,6 +1926,7 @@ export function CandleChart() {
       });
       syncVLines();
       syncRects();
+      syncTexts();
       syncWeekLines();
       updateRRPreview();
       syncCloud();
@@ -1784,6 +1946,7 @@ export function CandleChart() {
       ro.disconnect();
       window.removeEventListener('resize', handleResize);
       container.removeEventListener('mousedown', onMouseDown);
+      container.removeEventListener('dblclick', onDblClick);
       window.removeEventListener('mousemove', onMouseMove);
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('keydown', onKeyDown);
@@ -1803,6 +1966,8 @@ export function CandleChart() {
       rectElsRef.current.clear();
       rectHandleElsRef.current.forEach(el => el.remove());
       rectHandleElsRef.current = [];
+      textElsRef.current.forEach(el => el.remove());
+      textElsRef.current.clear();
       weekLineElsRef.current.forEach(el => el.remove());
       weekLineElsRef.current = [];
       chart.remove();
@@ -1822,10 +1987,10 @@ export function CandleChart() {
 
   // 描画・計測・価格ピッキングモード中はカーソルを crosshair に
   useEffect(() => {
-    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || pickTarget !== null)) {
+    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingText || pickTarget !== null)) {
       containerRef.current.style.cursor = 'crosshair';
     }
-  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, pickTarget]);
+  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingText, pickTarget]);
 
   // ものさしモードを解除したら表示を消す
   useEffect(() => {
@@ -2053,6 +2218,11 @@ export function CandleChart() {
     syncRectsRef.current();
   }, [rects, selected]);
 
+  // テキストボックスの再描画（選択状態が変わった時も枠表示を更新する）
+  useEffect(() => {
+    syncTextsRef.current();
+  }, [texts, selected]);
+
   // 価格軸の表示精度: 読み込んだペアの価格帯に合わせる（JPYクロス=小数3桁、それ以外=小数5桁）
   useEffect(() => {
     if (candles.length === 0) return;
@@ -2181,6 +2351,7 @@ export function CandleChart() {
     // 可視範囲確定後に再同期（範囲変更イベントに頼らず確実に揃える）
     syncVLinesRef.current();
     syncRectsRef.current();
+    syncTextsRef.current();
     syncWeekLinesRef.current();
     syncScrubberRef.current();
 
@@ -2193,6 +2364,7 @@ export function CandleChart() {
     const raf = requestAnimationFrame(() => {
       syncVLinesRef.current();
       syncRectsRef.current();
+      syncTextsRef.current();
       syncWeekLinesRef.current();
       syncCloudRef.current();
       syncScrubberRef.current();
@@ -2415,6 +2587,7 @@ export function CandleChart() {
       <div ref={rectOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }}>
         <div ref={rectDraftBoxRef} style={{ position: 'absolute', display: 'none' }} />
       </div>
+      <div ref={textOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />
       <div ref={measureOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 12, display: 'none' }}>

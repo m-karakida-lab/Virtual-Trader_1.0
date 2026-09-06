@@ -99,5 +99,15 @@ export interface DrawnRect {
   width: LineWidth;
 }
 
-// 水平線・垂直線・四角形を問わず「選択中の1つ」を表す
-export type LineSelection = { kind: 'h' | 'v' | 'rect'; id: number };
+// ── テキストボックス ─────────────────────────────────────────────────────
+
+export interface DrawnText {
+  id: number;
+  time: number; // Unix秒（UTC）。テキストの左上のアンカー位置
+  price: number;
+  text: string;
+  color: string;
+}
+
+// 水平線・垂直線・四角形・テキストを問わず「選択中の1つ」を表す
+export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'text'; id: number };
