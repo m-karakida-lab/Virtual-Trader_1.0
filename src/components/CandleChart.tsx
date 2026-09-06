@@ -1661,6 +1661,38 @@ export function CandleChart() {
       return null;
     };
 
+    // ブラシ専用の連続的なピクセル→時刻変換。上のpixelToTime（coordinateToTimeを
+    // そのまま使う版）は足の内側では単純にその足の時刻へスナップしてしまう
+    // （四角形1つなら「ドラッグ幅が1本未満だと細くなる」程度の影響で仕様として
+    // 許容できるが、ブラシは1本の足の幅の中で何度もサンプリングするため、
+    // 全部同じ時刻に丸め込まれて線が階段状にカクつく——実際に踏んだ）。
+    // timeToXの逆変換として、表示中の足を挟む2本の間で自前に線形補間することで
+    // 連続値を得る（timeToXと同じくts.timeToCoordinateだけを使うので、過去に
+    // coordinateToLogicalで踏んだ不安定さは再現しない。詳しくは不変条件/地雷を参照）
+    const pixelToContinuousTime = (x: number): number | null => {
+      if (!chartRef.current) return null;
+      const ts = chartRef.current.timeScale();
+      const { candles: cs, cursor } = useTraderStore.getState();
+      const visible = cs.slice(0, cursor + 1);
+      if (visible.length === 0) return null;
+      const firstX = ts.timeToCoordinate(visible[0].time as Time);
+      const lastX = ts.timeToCoordinate(visible[visible.length - 1].time as Time);
+      if (firstX === null || lastX === null) return pixelToTime(x);
+      if (x <= firstX) return visible[0].time;
+      if (x >= lastX) return visible[visible.length - 1].time;
+      let lo = 0, hi = visible.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        const midX = ts.timeToCoordinate(visible[mid].time as Time);
+        if (midX !== null && midX <= x) lo = mid; else hi = mid;
+      }
+      const x0 = ts.timeToCoordinate(visible[lo].time as Time);
+      const x1 = ts.timeToCoordinate(visible[hi].time as Time);
+      if (x0 === null || x1 === null || x1 === x0) return visible[lo].time;
+      const frac = (x - x0) / (x1 - x0);
+      return visible[lo].time + frac * (visible[hi].time - visible[lo].time);
+    };
+
     const MAGNET_WEAK_PX = 12;
 
     // カーソル座標(x,y)を、マグネット設定に応じて直下の足の始値/高値/安値/終値のうち
@@ -1747,7 +1779,7 @@ export function CandleChart() {
         // ブラシの意味が無くなる）。素の座標をそのまま使う
         if (!seriesRef.current || !chartRef.current) return;
         const price = seriesRef.current.coordinateToPrice(y);
-        const time = pixelToTime(x);
+        const time = pixelToContinuousTime(x);
         if (price === null || time === null) return;
         brushDrawing = true;
         brushPoints = [{ time, price }];
@@ -1872,7 +1904,7 @@ export function CandleChart() {
         if (!seriesRef.current || !chartRef.current) return;
         const { brushes: brushesAtDown } = useTraderStore.getState();
         const src = brushesAtDown.find(b => b.id === brushId);
-        const startTime = pixelToTime(x);
+        const startTime = pixelToContinuousTime(x);
         const startPrice = seriesRef.current.coordinateToPrice(y);
         if (!src || startTime === null || startPrice === null) return;
         draggingBrushMoveId = brushId;
@@ -1943,7 +1975,7 @@ export function CandleChart() {
         // ピクセル距離がBRUSH_MIN_PX未満ならまだ記録しない
         if (lastBrushPx && Math.hypot(x - lastBrushPx.x, y - lastBrushPx.y) < BRUSH_MIN_PX) return;
         const price = seriesRef.current.coordinateToPrice(y);
-        const time = pixelToTime(x);
+        const time = pixelToContinuousTime(x);
         if (price === null || time === null) return;
         brushPoints = [...brushPoints, { time, price }];
         lastBrushPx = { x, y };
@@ -2193,7 +2225,7 @@ export function CandleChart() {
 
       if (draggingBrushMoveId !== null && brushMoveStart) {
         if (!seriesRef.current) return;
-        const t = pixelToTime(x);
+        const t = pixelToContinuousTime(x);
         const p = seriesRef.current.coordinateToPrice(y);
         if (t === null || p === null) return;
         pendingBrushMoveDelta = { dt: t - brushMoveStart.startTime, dp: p - brushMoveStart.startPrice };
