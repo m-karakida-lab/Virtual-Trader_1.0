@@ -597,6 +597,14 @@ export function CandleChart() {
     syncRectsRef.current = syncRects;
     syncRects();
 
+    // ── テキストの直接編集中の状態 ─────────────────────────────────────
+    // TradingView同様window.prompt()を使わず、DOM要素自体をcontentEditableにして
+    // その場で直接入力させる。新規配置中はまだstoreに存在しない仮のDOM要素を編集し、
+    // 確定（blur/Enter）した時だけaddTextでstoreに反映する（空文字なら何もしない）。
+    // 既存テキストの編集は、そのテキストの実体であるDOM要素をそのまま編集モードにする
+    let editingText: { mode: 'new'; time: number; price: number } | { mode: 'edit'; id: number } | null = null;
+    let editingTextEl: HTMLDivElement | null = null;
+
     // ── テキストボックスの位置を再計算してDOMに反映 ──────────────────────
     // 四角形と同じく実体はDOM要素（pointer-events:none）で、当たり判定は手動で行う。
     // サイズは内容依存でtime/priceからは決まらないため、rectと違い幅・高さは
@@ -614,6 +622,8 @@ export function CandleChart() {
       }
 
       for (const t of currentTexts) {
+        // 編集中の実体には触らない（ここで内容を上書きすると入力中の文字が消える）
+        if (editingText?.mode === 'edit' && editingText.id === t.id) continue;
         let el = existing.get(t.id);
         if (!el) {
           el = document.createElement('div');
@@ -642,6 +652,101 @@ export function CandleChart() {
     };
     syncTextsRef.current = syncTexts;
     syncTexts();
+
+    // テキストの編集中に矢印キー・Backspace・Cmd+Z等がグローバルショートカット
+    // （図形削除・Undo・コピペ）に奪われないようにする（グローバルonKeyDown側も
+    // contentEditableをガードしているが、念のためここでも伝播を止める）
+    const onTextEditKeyDown = (e: KeyboardEvent) => {
+      e.stopPropagation();
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        (e.currentTarget as HTMLElement).blur();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        cancelTextEdit();
+      }
+    };
+
+    const finishTextEdit = () => {
+      const editing = editingText;
+      const el = editingTextEl;
+      if (!editing || !el) return;
+      editingText = null;
+      editingTextEl = null;
+      el.removeEventListener('keydown', onTextEditKeyDown);
+      el.removeEventListener('blur', finishTextEdit);
+      el.contentEditable = 'false';
+      el.style.pointerEvents = 'none';
+      const content = (el.textContent || '').trim();
+      if (editing.mode === 'new') {
+        el.remove();
+        if (content !== '') useTraderStore.getState().addText(editing.time, editing.price, content);
+      } else {
+        if (content === '') useTraderStore.getState().removeText(editing.id);
+        else useTraderStore.getState().updateText(editing.id, { text: content });
+      }
+    };
+
+    function cancelTextEdit() {
+      const editing = editingText;
+      const el = editingTextEl;
+      if (!editing || !el) return;
+      editingText = null;
+      editingTextEl = null;
+      el.removeEventListener('keydown', onTextEditKeyDown);
+      el.removeEventListener('blur', finishTextEdit);
+      el.contentEditable = 'false';
+      el.style.pointerEvents = 'none';
+      if (editing.mode === 'new') el.remove();
+      else syncTexts(); // 元のテキストに戻す
+    }
+
+    const startEditingEl = (el: HTMLDivElement) => {
+      el.style.pointerEvents = 'auto';
+      el.contentEditable = 'true';
+      el.style.outline = 'none';
+      el.addEventListener('keydown', onTextEditKeyDown);
+      el.addEventListener('blur', finishTextEdit);
+      el.focus();
+      // カーソルは末尾に置く（全選択のままだと最初のキー入力で全部消えてしまう）
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      range.collapse(false);
+      const sel = window.getSelection();
+      sel?.removeAllRanges();
+      sel?.addRange(range);
+    };
+
+    // 新規配置: まだstoreには存在しない仮のDOM要素をその場で編集させる
+    const beginNewTextEdit = (x: number, y: number, time: number, price: number) => {
+      if (!textOverlayRef.current) return;
+      const el = document.createElement('div');
+      el.style.position = 'absolute';
+      el.style.left = `${x}px`;
+      el.style.top = `${y}px`;
+      el.style.whiteSpace = 'pre';
+      el.style.fontSize = '14px';
+      el.style.fontFamily = CHART_FONT_FAMILY;
+      el.style.padding = '2px 4px';
+      el.style.borderRadius = '2px';
+      el.style.minWidth = '1em';
+      el.style.color = useTraderStore.getState().textDraft.color;
+      el.style.border = '1px dashed #42a5f5';
+      el.style.backgroundColor = 'rgba(66,165,245,0.12)';
+      textOverlayRef.current.appendChild(el);
+      editingText = { mode: 'new', time, price };
+      editingTextEl = el;
+      startEditingEl(el);
+    };
+
+    // 既存テキストの編集: その実体であるDOM要素をそのまま編集モードにする
+    const beginEditExistingText = (id: number) => {
+      const el = textElsRef.current.get(id);
+      if (!el) return;
+      editingText = { mode: 'edit', id };
+      editingTextEl = el;
+      startEditingEl(el);
+    };
 
     // ── 週区切り線の位置を再計算して DOM に反映（控えめなドット線、固定スタイル） ──
     const syncWeekLines = () => {
@@ -870,7 +975,7 @@ export function CandleChart() {
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
     chart.subscribeClick(param => {
-      const { isDrawingLine: drawingH, isDrawingVLine: drawingV, isDrawingText: drawingT, pickTarget, addLine, addVLine, addText, pickPrice } = useTraderStore.getState();
+      const { isDrawingLine: drawingH, isDrawingVLine: drawingV, isDrawingText: drawingT, pickTarget, addLine, addVLine, pickPrice } = useTraderStore.getState();
       if (!param.point || !seriesRef.current) return;
 
       if (pickTarget !== null) {
@@ -892,11 +997,10 @@ export function CandleChart() {
         const time = chartRef.current.timeScale().coordinateToTime(param.point.x);
         const price = seriesRef.current.coordinateToPrice(param.point.y);
         if (time === null || price === null) return;
-        // window.promptはブロッキングのため、その間チャート側のクリック検知は止まっている。
-        // キャンセル・空文字の場合はテキストツールをOFFに戻す（水平線・垂直線と同じく1回配置で解除する挙動に揃える）
-        const content = window.prompt('テキストを入力');
-        if (content && content.trim() !== '') addText(time as number, price, content.trim());
-        else useTraderStore.setState({ isDrawingText: false });
+        // 水平線・垂直線と同じく1回配置したらツールは解除する。実際の配置は
+        // その場でcontentEditableの入力ボックスを出し、確定するまではstoreに何も足さない
+        useTraderStore.setState({ isDrawingText: false });
+        beginNewTextEdit(param.point.x, param.point.y, time as number, price);
       }
     });
 
@@ -1314,6 +1418,10 @@ export function CandleChart() {
     };
 
     const onMouseDown = (e: MouseEvent) => {
+      // テキストの直接編集中（contentEditable）は、その中でのクリックはカーソル移動・
+      // 範囲選択などブラウザ標準のテキスト編集操作に委ね、こちらの図形ドラッグ判定は行わない
+      // （行うと編集中のテキストボックスが意図せず動いてしまう）
+      if (editingText !== null) return;
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -1809,20 +1917,16 @@ export function CandleChart() {
       }
     };
 
-    // テキストボックスのダブルクリックで内容を編集する（削除は選択してDelete/Backspaceキー）
+    // テキストボックスのダブルクリックで内容を編集する（削除は選択してDelete/Backspaceキー、
+    // 編集中に全部消してblur/Enterすると削除扱いになる）
     const onDblClick = (e: MouseEvent) => {
+      if (editingText !== null) return;
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
       const textId = findTextNear(x, y);
       if (textId === null) return;
-      const { texts: currentTexts } = useTraderStore.getState();
-      const t = currentTexts.find(tt => tt.id === textId);
-      if (!t) return;
-      const content = window.prompt('テキストを編集', t.text);
-      if (content !== null && content.trim() !== '') {
-        useTraderStore.getState().updateText(textId, { text: content.trim() });
-      }
+      beginEditExistingText(textId);
     };
 
     container.addEventListener('mousedown', onMouseDown);
@@ -1833,8 +1937,10 @@ export function CandleChart() {
     // Delete/Backspaceキーで選択中の水平線・垂直線・四角形を削除、Cmd/Ctrl+C・Vでコピー&ペースト
     // （Macのキーボードは物理削除キーが実は⌫=Backspaceで、fn+⌫でようやくDeleteになるため両方拾う）
     const onKeyDown = (e: KeyboardEvent) => {
-      const tag = (document.activeElement?.tagName || '').toLowerCase();
-      if (tag === 'input' || tag === 'textarea') return;
+      const active = document.activeElement as HTMLElement | null;
+      const tag = (active?.tagName || '').toLowerCase();
+      // テキストボックスの直接編集中（contentEditable）もショートカット対象から除外する
+      if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
         const { selected: sel, removeLine, removeVLine, removeRect, removeText } = useTraderStore.getState();
