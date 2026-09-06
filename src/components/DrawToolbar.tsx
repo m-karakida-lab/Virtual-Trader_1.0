@@ -37,6 +37,13 @@ const ICONS: Record<string, JSX.Element> = {
       <rect x="4" y="6" width="16" height="12" rx="1" />
     </svg>
   ),
+  trend: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="4" y1="19" x2="20" y2="6" />
+      <circle cx="4" cy="19" r="2" fill="currentColor" stroke="none" />
+      <circle cx="20" cy="6" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  ),
   text: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M5 6h14M12 6v13" strokeLinecap="round" />
@@ -153,11 +160,13 @@ export function DrawToolbar() {
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
+  const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
   const isDrawingText  = useTraderStore(s => s.isDrawingText);
   const toggleDrawLine  = useTraderStore(s => s.toggleDrawLine);
   const toggleDrawVLine = useTraderStore(s => s.toggleDrawVLine);
   const toggleMeasure   = useTraderStore(s => s.toggleMeasure);
   const toggleDrawRect  = useTraderStore(s => s.toggleDrawRect);
+  const toggleDrawTrendLine = useTraderStore(s => s.toggleDrawTrendLine);
   const toggleDrawText  = useTraderStore(s => s.toggleDrawText);
   const magnetMode      = useTraderStore(s => s.magnetMode);
   const toggleMagnet    = useTraderStore(s => s.toggleMagnet);
@@ -168,6 +177,7 @@ export function DrawToolbar() {
       <ToolButton icon="vline" title="垂直線" active={isDrawingVLine} disabled={!isLoaded} onClick={toggleDrawVLine} />
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />
       <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
+      <ToolButton icon="trend" title="トレンドライン" active={isDrawingTrendLine} disabled={!isLoaded} onClick={toggleDrawTrendLine} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <div style={{ display: 'flex', alignItems: 'center' }}>

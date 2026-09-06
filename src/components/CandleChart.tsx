@@ -41,6 +41,14 @@ interface RectEdge {
   field: 'time1' | 'time2' | 'price1' | 'price2';
 }
 
+// トレンドラインのドラッグ中の端点。四角形の角と同じ考え方（反対側の端点は固定したまま
+// この2フィールドだけ更新する）だが、トレンドラインは端点が2つだけで辺の概念が無い
+interface TrendEndpoint {
+  trendId: number;
+  timeField: 'time1' | 'time2';
+  priceField: 'price1' | 'price2';
+}
+
 const EMA_PERIOD = 200;
 const SMA_PERIOD = 14;
 const BB_PERIOD = 20;
@@ -171,6 +179,8 @@ export function CandleChart() {
   const rectHandleElsRef = useRef<HTMLDivElement[]>([]); // 選択中の四角形の4隅ハンドル（常に1個の四角形分のみ）
   const syncRectsRef = useRef<() => void>(() => {});
   const rectDraftBoxRef = useRef<HTMLDivElement>(null);
+  const trendCanvasRef = useRef<HTMLCanvasElement>(null);
+  const syncTrendLinesRef = useRef<() => void>(() => {});
   const textOverlayRef = useRef<HTMLDivElement>(null);
   const textElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
   const syncTextsRef = useRef<() => void>(() => {});
@@ -200,12 +210,14 @@ export function CandleChart() {
   const lines     = useTraderStore(s => s.lines);
   const vlines    = useTraderStore(s => s.vlines);
   const rects     = useTraderStore(s => s.rects);
+  const trendLines = useTraderStore(s => s.trendLines);
   const texts     = useTraderStore(s => s.texts);
   const selected  = useTraderStore(s => s.selected);
   const isDrawingLine  = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
+  const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
   const isDrawingText  = useTraderStore(s => s.isDrawingText);
   const pickTarget     = useTraderStore(s => s.pickTarget);
   const orderType      = useTraderStore(s => s.orderType);
@@ -597,6 +609,82 @@ export function CandleChart() {
     syncRectsRef.current = syncRects;
     syncRects();
 
+    // ── トレンドライン（2点を結ぶ斜めの線分） ────────────────────────────
+    // 四角形と違い対角の矩形ではなく斜めの線分なので、DOMのborderでは表現できず
+    // 専用canvasに毎回ctx.lineTo()で描き直す（雲の塗りつぶしcanvasと同じ方式）。
+    // 選択中の端点ハンドルもDOM要素ではなく同じcanvas上に円で描く
+    const DASH_TO_CANVAS: Record<'solid' | 'dashed' | 'dotted', number[]> = {
+      solid: [], dashed: [7, 5], dotted: [1, 4],
+    };
+    const TREND_HANDLE_R = 5;
+
+    const drawTrendLineShape = (
+      ctx: CanvasRenderingContext2D,
+      x1: number, y1: number, x2: number, y2: number,
+      color: string, dash: 'solid' | 'dashed' | 'dotted', width: number, selected: boolean,
+    ) => {
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.setLineDash(DASH_TO_CANVAS[dash]);
+      ctx.beginPath();
+      ctx.moveTo(x1, y1);
+      ctx.lineTo(x2, y2);
+      ctx.stroke();
+      if (selected) {
+        ctx.setLineDash([]);
+        ctx.fillStyle = '#42a5f5';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        for (const [ex, ey] of [[x1, y1], [x2, y2]]) {
+          ctx.beginPath();
+          ctx.arc(ex, ey, TREND_HANDLE_R, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    };
+
+    // ドラッグ中（端点リサイズ・平行移動）は、storeを経由せずここだけ書き換えて即座に
+    // 再描画するプレビュー用（storeのコミットはmouseupまで行わない、他の描画要素と同じ作法）
+    let trendDragPreview: { id: number; time1: number; price1: number; time2: number; price2: number } | null = null;
+    // 新規描画中（まだstoreに存在しない）のプレビューはピクセル座標のみで持つ
+    // （rectDraftBoxと同じ理由。ドラッグの間だけ生きるので座標変換の耐性は不要）
+    let newTrendDraft: { x1: number; y1: number; x2: number; y2: number } | null = null;
+
+    const syncTrendLines = () => {
+      const canvas = trendCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      ctx.clearRect(0, 0, w, h);
+
+      const { trendLines: currentTrendLines, selected } = useTraderStore.getState();
+      const selectedTrendId = selected?.kind === 'trend' ? selected.id : null;
+
+      for (const tl of currentTrendLines) {
+        const live = trendDragPreview && trendDragPreview.id === tl.id ? trendDragPreview : tl;
+        const x1 = timeToX(live.time1);
+        const x2 = timeToX(live.time2);
+        const y1 = seriesRef.current.priceToCoordinate(live.price1);
+        const y2 = seriesRef.current.priceToCoordinate(live.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        drawTrendLineShape(ctx, x1, y1, x2, y2, tl.color, tl.dash, tl.width, tl.id === selectedTrendId);
+      }
+
+      if (newTrendDraft) {
+        const { trendLineDraft } = useTraderStore.getState();
+        const { x1, y1, x2, y2 } = newTrendDraft;
+        drawTrendLineShape(ctx, x1, y1, x2, y2, trendLineDraft.color, trendLineDraft.dash, trendLineDraft.width, false);
+      }
+    };
+    syncTrendLinesRef.current = syncTrendLines;
+    syncTrendLines();
+
     // ── テキストの直接編集中の状態 ─────────────────────────────────────
     // TradingView同様window.prompt()を使わず、DOM要素自体をcontentEditableにして
     // その場で直接入力させる。新規配置中はまだstoreに存在しない仮のDOM要素を編集し、
@@ -981,7 +1069,7 @@ export function CandleChart() {
       }, 400);
     };
 
-    const onRangeChange = () => { syncVLines(); syncRects(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView(); };
+    const onRangeChange = () => { syncVLines(); syncRects(); syncTrendLines(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView(); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
@@ -1031,6 +1119,11 @@ export function CandleChart() {
       box.style.height = `${Math.abs(y2 - y1)}px`;
       box.style.border = `${rectDraft.width}px ${DASH_TO_CSS[rectDraft.dash]} ${rectDraft.color}`;
     };
+
+    // ── トレンドライン（ドラッグで描画） ──────────────────────────
+    let trendLineDragging = false;
+    let trendLineStart: { x: number; y: number; price: number } | null = null;
+    let pendingTrendLineEnd: { x: number; y: number; price: number } | null = null;
 
     // ── ものさし（ドラッグで価格差・本数・期間を計測） ──────────────
     let measuringDrag = false;
@@ -1136,6 +1229,13 @@ export function CandleChart() {
     let draggingDraft: 'price' | 'tp' | 'sl' | null = null;
     let draggingRectCorner: RectCorner | null = null;
     let draggingRectEdge: RectEdge | null = null;
+    // ── トレンドラインの端点リサイズ・平行移動ドラッグ ───────────────
+    let draggingTrendEndpoint: TrendEndpoint | null = null;
+    let pendingTrendEndpointPos: { time: number; price: number } | null = null;
+    let draggingTrendMoveId: number | null = null;
+    // 時間方向の移動は四角形の平行移動と同じ理由で足のインデックス差分を使う
+    let trendMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
+    let pendingTrendMoveDelta: { idx: number; dp: number } | null = null;
     // ── テキストボックスの移動ドラッグ ─────────────────────────────
     // 掴んだ位置とテキスト要素の左上とのピクセルオフセットを保持し、ドラッグ中は
     // そのオフセット分だけずらした位置に要素を追従させる（垂直線ドラッグと同じ考え方）
@@ -1356,6 +1456,44 @@ export function CandleChart() {
       return null;
     };
 
+    // 点(px,py)から線分(x1,y1)-(x2,y2)までの最短距離
+    function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
+      const dx = x2 - x1, dy = y2 - y1;
+      const lenSq = dx * dx + dy * dy;
+      if (lenSq === 0) return Math.hypot(px - x1, py - y1);
+      let t = ((px - x1) * dx + (py - y1) * dy) / lenSq;
+      t = Math.min(1, Math.max(0, t));
+      return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
+    }
+
+    // トレンドラインの端点近傍判定（リサイズハンドル）。四角形の角ハンドルと同じ理由で、
+    // 選択中のトレンドラインにしか効かない（見た目のハンドルも選択中にしか出さないため）
+    const findTrendEndpointNear = (x: number, y: number): TrendEndpoint | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { trendLines: currentTrendLines, selected } = useTraderStore.getState();
+      for (const tl of currentTrendLines.filter(t => selected?.kind === 'trend' && selected.id === t.id)) {
+        const x1 = timeToX(tl.time1), x2 = timeToX(tl.time2);
+        const y1 = seriesRef.current.priceToCoordinate(tl.price1), y2 = seriesRef.current.priceToCoordinate(tl.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        if (Math.hypot(x1 - x, y1 - y) <= RECT_HANDLE_HIT_PX) return { trendId: tl.id, timeField: 'time1', priceField: 'price1' };
+        if (Math.hypot(x2 - x, y2 - y) <= RECT_HANDLE_HIT_PX) return { trendId: tl.id, timeField: 'time2', priceField: 'price2' };
+      }
+      return null;
+    };
+
+    // トレンドライン本体（線分）の近傍判定。ヒットしたら選択、掴んだままドラッグすると平行移動
+    const findTrendLineNear = (x: number, y: number): number | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { trendLines: currentTrendLines } = useTraderStore.getState();
+      for (const tl of currentTrendLines) {
+        const x1 = timeToX(tl.time1), x2 = timeToX(tl.time2);
+        const y1 = seriesRef.current.priceToCoordinate(tl.price1), y2 = seriesRef.current.priceToCoordinate(tl.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return tl.id;
+      }
+      return null;
+    };
+
     // テキストボックスの近傍判定。実体はDOM要素なので、time/priceから座標を再計算せず
     // 直接そのDOM要素の実測位置・サイズ（offsetLeft/Top/Width/Height）を使う
     // （文字数でサイズが変わるため、rectのような座標計算では判定できない）
@@ -1433,7 +1571,7 @@ export function CandleChart() {
       // 範囲選択などブラウザ標準のテキスト編集操作に委ね、こちらの図形ドラッグ判定は行わない
       // （行うと編集中のテキストボックスが意図せず動いてしまう）
       if (editingText !== null) return;
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -1457,6 +1595,19 @@ export function CandleChart() {
         rectDragging = true;
         chart.applyOptions({ handleScroll: false, handleScale: false });
         updateRectDraftBox(x, snap.y, x, snap.y);
+        return;
+      }
+
+      if (isTL) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const snap = magnetSnap(x, y);
+        if (snap === null) return;
+        trendLineStart = { x, y: snap.y, price: snap.price };
+        pendingTrendLineEnd = { x, y: snap.y, price: snap.price };
+        trendLineDragging = true;
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        newTrendDraft = { x1: x, y1: snap.y, x2: x, y2: snap.y };
+        syncTrendLines();
         return;
       }
 
@@ -1537,6 +1688,38 @@ export function CandleChart() {
         return;
       }
 
+      const trendEndpoint = findTrendEndpointNear(x, y);
+      if (trendEndpoint !== null) {
+        draggingTrendEndpoint = trendEndpoint;
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'nwse-resize';
+        useTraderStore.getState().selectLine({ kind: 'trend', id: trendEndpoint.trendId });
+        return;
+      }
+
+      const trendLineId = findTrendLineNear(x, y);
+      if (trendLineId !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const { trendLines: trendLinesAtDown, candles: csAtDown, cursor: curAtDown } = useTraderStore.getState();
+        const tl = trendLinesAtDown.find(t => t.id === trendLineId);
+        const visibleAtDown = csAtDown.slice(0, curAtDown + 1);
+        const startTime = pixelToTime(x);
+        const startPrice = seriesRef.current.coordinateToPrice(y);
+        if (!tl || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
+        draggingTrendMoveId = trendLineId;
+        trendMoveStart = {
+          idx1: candleIndexAt(visibleAtDown, tl.time1),
+          idx2: candleIndexAt(visibleAtDown, tl.time2),
+          price1: tl.price1, price2: tl.price2,
+          startIdx: candleIndexAt(visibleAtDown, startTime),
+          startPrice,
+        };
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'move';
+        useTraderStore.getState().selectLine({ kind: 'trend', id: trendLineId });
+        return;
+      }
+
       const textId = findTextNear(x, y);
       if (textId !== null) {
         const el = textElsRef.current.get(textId);
@@ -1579,6 +1762,15 @@ export function CandleChart() {
         if (snap === null) return;
         pendingRectEnd = { x, y: snap.y, price: snap.price };
         updateRectDraftBox(rectStart.x, rectStart.y, x, snap.y);
+        return;
+      }
+
+      if (trendLineDragging && trendLineStart) {
+        const snap = magnetSnap(x, y);
+        if (snap === null) return;
+        pendingTrendLineEnd = { x, y: snap.y, price: snap.price };
+        newTrendDraft = { x1: trendLineStart.x, y1: trendLineStart.y, x2: x, y2: snap.y };
+        syncTrendLines();
         return;
       }
 
@@ -1757,6 +1949,63 @@ export function CandleChart() {
         return;
       }
 
+      if (draggingTrendEndpoint !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const price = magnetSnap(x, y)?.price ?? null;
+        const time = pixelToTime(x);
+        if (price === null || time === null) return;
+        pendingTrendEndpointPos = { time, price };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingTrendEndpoint === null || pendingTrendEndpointPos === null) return;
+            const { trendLines: currentTrendLines } = useTraderStore.getState();
+            const tl = currentTrendLines.find(t => t.id === draggingTrendEndpoint!.trendId);
+            if (!tl) return;
+            trendDragPreview = {
+              id: tl.id,
+              time1: draggingTrendEndpoint.timeField === 'time1' ? pendingTrendEndpointPos.time : tl.time1,
+              price1: draggingTrendEndpoint.priceField === 'price1' ? pendingTrendEndpointPos.price : tl.price1,
+              time2: draggingTrendEndpoint.timeField === 'time2' ? pendingTrendEndpointPos.time : tl.time2,
+              price2: draggingTrendEndpoint.priceField === 'price2' ? pendingTrendEndpointPos.price : tl.price2,
+            };
+            syncTrendLines();
+          });
+        }
+        return;
+      }
+
+      if (draggingTrendMoveId !== null && trendMoveStart) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const t = pixelToTime(x);
+        const p = seriesRef.current.coordinateToPrice(y);
+        if (t === null || p === null) return;
+        const { candles: csMove, cursor: curMove } = useTraderStore.getState();
+        const visibleMove = csMove.slice(0, curMove + 1);
+        if (visibleMove.length === 0) return;
+        pendingTrendMoveDelta = { idx: candleIndexAt(visibleMove, t) - trendMoveStart.startIdx, dp: p - trendMoveStart.startPrice };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingTrendMoveId === null || pendingTrendMoveDelta === null || trendMoveStart === null) return;
+            const { candles: csRaf, cursor: curRaf } = useTraderStore.getState();
+            const visibleRaf = csRaf.slice(0, curRaf + 1);
+            if (visibleRaf.length === 0) return;
+            const newIdx1 = Math.min(Math.max(trendMoveStart.idx1 + pendingTrendMoveDelta.idx, 0), visibleRaf.length - 1);
+            const newIdx2 = Math.min(Math.max(trendMoveStart.idx2 + pendingTrendMoveDelta.idx, 0), visibleRaf.length - 1);
+            trendDragPreview = {
+              id: draggingTrendMoveId,
+              time1: visibleRaf[newIdx1].time, price1: trendMoveStart.price1 + pendingTrendMoveDelta.dp,
+              time2: visibleRaf[newIdx2].time, price2: trendMoveStart.price2 + pendingTrendMoveDelta.dp,
+            };
+            syncTrendLines();
+          });
+        }
+        return;
+      }
+
       if (draggingTextId !== null) {
         pendingTextXY = { x: x - textGrabDX, y: y - textGrabDY };
         if (!rafScheduled) {
@@ -1780,6 +2029,7 @@ export function CandleChart() {
           overlayResyncScheduled = false;
           syncVLines();
           syncRects();
+          syncTrendLines();
           syncTexts();
           syncWeekLines();
           syncCloud();
@@ -1787,8 +2037,8 @@ export function CandleChart() {
       }
 
       // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
-      if (!dH && !dV && !isM && !isR && !dT && pick === null) {
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
+      if (!dH && !dV && !isM && !isR && !isTL && !dT && pick === null) {
         const draft = findDraftNear(y);
         if (draft !== null) { container.style.cursor = 'ns-resize'; return; }
         const target = findPriceTargetNear(y);
@@ -1803,6 +2053,10 @@ export function CandleChart() {
         if (border !== null) { container.style.cursor = 'move'; return; }
         const bodyRectId = findRectBodyNear(x, y);
         if (bodyRectId !== null) { container.style.cursor = 'default'; return; }
+        const trendEndpointHover = findTrendEndpointNear(x, y);
+        if (trendEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
+        const trendLineHoverId = findTrendLineNear(x, y);
+        if (trendLineHoverId !== null) { container.style.cursor = 'move'; return; }
         const textId = findTextNear(x, y);
         if (textId !== null) { container.style.cursor = 'move'; return; }
         // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
@@ -1828,6 +2082,24 @@ export function CandleChart() {
         }
         rectStart = null;
         pendingRectEnd = null;
+        return;
+      }
+      if (trendLineDragging) {
+        trendLineDragging = false;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        newTrendDraft = null;
+        if (trendLineStart && pendingTrendLineEnd) {
+          const t1 = pixelToTime(trendLineStart.x);
+          const t2 = pixelToTime(pendingTrendLineEnd.x);
+          const p1 = trendLineStart.price;
+          const p2 = pendingTrendLineEnd.price;
+          if (t1 !== null && t2 !== null && (t1 !== t2 || p1 !== p2)) {
+            useTraderStore.getState().addTrendLine(t1, p1, t2, p2);
+          }
+        }
+        syncTrendLines(); // ドラフトのクリア（実際に追加された場合はstore更新側の再描画とも重複するが無害）
+        trendLineStart = null;
+        pendingTrendLineEnd = null;
         return;
       }
       if (measuringDrag) {
@@ -1913,6 +2185,40 @@ export function CandleChart() {
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';
       }
+      if (draggingTrendEndpoint !== null) {
+        if (pendingTrendEndpointPos !== null) {
+          useTraderStore.getState().updateTrendLine(draggingTrendEndpoint.trendId, {
+            [draggingTrendEndpoint.timeField]: pendingTrendEndpointPos.time,
+            [draggingTrendEndpoint.priceField]: pendingTrendEndpointPos.price,
+          });
+        }
+        draggingTrendEndpoint = null;
+        pendingTrendEndpointPos = null;
+        trendDragPreview = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+      }
+      if (draggingTrendMoveId !== null) {
+        if (pendingTrendMoveDelta !== null && trendMoveStart !== null) {
+          const { candles: csUp, cursor: curUp } = useTraderStore.getState();
+          const visibleUp = csUp.slice(0, curUp + 1);
+          if (visibleUp.length > 0) {
+            const newIdx1 = Math.min(Math.max(trendMoveStart.idx1 + pendingTrendMoveDelta.idx, 0), visibleUp.length - 1);
+            const newIdx2 = Math.min(Math.max(trendMoveStart.idx2 + pendingTrendMoveDelta.idx, 0), visibleUp.length - 1);
+            useTraderStore.getState().updateTrendLine(draggingTrendMoveId, {
+              time1: visibleUp[newIdx1].time,
+              time2: visibleUp[newIdx2].time,
+              price1: trendMoveStart.price1 + pendingTrendMoveDelta.dp,
+              price2: trendMoveStart.price2 + pendingTrendMoveDelta.dp,
+            });
+          }
+        }
+        draggingTrendMoveId = null;
+        trendMoveStart = null;
+        pendingTrendMoveDelta = null;
+        trendDragPreview = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
+      }
       if (draggingTextId !== null) {
         if (pendingTextXY !== null && seriesRef.current) {
           const time = pixelToTime(pendingTextXY.x);
@@ -1954,11 +2260,12 @@ export function CandleChart() {
       if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        const { selected: sel, removeLine, removeVLine, removeRect, removeText } = useTraderStore.getState();
+        const { selected: sel, removeLine, removeVLine, removeRect, removeTrendLine, removeText } = useTraderStore.getState();
         if (!sel) return;
         if (sel.kind === 'h') removeLine(sel.id);
         else if (sel.kind === 'v') removeVLine(sel.id);
         else if (sel.kind === 'rect') removeRect(sel.id);
+        else if (sel.kind === 'trend') removeTrendLine(sel.id);
         else removeText(sel.id);
         return;
       }
@@ -2018,6 +2325,21 @@ export function CandleChart() {
           const newId = useTraderStore.getState().nextRectId - 1;
           store.selectLine({ kind: 'rect', id: newId });
           clipboard = { kind: 'rect', id: newId };
+        } else if (clipboard.kind === 'trend') {
+          const src = store.trendLines.find(t => t.id === clipboard!.id);
+          if (!src) return;
+          const x1 = timeToX(src.time1), x2 = timeToX(src.time2);
+          const y1 = seriesRef.current.priceToCoordinate(src.price1), y2 = seriesRef.current.priceToCoordinate(src.price2);
+          if (x1 === null || x2 === null || y1 === null || y2 === null) return;
+          const newTime1 = pixelToTime(x1 + PASTE_OFFSET_PX);
+          const newTime2 = pixelToTime(x2 + PASTE_OFFSET_PX);
+          const newPrice1 = seriesRef.current.coordinateToPrice(y1 + PASTE_OFFSET_PX);
+          const newPrice2 = seriesRef.current.coordinateToPrice(y2 + PASTE_OFFSET_PX);
+          if (newTime1 === null || newTime2 === null || newPrice1 === null || newPrice2 === null) return;
+          store.duplicateTrendLine(src.id, newTime1, newPrice1, newTime2, newPrice2);
+          const newId = useTraderStore.getState().nextTrendLineId - 1;
+          store.selectLine({ kind: 'trend', id: newId });
+          clipboard = { kind: 'trend', id: newId };
         } else {
           const src = store.texts.find(t => t.id === clipboard!.id);
           if (!src) return;
@@ -2043,6 +2365,7 @@ export function CandleChart() {
       });
       syncVLines();
       syncRects();
+      syncTrendLines();
       syncTexts();
       syncWeekLines();
       updateRRPreview();
@@ -2104,10 +2427,10 @@ export function CandleChart() {
 
   // 描画・計測・価格ピッキングモード中はカーソルを crosshair に
   useEffect(() => {
-    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingText || pickTarget !== null)) {
+    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingText || pickTarget !== null)) {
       containerRef.current.style.cursor = 'crosshair';
     }
-  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingText, pickTarget]);
+  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingTrendLine, isDrawingText, pickTarget]);
 
   // ものさしモードを解除したら表示を消す
   useEffect(() => {
@@ -2335,6 +2658,11 @@ export function CandleChart() {
     syncRectsRef.current();
   }, [rects, selected]);
 
+  // トレンドラインの再描画（選択状態が変わった時も端点ハンドル表示を更新する）
+  useEffect(() => {
+    syncTrendLinesRef.current();
+  }, [trendLines, selected]);
+
   // テキストボックスの再描画（選択状態が変わった時も枠表示を更新する）
   useEffect(() => {
     syncTextsRef.current();
@@ -2468,6 +2796,7 @@ export function CandleChart() {
     // 可視範囲確定後に再同期（範囲変更イベントに頼らず確実に揃える）
     syncVLinesRef.current();
     syncRectsRef.current();
+    syncTrendLinesRef.current();
     syncTextsRef.current();
     syncWeekLinesRef.current();
     syncScrubberRef.current();
@@ -2481,6 +2810,7 @@ export function CandleChart() {
     const raf = requestAnimationFrame(() => {
       syncVLinesRef.current();
       syncRectsRef.current();
+      syncTrendLinesRef.current();
       syncTextsRef.current();
       syncWeekLinesRef.current();
       syncCloudRef.current();
@@ -2704,6 +3034,9 @@ export function CandleChart() {
       <div ref={rectOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }}>
         <div ref={rectDraftBoxRef} style={{ position: 'absolute', display: 'none' }} />
       </div>
+      {/* トレンドラインは斜めの線分なのでDOMのborderで表現できず、専用canvasに描く
+          （雲と同じ方式）。価格軸に被らないよう幅は四角形・テキストのオーバーレイと揃える */}
+      <canvas ref={trendCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9 }} />
       <div ref={textOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />

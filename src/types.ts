@@ -99,6 +99,18 @@ export interface DrawnRect {
   width: LineWidth;
 }
 
+// ── トレンドライン ───────────────────────────────────────────────────────
+
+// 四角形と同じ2点（始点・終点）だが、対角の矩形ではなく2点を結ぶ斜めの線分として描画する
+export interface DrawnTrendLine {
+  id: number;
+  time1: number; price1: number; // 始点
+  time2: number; price2: number; // 終点
+  color: string;
+  dash: LineDash;
+  width: LineWidth;
+}
+
 // ── テキストボックス ─────────────────────────────────────────────────────
 
 // 文字サイズは4段階固定（px値そのものを持つ。S/M/L/XL相当）
@@ -119,5 +131,5 @@ export interface DrawnText {
   border: TextBorderStyle;
 }
 
-// 水平線・垂直線・四角形・テキストを問わず「選択中の1つ」を表す
-export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'text'; id: number };
+// 水平線・垂直線・四角形・トレンドライン・テキストを問わず「選択中の1つ」を表す
+export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'text'; id: number };

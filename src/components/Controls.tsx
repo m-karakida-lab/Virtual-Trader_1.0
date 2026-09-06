@@ -191,6 +191,7 @@ export function Controls() {
   const removeLine    = useTraderStore(s => s.removeLine);
   const removeVLine   = useTraderStore(s => s.removeVLine);
   const removeRect    = useTraderStore(s => s.removeRect);
+  const removeTrendLine = useTraderStore(s => s.removeTrendLine);
   const removeText    = useTraderStore(s => s.removeText);
   const selectLine    = useTraderStore(s => s.selectLine);
   const toggleEMA     = useTraderStore(s => s.toggleEMA);
@@ -204,11 +205,13 @@ export function Controls() {
   const lines          = useTraderStore(s => s.lines);
   const vlines          = useTraderStore(s => s.vlines);
   const rects          = useTraderStore(s => s.rects);
+  const trendLines     = useTraderStore(s => s.trendLines);
   const texts          = useTraderStore(s => s.texts);
   const isDrawingLine = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring = useTraderStore(s => s.isMeasuring);
   const isDrawingRect = useTraderStore(s => s.isDrawingRect);
+  const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
   const isDrawingText = useTraderStore(s => s.isDrawingText);
   const selected        = useTraderStore(s => s.selected);
   const showEMA       = useTraderStore(s => s.showEMA);
@@ -570,7 +573,7 @@ export function Controls() {
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton
             label="描画"
-            active={isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingText}
+            active={isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingText}
             disabled={!isLoaded}
           >
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '340px' }}>
@@ -580,19 +583,20 @@ export function Controls() {
                 <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
                 <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
                 <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
-                {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingText) && (
+                {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingText) && (
                   <span style={{ color: '#42a5f5', fontSize: '14px' }}>
                     {isDrawingLine && 'クリックで配置...'}
                     {isDrawingVLine && 'クリックで配置...'}
                     {isMeasuring && 'ドラッグで計測...'}
                     {isDrawingRect && 'ドラッグで描画...'}
+                    {isDrawingTrendLine && 'ドラッグで描画...'}
                     {isDrawingText && 'クリックで配置...'}
                     （左のアイコンで再度クリックすると解除）
                   </span>
                 )}
               </div>
 
-              {(lines.length > 0 || vlines.length > 0 || rects.length > 0 || texts.length > 0) && (
+              {(lines.length > 0 || vlines.length > 0 || rects.length > 0 || trendLines.length > 0 || texts.length > 0) && (
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   {lines.map(line => {
                     const isSel = selected?.kind === 'h' && selected.id === line.id;
@@ -669,6 +673,34 @@ export function Controls() {
                         四角{i + 1}
                         <button
                           onClick={e => { e.stopPropagation(); removeRect(r.id); }}
+                          style={{
+                            background: 'none', border: 'none', color: '#555',
+                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+                          }}
+                        >×</button>
+                      </span>
+                    );
+                  })}
+
+                  {trendLines.map((tl, i) => {
+                    const isSel = selected?.kind === 'trend' && selected.id === tl.id;
+                    const sel: LineSelection = { kind: 'trend', id: tl.id };
+                    return (
+                      <span
+                        key={`tl${tl.id}`}
+                        onClick={() => selectLine(isSel ? null : sel)}
+                        style={{
+                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+                          backgroundColor: isSel ? '#222' : '#161616',
+                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
+                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
+                          fontVariantNumeric: 'tabular-nums',
+                        }}
+                      >
+                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: tl.color, flexShrink: 0 }} />
+                        トレンド{i + 1}
+                        <button
+                          onClick={e => { e.stopPropagation(); removeTrendLine(tl.id); }}
                           style={{
                             background: 'none', border: 'none', color: '#555',
                             cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
