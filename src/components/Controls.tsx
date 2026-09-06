@@ -3,6 +3,7 @@ import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
 import { TIMEFRAMES, type Position, type PendingOrder, type LineSelection, type OrderType } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
+import { captureChartArea } from '../lib/screenshot';
 
 // "YYYY-MM-DD" + "HH:mm" を UTC 前提で Unix秒に変換
 function parseDateAsUTC(dateStr: string): number | null {
@@ -185,6 +186,7 @@ export function Controls() {
   const setLots       = useTraderStore(s => s.setLots);
   const setSpeed      = useTraderStore(s => s.setSpeed);
   const chartLayout   = useTraderStore(s => s.chartLayout);
+  const symbol        = useTraderStore(s => s.symbol);
   const setChartLayout = useTraderStore(s => s.setChartLayout);
   const removeLine    = useTraderStore(s => s.removeLine);
   const removeVLine   = useTraderStore(s => s.removeVLine);
@@ -679,6 +681,13 @@ export function Controls() {
         </div>
 
         <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
+
+        <button
+          onClick={() => captureChartArea(`${symbol || 'chart'}_${chartLayout === '4' ? '4画面' : timeframeLabel}`)}
+          disabled={!isLoaded}
+          title="チャート画面（価格軸・日付軸含む）をPNGで保存"
+          style={tfBtn(false, !isLoaded)}
+        >📷 キャプチャ</button>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0, margin: '0 8px' }} />
 

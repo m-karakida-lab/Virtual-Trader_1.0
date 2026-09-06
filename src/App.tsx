@@ -105,7 +105,11 @@ export default function App() {
           <DrawToolbar />
         </div>
 
-        <div style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
+        {/* 画面キャプチャ機能（Controls.tsx）の対象領域。チャート本体（ローソク足・右の価格軸・
+            下の日付軸はlightweight-charts自体のcanvasに含まれる）だけを切り取り、上のCSV選択欄・
+            左の描画ツールバー・下の発注/操作パネルは含めない。4画面時はこのdiv自体に4枠すべてが
+            収まっているため、1回のキャプチャで自然に1枚絵になる */}
+        <div id="vt-chart-capture-area" style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
           {chartLayout === '4' ? (
             <div style={{
               position: 'absolute', inset: 0,
