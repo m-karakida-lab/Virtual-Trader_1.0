@@ -388,9 +388,16 @@ export function CandleChart() {
       if (!canvas || !chartRef.current || !seriesRef.current) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      // devicePixelRatioを考慮せずcanvas.widthをCSSピクセル数のまま設定すると、
+      // Retina等の高DPI画面ではブラウザがcanvasのビットマップを拡大表示することになり、
+      // 線が全体的にぼやけて特に斜め線・曲線がカクカクした階段状に見えてしまう
+      // （実際に指摘を受けて判明した）。実解像度をdpr倍で確保し、setTransformで
+      // 描画側の座標系はCSSピクセルのまま（w,hがそのまま使える）にしておく
+      const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w) canvas.width = w;
-      if (canvas.height !== h) canvas.height = h;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
       const { showCloud: show, candles: cs } = useTraderStore.getState();
@@ -662,9 +669,16 @@ export function CandleChart() {
       if (!canvas || !chartRef.current || !seriesRef.current) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      // devicePixelRatioを考慮せずcanvas.widthをCSSピクセル数のまま設定すると、
+      // Retina等の高DPI画面ではブラウザがcanvasのビットマップを拡大表示することになり、
+      // 線が全体的にぼやけて特に斜め線・曲線がカクカクした階段状に見えてしまう
+      // （実際に指摘を受けて判明した）。実解像度をdpr倍で確保し、setTransformで
+      // 描画側の座標系はCSSピクセルのまま（w,hがそのまま使える）にしておく
+      const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w) canvas.width = w;
-      if (canvas.height !== h) canvas.height = h;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
       const { trendLines: currentTrendLines, selected } = useTraderStore.getState();
@@ -752,9 +766,16 @@ export function CandleChart() {
       if (!canvas || !chartRef.current || !seriesRef.current) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      // devicePixelRatioを考慮せずcanvas.widthをCSSピクセル数のまま設定すると、
+      // Retina等の高DPI画面ではブラウザがcanvasのビットマップを拡大表示することになり、
+      // 線が全体的にぼやけて特に斜め線・曲線がカクカクした階段状に見えてしまう
+      // （実際に指摘を受けて判明した）。実解像度をdpr倍で確保し、setTransformで
+      // 描画側の座標系はCSSピクセルのまま（w,hがそのまま使える）にしておく
+      const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w) canvas.width = w;
-      if (canvas.height !== h) canvas.height = h;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
       const { brushes: currentBrushes, selected } = useTraderStore.getState();

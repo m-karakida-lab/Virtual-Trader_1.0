@@ -194,9 +194,13 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       if (!canvas || !chartRef.current || !seriesRef.current) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      // devicePixelRatioを考慮した実解像度確保。理由はCandleChart側の同種コメントを参照
+      // （Retina等の高DPI画面だと線がぼやけ、斜め線・曲線がカクカクした階段状に見える）
+      const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w) canvas.width = w;
-      if (canvas.height !== h) canvas.height = h;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
       const { showCloud: show } = useTraderStore.getState();
@@ -380,9 +384,13 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       if (!canvas || !chartRef.current || !seriesRef.current) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      // devicePixelRatioを考慮した実解像度確保。理由はCandleChart側の同種コメントを参照
+      // （Retina等の高DPI画面だと線がぼやけ、斜め線・曲線がカクカクした階段状に見える）
+      const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w) canvas.width = w;
-      if (canvas.height !== h) canvas.height = h;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
       const { trendLines: currentTrendLines } = useTraderStore.getState();
@@ -412,9 +420,13 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       if (!canvas || !chartRef.current || !seriesRef.current) return;
       const ctx = canvas.getContext('2d');
       if (!ctx) return;
+      // devicePixelRatioを考慮した実解像度確保。理由はCandleChart側の同種コメントを参照
+      // （Retina等の高DPI画面だと線がぼやけ、斜め線・曲線がカクカクした階段状に見える）
+      const dpr = window.devicePixelRatio || 1;
       const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w) canvas.width = w;
-      if (canvas.height !== h) canvas.height = h;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
       const { brushes: currentBrushes } = useTraderStore.getState();
