@@ -6,6 +6,10 @@
 import { toPng } from 'html-to-image';
 
 const CAPTURE_AREA_ID = 'vt-chart-capture-area';
+// キャプチャから除外するUI要素のid（再生/1コマ送り/戻しのフローティングパネル等）。
+// 実際にDOMから隠して復元するのではなく、html-to-imageのfilterでレンダリング対象から
+// 除外するだけなので、画面上には一切ちらつきが出ない
+const EXCLUDED_IDS = ['vt-floating-controls'];
 
 function timestamp(): string {
   const d = new Date();
@@ -16,7 +20,11 @@ function timestamp(): string {
 export async function captureChartArea(filenameHint: string): Promise<void> {
   const el = document.getElementById(CAPTURE_AREA_ID);
   if (!el) return;
-  const dataUrl = await toPng(el, { backgroundColor: '#0d0d0d', pixelRatio: 2 });
+  const dataUrl = await toPng(el, {
+    backgroundColor: '#0d0d0d',
+    pixelRatio: 2,
+    filter: node => !(node instanceof HTMLElement && EXCLUDED_IDS.includes(node.id)),
+  });
   const a = document.createElement('a');
   a.href = dataUrl;
   a.download = `${filenameHint}_${timestamp()}.png`;

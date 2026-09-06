@@ -58,7 +58,9 @@ export function FloatingControls() {
   };
 
   return (
-    <div style={{
+    <div
+      id="vt-floating-controls"
+      style={{
       position: 'absolute',
       ...(pos
         ? { left: `${pos.x}px`, top: `${pos.y}px` }
