@@ -248,7 +248,6 @@ interface TraderState {
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
   selectLine: (target: LineSelection | null) => void;
-  togglePaletteMode: () => void;
   setPaletteStyle: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   toggleEMA: () => void;
   toggleSMA: () => void;
@@ -925,7 +924,6 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     if (!get().paletteMode) set({ paletteMode: true });
     syncPaletteStyleFrom(set, get, target);
   },
-  togglePaletteMode: () => set(s => ({ paletteMode: !s.paletteMode })),
   setPaletteStyle: patch => {
     set(s => ({ paletteStyle: { ...s.paletteStyle, ...patch } }));
     // 編集モード（選択中）のままパレットの設定を変えた時も、選び直さなくてもすぐ反映する
