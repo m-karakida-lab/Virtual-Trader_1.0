@@ -455,9 +455,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   lineDraft: { color: '#e0e0e0', dash: 'solid', width: 2 },
   rectDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 }, // パレットにある青（#42a5f5）
   trendLineDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
-  textDraft: { color: '#e0e0e0', fontSize: 14, border: 'solid' },
+  textDraft: { color: '#e0e0e0', fontSize: 18, border: 'solid' },
   paletteMode: false,
-  paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2, fontSize: 14, border: 'solid' },
+  paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2, fontSize: 18, border: 'solid' },
   showEMA: false,
   showSMA: true,
   showBB: true,
@@ -510,7 +510,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       const nextIdOf = (arr: { id: number }[]): number => arr.reduce((m, x) => Math.max(m, x.id), 0) + 1;
       // fontSize/borderは文字サイズ・枠線カスタマイズ追加より前に保存されたvtdファイルには
       // 存在しないため、無い場合だけデフォルト値で補う
-      const texts: DrawnText[] = (drawings?.texts ?? []).map(t => ({ fontSize: 14, border: 'solid', ...(t as Partial<DrawnText>) } as DrawnText));
+      const texts: DrawnText[] = (drawings?.texts ?? []).map(t => ({ fontSize: 18, border: 'solid', ...(t as Partial<DrawnText>) } as DrawnText));
       set({
         candles, cursor: 0, isLoaded: true,
         isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,

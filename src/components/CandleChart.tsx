@@ -687,11 +687,12 @@ export function CandleChart() {
 
     // ── テキストの直接編集中の状態 ─────────────────────────────────────
     // TradingView同様window.prompt()を使わず、DOM要素自体をcontentEditableにして
-    // その場で直接入力させる。新規配置中はまだstoreに存在しない仮のDOM要素を編集し、
-    // 確定（他をクリックしてblur、Escapeなら破棄）した時だけaddTextでstoreに反映する
-    // （空文字なら何もしない）。Enterキーは確定ではなく改行に使う。
-    // 既存テキストの編集は、そのテキストの実体であるDOM要素をそのまま編集モードにする
-    let editingText: { mode: 'new'; time: number; price: number } | { mode: 'edit'; id: number } | null = null;
+    // その場で直接入力させる。新規配置も既存編集も同じ経路: 新規配置は空文字の
+    // DrawnTextをまず作ってしまい（addTextが選択状態にするので、パレットモードも
+    // 自動でONになり「編集モード」に入る）、その実体をそのままcontentEditableにする。
+    // 確定（blur）時に空文字のままなら削除、既存テキスト編集中のEscapeは元の内容の
+    // まま（storeはまだ書き換えていない）表示に戻すだけ
+    let editingTextId: number | null = null;
     let editingTextEl: HTMLDivElement | null = null;
 
     // ── テキストボックスの位置を再計算してDOMに反映 ──────────────────────
@@ -712,7 +713,7 @@ export function CandleChart() {
 
       for (const t of currentTexts) {
         // 編集中の実体には触らない（ここで内容を上書きすると入力中の文字が消える）
-        if (editingText?.mode === 'edit' && editingText.id === t.id) continue;
+        if (editingTextId === t.id) continue;
         let el = existing.get(t.id);
         if (!el) {
           el = document.createElement('div');
@@ -764,37 +765,36 @@ export function CandleChart() {
     };
 
     const finishTextEdit = () => {
-      const editing = editingText;
+      const id = editingTextId;
       const el = editingTextEl;
-      if (!editing || !el) return;
-      editingText = null;
+      if (id === null || !el) return;
+      editingTextId = null;
       editingTextEl = null;
       el.removeEventListener('keydown', onTextEditKeyDown);
       el.removeEventListener('blur', finishTextEdit);
       el.contentEditable = 'false';
       el.style.pointerEvents = 'none';
       const content = (el.textContent || '').trim();
-      if (editing.mode === 'new') {
-        el.remove();
-        if (content !== '') useTraderStore.getState().addText(editing.time, editing.price, content);
-      } else {
-        if (content === '') useTraderStore.getState().removeText(editing.id);
-        else useTraderStore.getState().updateText(editing.id, { text: content });
-      }
+      if (content === '') useTraderStore.getState().removeText(id);
+      else useTraderStore.getState().updateText(id, { text: content });
     };
 
     function cancelTextEdit() {
-      const editing = editingText;
+      const id = editingTextId;
       const el = editingTextEl;
-      if (!editing || !el) return;
-      editingText = null;
+      if (id === null || !el) return;
+      editingTextId = null;
       editingTextEl = null;
       el.removeEventListener('keydown', onTextEditKeyDown);
       el.removeEventListener('blur', finishTextEdit);
       el.contentEditable = 'false';
       el.style.pointerEvents = 'none';
-      if (editing.mode === 'new') el.remove();
-      else syncTexts(); // 元のテキストに戻す
+      // 新規配置直後（まだ何も確定しておらず空文字のまま）でのEscapeは配置自体を取り消す。
+      // 既存テキスト編集中のEscapeは、storeをまだ書き換えていないので再描画するだけで元に戻る
+      const { texts: currentTexts } = useTraderStore.getState();
+      const t = currentTexts.find(tt => tt.id === id);
+      if (t && t.text === '') useTraderStore.getState().removeText(id);
+      else syncTexts();
     }
 
     const startEditingEl = (el: HTMLDivElement) => {
@@ -813,38 +813,24 @@ export function CandleChart() {
       sel?.addRange(range);
     };
 
-    // 新規配置: まだstoreには存在しない仮のDOM要素をその場で編集させる
-    const beginNewTextEdit = (x: number, y: number, time: number, price: number) => {
-      if (!textOverlayRef.current) return;
-      const el = document.createElement('div');
-      el.style.position = 'absolute';
-      el.style.left = `${x}px`;
-      el.style.top = `${y}px`;
-      el.style.whiteSpace = 'pre';
-      el.style.fontFamily = CHART_FONT_FAMILY;
-      el.style.padding = '2px 4px';
-      el.style.borderRadius = '2px';
-      el.style.minWidth = '1em';
-      const { textDraft } = useTraderStore.getState();
-      el.style.fontSize = `${textDraft.fontSize}px`;
-      el.style.color = textDraft.color;
-      // 編集中は「編集モード中」を示す青い破線で統一する（textDraft.borderが枠なしでも、
-      // 入力中はどこに文字が入るか見えないと使いにくいため）。確定後はsyncTextsが本来の枠に描き直す
-      el.style.border = '1px dashed #42a5f5';
-      el.style.backgroundColor = 'rgba(66,165,245,0.12)';
-      textOverlayRef.current.appendChild(el);
-      editingText = { mode: 'new', time, price };
-      editingTextEl = el;
-      startEditingEl(el);
-    };
-
     // 既存テキストの編集: その実体であるDOM要素をそのまま編集モードにする
     const beginEditExistingText = (id: number) => {
       const el = textElsRef.current.get(id);
       if (!el) return;
-      editingText = { mode: 'edit', id };
+      editingTextId = id;
       editingTextEl = el;
       startEditingEl(el);
+    };
+
+    // 新規配置: 空文字のDrawnTextをまず追加する（addTextが末尾でselectLineを呼ぶため、
+    // 配置と同時に選択状態＝編集モードに入りパレットモードも自動でONになる）。
+    // 続けてsyncTextsをその場で呼び、Reactの再描画を待たずに対応するDOM要素を
+    // すぐ作らせてから編集モードに入る（フォーカスするには実体が要るため）
+    const beginNewTextEdit = (time: number, price: number) => {
+      useTraderStore.getState().addText(time, price, '');
+      syncTexts();
+      const newId = useTraderStore.getState().nextTextId - 1;
+      beginEditExistingText(newId);
     };
 
     // ── 週区切り線の位置を再計算して DOM に反映（控えめなドット線、固定スタイル） ──
@@ -1096,10 +1082,9 @@ export function CandleChart() {
         const time = chartRef.current.timeScale().coordinateToTime(param.point.x);
         const price = seriesRef.current.coordinateToPrice(param.point.y);
         if (time === null || price === null) return;
-        // 水平線・垂直線と同じく1回配置したらツールは解除する。実際の配置は
-        // その場でcontentEditableの入力ボックスを出し、確定するまではstoreに何も足さない
-        useTraderStore.setState({ isDrawingText: false });
-        beginNewTextEdit(param.point.x, param.point.y, time as number, price);
+        // 水平線・垂直線と同じく1回配置したらツールは解除する（addText自身が行う）。
+        // 配置と同時にその場でcontentEditableの入力ボックスに切り替え、直接入力させる
+        beginNewTextEdit(time as number, price);
       }
     });
 
@@ -1570,7 +1555,7 @@ export function CandleChart() {
       // テキストの直接編集中（contentEditable）は、その中でのクリックはカーソル移動・
       // 範囲選択などブラウザ標準のテキスト編集操作に委ね、こちらの図形ドラッグ判定は行わない
       // （行うと編集中のテキストボックスが意図せず動いてしまう）
-      if (editingText !== null) return;
+      if (editingTextId !== null) return;
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -2237,7 +2222,7 @@ export function CandleChart() {
     // テキストボックスのダブルクリックで内容を編集する（削除は選択してDelete/Backspaceキー、
     // 編集中に全部消してblurすると削除扱いになる（Escapeは編集前の状態に戻すだけ）
     const onDblClick = (e: MouseEvent) => {
-      if (editingText !== null) return;
+      if (editingTextId !== null) return;
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
