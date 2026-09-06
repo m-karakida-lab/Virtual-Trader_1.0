@@ -386,7 +386,6 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
           el.style.position = 'absolute';
           el.style.pointerEvents = 'none';
           el.style.whiteSpace = 'pre';
-          el.style.fontSize = '11px';
           el.style.fontFamily = CHART_FONT_FAMILY;
           el.style.padding = '1px 3px';
           overlay.appendChild(el);
@@ -398,7 +397,9 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         el.style.display = 'block';
         el.style.left = `${x}px`;
         el.style.top = `${y}px`;
+        el.style.fontSize = `${t.fontSize}px`;
         el.style.color = t.color;
+        el.style.border = t.border === 'none' ? '1px solid transparent' : `1px ${DASH_TO_CSS[t.border]} ${t.color}`;
         el.textContent = t.text;
       }
     };

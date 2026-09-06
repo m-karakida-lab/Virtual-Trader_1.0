@@ -1,10 +1,14 @@
 import { useRef, useState, useEffect } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import { LINE_COLORS, type LineDash, type LineWidth } from '../types';
+import { LINE_COLORS, TEXT_FONT_SIZES, type LineDash, type LineWidth, type TextFontSize, type TextBorderStyle } from '../types';
 
 const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
 const DASH_OPTIONS: { v: LineDash; label: string }[] = [
   { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
+];
+const FONT_SIZE_LABELS: Record<TextFontSize, string> = { 11: 'S', 14: 'M', 18: 'L', 24: 'XL' };
+const TEXT_BORDER_OPTIONS: { v: TextBorderStyle; label: string }[] = [
+  { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' }, { v: 'none', label: '枠なし' },
 ];
 
 // パレットモード中だけ表示する常設フローティングウィンドウ。ここで選んだ色・線種・太さは
@@ -15,6 +19,8 @@ export function PalettePanel() {
   const paletteStyle = useTraderStore(s => s.paletteStyle);
   const setPaletteStyle = useTraderStore(s => s.setPaletteStyle);
   const chartRightMargin  = useTraderStore(s => s.chartRightMargin);
+  const selected = useTraderStore(s => s.selected);
+  const isText = selected?.kind === 'text';
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; el: HTMLDivElement } | null>(null);
@@ -87,34 +93,69 @@ export function PalettePanel() {
           />
         ))}
       </div>
-      <div style={{ display: 'flex', gap: '3px' }}>
-        {DASH_OPTIONS.map(d => (
-          <button
-            key={d.v}
-            onClick={() => setPaletteStyle({ dash: d.v })}
-            style={{
-              backgroundColor: paletteStyle.dash === d.v ? '#2a2a2a' : '#161616',
-              color: paletteStyle.dash === d.v ? '#e0e0e0' : '#666',
-              border: paletteStyle.dash === d.v ? '1px solid #3a3a3a' : '1px solid #222',
-              borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-            }}
-          >{d.label}</button>
-        ))}
-      </div>
-      <div style={{ display: 'flex', gap: '3px' }}>
-        {WIDTH_OPTIONS.map(w => (
-          <button
-            key={w}
-            onClick={() => setPaletteStyle({ width: w })}
-            style={{
-              backgroundColor: paletteStyle.width === w ? '#2a2a2a' : '#161616',
-              color: paletteStyle.width === w ? '#e0e0e0' : '#666',
-              border: paletteStyle.width === w ? '2px solid #42a5f5' : '1px solid #222',
-              borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-            }}
-          >{w}px</button>
-        ))}
-      </div>
+      {isText ? (
+        <>
+          <div style={{ display: 'flex', gap: '3px' }}>
+            {TEXT_FONT_SIZES.map(sz => (
+              <button
+                key={sz}
+                onClick={() => setPaletteStyle({ fontSize: sz })}
+                style={{
+                  backgroundColor: paletteStyle.fontSize === sz ? '#2a2a2a' : '#161616',
+                  color: paletteStyle.fontSize === sz ? '#e0e0e0' : '#666',
+                  border: paletteStyle.fontSize === sz ? '2px solid #42a5f5' : '1px solid #222',
+                  borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                }}
+              >{FONT_SIZE_LABELS[sz]}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '3px' }}>
+            {TEXT_BORDER_OPTIONS.map(b => (
+              <button
+                key={b.v}
+                onClick={() => setPaletteStyle({ border: b.v })}
+                style={{
+                  backgroundColor: paletteStyle.border === b.v ? '#2a2a2a' : '#161616',
+                  color: paletteStyle.border === b.v ? '#e0e0e0' : '#666',
+                  border: paletteStyle.border === b.v ? '1px solid #3a3a3a' : '1px solid #222',
+                  borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                }}
+              >{b.label}</button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <>
+          <div style={{ display: 'flex', gap: '3px' }}>
+            {DASH_OPTIONS.map(d => (
+              <button
+                key={d.v}
+                onClick={() => setPaletteStyle({ dash: d.v })}
+                style={{
+                  backgroundColor: paletteStyle.dash === d.v ? '#2a2a2a' : '#161616',
+                  color: paletteStyle.dash === d.v ? '#e0e0e0' : '#666',
+                  border: paletteStyle.dash === d.v ? '1px solid #3a3a3a' : '1px solid #222',
+                  borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                }}
+              >{d.label}</button>
+            ))}
+          </div>
+          <div style={{ display: 'flex', gap: '3px' }}>
+            {WIDTH_OPTIONS.map(w => (
+              <button
+                key={w}
+                onClick={() => setPaletteStyle({ width: w })}
+                style={{
+                  backgroundColor: paletteStyle.width === w ? '#2a2a2a' : '#161616',
+                  color: paletteStyle.width === w ? '#e0e0e0' : '#666',
+                  border: paletteStyle.width === w ? '2px solid #42a5f5' : '1px solid #222',
+                  borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                }}
+              >{w}px</button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }

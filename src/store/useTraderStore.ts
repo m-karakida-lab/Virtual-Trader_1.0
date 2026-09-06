@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, DrawnText, LineDash, LineWidth, LineSelection, MagnetMode } from '../types';
+import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, DrawnText, LineDash, LineWidth, LineSelection, MagnetMode, TextFontSize, TextBorderStyle } from '../types';
 import { LINE_COLORS, TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
@@ -178,11 +178,12 @@ interface TraderState {
   selected: LineSelection | null; // 水平線・垂直線・四角形・テキストのいずれか選択中の1つ
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
   rectDraft: { color: string; dash: LineDash; width: LineWidth };
-  textDraft: { color: string };
-  // パレットモード: ONの間、水平線・垂直線・四角形をクリックして選択（編集モード）に
-  // 入れるたびpaletteStyleの色・線種・太さをその図形へ即座に反映する（一括塗り替え用）
+  textDraft: { color: string; fontSize: TextFontSize; border: TextBorderStyle };
+  // パレットモード: ONの間、水平線・垂直線・四角形・テキストをクリックして選択（編集モード）に
+  // 入れるたびpaletteStyleの内容をその図形へ即座に反映する（一括塗り替え用）。
+  // dash/widthは水平線・垂直線・四角形、fontSize/borderはテキスト専用（互いに無視し合う）
   paletteMode: boolean;
-  paletteStyle: { color: string; dash: LineDash; width: LineWidth };
+  paletteStyle: { color: string; dash: LineDash; width: LineWidth; fontSize: TextFontSize; border: TextBorderStyle };
   showEMA: boolean;
   showSMA: boolean;
   showBB: boolean;
@@ -259,7 +260,7 @@ interface TraderState {
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
   selectLine: (target: LineSelection | null) => void;
-  setPaletteStyle: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
+  setPaletteStyle: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth; fontSize: TextFontSize; border: TextBorderStyle }>) => void;
   toggleEMA: () => void;
   toggleSMA: () => void;
   toggleBB: () => void;
@@ -355,32 +356,33 @@ function pushDrawHistory(get: () => TraderState, set: (fn: (s: TraderState) => P
 // パレットモード中に、選択中の図形へ現在のpaletteStyleを書き込む（色・線種・太さ）。
 // パレット側の設定を変えた時（setPaletteStyle）から呼ばれる。
 // 「選択しただけ」では図形側は変えない（syncPaletteStyleFromと役割が逆）。
-// テキストは線種・太さを持たないため色だけ反映する
+// テキストは線種・太さの代わりに文字サイズ・枠線スタイルを持つ
 function applyPaletteStyleTo(get: () => TraderState, target: LineSelection): void {
   const { paletteStyle } = get();
   if (target.kind === 'h') get().updateLine(target.id, paletteStyle);
   else if (target.kind === 'v') get().updateVLine(target.id, paletteStyle);
   else if (target.kind === 'rect') get().updateRect(target.id, paletteStyle);
-  else get().updateText(target.id, { color: paletteStyle.color });
+  else get().updateText(target.id, { color: paletteStyle.color, fontSize: paletteStyle.fontSize, border: paletteStyle.border });
 }
 
 // パレットモードで図形を選択（編集モードに入る）した時に、その図形の現在のスタイルを
 // パレット側へ取り込む（選択しただけで図形の見た目が変わらないように）。
-// テキストは色だけ取り込み、線種・太さは直前の値を維持する（テキストには適用されないため）
+// テキストは色・文字サイズ・枠線スタイルを取り込み、線種・太さは直前の値を維持する
+// （水平線・垂直線・四角形にしか適用されないため）
 function syncPaletteStyleFrom(set: (fn: (s: TraderState) => Partial<TraderState>) => void, get: () => TraderState, target: LineSelection): void {
   const s = get();
   if (target.kind === 'h') {
     const line = s.lines.find(l => l.id === target.id);
-    if (line) set(() => ({ paletteStyle: { color: line.color, dash: line.dash, width: line.width } }));
+    if (line) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: line.color, dash: line.dash, width: line.width } }));
   } else if (target.kind === 'v') {
     const v = s.vlines.find(vv => vv.id === target.id);
-    if (v) set(() => ({ paletteStyle: { color: v.color, dash: v.dash, width: v.width } }));
+    if (v) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: v.color, dash: v.dash, width: v.width } }));
   } else if (target.kind === 'rect') {
     const r = s.rects.find(rr => rr.id === target.id);
-    if (r) set(() => ({ paletteStyle: { color: r.color, dash: r.dash, width: r.width } }));
+    if (r) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: r.color, dash: r.dash, width: r.width } }));
   } else {
     const t = s.texts.find(tt => tt.id === target.id);
-    if (t) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: t.color } }));
+    if (t) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: t.color, fontSize: t.fontSize, border: t.border } }));
   }
 }
 
@@ -434,9 +436,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   selected: null,
   lineDraft: { color: '#e0e0e0', dash: 'solid', width: 2 },
   rectDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 }, // パレットにある青（#42a5f5）
-  textDraft: { color: '#e0e0e0' },
+  textDraft: { color: '#e0e0e0', fontSize: 14, border: 'solid' },
   paletteMode: false,
-  paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2 },
+  paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2, fontSize: 14, border: 'solid' },
   showEMA: false,
   showSMA: true,
   showBB: true,
@@ -487,6 +489,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       // ユーザーが初期残高を手動で変更していなければ、クオート通貨に応じたデフォルトに合わせる
       const newInitialBalance = isInitialBalanceCustom ? initialBalance : defaultBalanceFor(quoteCurrency);
       const nextIdOf = (arr: { id: number }[]): number => arr.reduce((m, x) => Math.max(m, x.id), 0) + 1;
+      // fontSize/borderは文字サイズ・枠線カスタマイズ追加より前に保存されたvtdファイルには
+      // 存在しないため、無い場合だけデフォルト値で補う
+      const texts: DrawnText[] = (drawings?.texts ?? []).map(t => ({ fontSize: 14, border: 'solid', ...(t as Partial<DrawnText>) } as DrawnText));
       set({
         candles, cursor: 0, isLoaded: true,
         isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,
@@ -497,7 +502,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         lines: drawings?.lines ?? [], nextLineId: nextIdOf(drawings?.lines ?? []),
         vlines: drawings?.vlines ?? [], nextVLineId: nextIdOf(drawings?.vlines ?? []),
         rects: drawings?.rects ?? [], nextRectId: nextIdOf(drawings?.rects ?? []),
-        texts: drawings?.texts ?? [], nextTextId: nextIdOf(drawings?.texts ?? []),
+        texts, nextTextId: nextIdOf(texts),
         selected: null, drawHistory: [],
         quoteCurrency, symbol,
         rawCsvText,

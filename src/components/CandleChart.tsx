@@ -630,7 +630,6 @@ export function CandleChart() {
           el.style.position = 'absolute';
           el.style.pointerEvents = 'none';
           el.style.whiteSpace = 'pre';
-          el.style.fontSize = '14px';
           el.style.fontFamily = CHART_FONT_FAMILY;
           el.style.padding = '2px 4px';
           el.style.borderRadius = '2px';
@@ -643,11 +642,15 @@ export function CandleChart() {
         el.style.display = 'block';
         el.style.left = `${x}px`;
         el.style.top = `${y}px`;
+        el.style.fontSize = `${t.fontSize}px`;
         el.style.color = t.color;
         el.textContent = t.text;
+        // 選択中は枠線自体を変えず（テキストの実際の枠設定を上書きしない）、box-shadowで
+        // 選択リングを重ねるだけにする（四角形と違いハンドルを持たないため唯一の選択表示）
         const isSelected = t.id === selectedTextId;
-        el.style.border = isSelected ? '1px dashed #42a5f5' : '1px solid transparent';
+        el.style.border = t.border === 'none' ? '1px solid transparent' : `1px ${DASH_TO_CSS[t.border]} ${t.color}`;
         el.style.backgroundColor = isSelected ? 'rgba(66,165,245,0.12)' : 'transparent';
+        el.style.boxShadow = isSelected ? '0 0 0 1px #42a5f5' : 'none';
       }
     };
     syncTextsRef.current = syncTexts;
@@ -725,12 +728,15 @@ export function CandleChart() {
       el.style.left = `${x}px`;
       el.style.top = `${y}px`;
       el.style.whiteSpace = 'pre';
-      el.style.fontSize = '14px';
       el.style.fontFamily = CHART_FONT_FAMILY;
       el.style.padding = '2px 4px';
       el.style.borderRadius = '2px';
       el.style.minWidth = '1em';
-      el.style.color = useTraderStore.getState().textDraft.color;
+      const { textDraft } = useTraderStore.getState();
+      el.style.fontSize = `${textDraft.fontSize}px`;
+      el.style.color = textDraft.color;
+      // 編集中は「編集モード中」を示す青い破線で統一する（textDraft.borderが枠なしでも、
+      // 入力中はどこに文字が入るか見えないと使いにくいため）。確定後はsyncTextsが本来の枠に描き直す
       el.style.border = '1px dashed #42a5f5';
       el.style.backgroundColor = 'rgba(66,165,245,0.12)';
       textOverlayRef.current.appendChild(el);

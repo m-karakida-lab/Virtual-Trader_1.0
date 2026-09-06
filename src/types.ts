@@ -101,12 +101,22 @@ export interface DrawnRect {
 
 // ── テキストボックス ─────────────────────────────────────────────────────
 
+// 文字サイズは4段階固定（px値そのものを持つ。S/M/L/XL相当）
+export type TextFontSize = 11 | 14 | 18 | 24;
+export const TEXT_FONT_SIZES: TextFontSize[] = [11, 14, 18, 24];
+
+// テキストボックスの枠線。線種（水平線・垂直線・四角形と共通のLineDash）に加えて
+// 「枠無し」を選べる（水平線・垂直線・四角形にはこの選択肢は無い）
+export type TextBorderStyle = LineDash | 'none';
+
 export interface DrawnText {
   id: number;
   time: number; // Unix秒（UTC）。テキストの左上のアンカー位置
   price: number;
   text: string;
   color: string;
+  fontSize: TextFontSize;
+  border: TextBorderStyle;
 }
 
 // 水平線・垂直線・四角形・テキストを問わず「選択中の1つ」を表す
