@@ -434,7 +434,14 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         ctx.lineJoin = 'round';
         ctx.beginPath();
         ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-        for (let i = 1; i < pixelPoints.length; i++) ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+        // CandleChart側と同じ2次ベジェによる手書き線平滑化（詳細はそちらのコメント参照）
+        for (let i = 1; i < pixelPoints.length - 1; i++) {
+          const midX = (pixelPoints[i].x + pixelPoints[i + 1].x) / 2;
+          const midY = (pixelPoints[i].y + pixelPoints[i + 1].y) / 2;
+          ctx.quadraticCurveTo(pixelPoints[i].x, pixelPoints[i].y, midX, midY);
+        }
+        const last = pixelPoints[pixelPoints.length - 1];
+        ctx.lineTo(last.x, last.y);
         ctx.stroke();
         ctx.restore();
       }

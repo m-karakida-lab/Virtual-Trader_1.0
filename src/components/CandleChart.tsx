@@ -715,7 +715,16 @@ export function CandleChart() {
       ctx.lineJoin = 'round';
       ctx.beginPath();
       ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-      for (let i = 1; i < pixelPoints.length; i++) ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+      // 隣接点同士をただの直線（lineTo）で繋ぐと、点の間隔が粗い時にカクカクした
+      // 多角形に見えてしまう。各点をコントロールポイントに、次の点との中点までを
+      // 2次ベジェで繋ぐ定番の手書き線平滑化（各セグメントの継ぎ目で接線が連続になる）
+      for (let i = 1; i < pixelPoints.length - 1; i++) {
+        const midX = (pixelPoints[i].x + pixelPoints[i + 1].x) / 2;
+        const midY = (pixelPoints[i].y + pixelPoints[i + 1].y) / 2;
+        ctx.quadraticCurveTo(pixelPoints[i].x, pixelPoints[i].y, midX, midY);
+      }
+      const last = pixelPoints[pixelPoints.length - 1];
+      ctx.lineTo(last.x, last.y);
       ctx.stroke();
       if (selected) {
         // 選択リング: 始点・終点に小さな円（フリーハンドは端点が無数にあるため、
@@ -1190,13 +1199,17 @@ export function CandleChart() {
     let pendingTrendLineEnd: { x: number; y: number; price: number } | null = null;
 
     // ── ブラシ（ドラッグで自由に描画） ──────────────────────────────
-    // 記録する点数はrAFで間引く（draggingTrendEndpoint等と同じ「1フレームにつき
-    // 最新の1点だけ採用する」パターンをそのまま流用し、マウスの生イベント頻度より
-    // 粗い間隔で点を積む。これをしないと1本のブラシが数百〜数千点になりファイル
-    // サイズ・描画負荷が肥大化する）
+    // 点は毎mousemoveイベントで（他のドラッグ系のような1フレーム1点のrAF間引きは
+    // 使わず）逐一記録する。フレーム単位で間引くと、速く動かした時にこそ点が
+    // 粗くなり、直線を無理やり2次ベジェで滑らかに見せても元の点自体が少なすぎて
+    // カクカクした多角形に見えてしまう（実際にそう見えると指摘を受けた）。
+    // 代わりにピクセル距離基準（BRUSH_MIN_PXより動いた時だけ記録）で間引くことで、
+    // 速いドラッグほど自然に多くの点が入り、遅いドラッグでの無駄な点の肥大化も防ぐ。
+    // 描画（canvas再描画）自体は重いのでrAFで間引く（記録とは別軸）
+    const BRUSH_MIN_PX = 2;
     let brushDrawing = false;
     let brushPoints: { time: number; price: number }[] = [];
-    let pendingBrushPoint: { time: number; price: number } | null = null;
+    let lastBrushPx: { x: number; y: number } | null = null;
 
     // ── ものさし（ドラッグで価格差・本数・期間を計測） ──────────────
     let measuringDrag = false;
@@ -1717,6 +1730,7 @@ export function CandleChart() {
         if (price === null || time === null) return;
         brushDrawing = true;
         brushPoints = [{ time, price }];
+        lastBrushPx = { x, y };
         chart.applyOptions({ handleScroll: false, handleScale: false });
         newBrushDraft = brushPoints;
         syncBrushes();
@@ -1904,17 +1918,20 @@ export function CandleChart() {
 
       if (brushDrawing) {
         if (!seriesRef.current) return;
+        // 点の記録自体はここで即座に行う（rAFで間引かない。理由は冒頭のlet宣言を参照）。
+        // ピクセル距離がBRUSH_MIN_PX未満ならまだ記録しない
+        if (lastBrushPx && Math.hypot(x - lastBrushPx.x, y - lastBrushPx.y) < BRUSH_MIN_PX) return;
         const price = seriesRef.current.coordinateToPrice(y);
         const time = pixelToTime(x);
         if (price === null || time === null) return;
-        pendingBrushPoint = { time, price };
+        brushPoints = [...brushPoints, { time, price }];
+        lastBrushPx = { x, y };
+        newBrushDraft = brushPoints;
+        // 重いのはcanvas再描画の方なので、そちらだけrAFで間引く
         if (!rafScheduled) {
           rafScheduled = true;
           requestAnimationFrame(() => {
             rafScheduled = false;
-            if (!brushDrawing || pendingBrushPoint === null) return;
-            brushPoints = [...brushPoints, pendingBrushPoint];
-            newBrushDraft = brushPoints;
             syncBrushes();
           });
         }
@@ -2283,7 +2300,7 @@ export function CandleChart() {
         }
         syncBrushes(); // ドラフトのクリア
         brushPoints = [];
-        pendingBrushPoint = null;
+        lastBrushPx = null;
         return;
       }
       if (measuringDrag) {
