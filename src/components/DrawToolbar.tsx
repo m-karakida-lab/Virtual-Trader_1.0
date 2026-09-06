@@ -44,6 +44,11 @@ const ICONS: Record<string, JSX.Element> = {
       <circle cx="20" cy="6" r="2" fill="currentColor" stroke="none" />
     </svg>
   ),
+  brush: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M4 18c0-4 3-7 6-7s3 2 2 4-3 3-4 1c-1-2 1-5 4-7 3-2 6-2 7 0" />
+    </svg>
+  ),
   text: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
       <path d="M5 6h14M12 6v13" strokeLinecap="round" />
@@ -161,12 +166,14 @@ export function DrawToolbar() {
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
   const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
+  const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText  = useTraderStore(s => s.isDrawingText);
   const toggleDrawLine  = useTraderStore(s => s.toggleDrawLine);
   const toggleDrawVLine = useTraderStore(s => s.toggleDrawVLine);
   const toggleMeasure   = useTraderStore(s => s.toggleMeasure);
   const toggleDrawRect  = useTraderStore(s => s.toggleDrawRect);
   const toggleDrawTrendLine = useTraderStore(s => s.toggleDrawTrendLine);
+  const toggleDrawBrush = useTraderStore(s => s.toggleDrawBrush);
   const toggleDrawText  = useTraderStore(s => s.toggleDrawText);
   const magnetMode      = useTraderStore(s => s.magnetMode);
   const toggleMagnet    = useTraderStore(s => s.toggleMagnet);
@@ -178,6 +185,7 @@ export function DrawToolbar() {
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />
       <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
       <ToolButton icon="trend" title="トレンドライン" active={isDrawingTrendLine} disabled={!isLoaded} onClick={toggleDrawTrendLine} />
+      <ToolButton icon="brush" title="ブラシ" active={isDrawingBrush} disabled={!isLoaded} onClick={toggleDrawBrush} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <div style={{ display: 'flex', alignItems: 'center' }}>

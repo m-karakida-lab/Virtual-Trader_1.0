@@ -111,6 +111,18 @@ export interface DrawnTrendLine {
   width: LineWidth;
 }
 
+// ── ブラシ（フリーハンド） ───────────────────────────────────────────────
+
+// TradingViewの「ブラシ」相当。ドラッグの軌跡をそのまま点列として持つ
+// （2点だけの図形と違い、なめらかさに応じて点数が増減する）。線種の概念は無く
+// （フリーハンドの線に破線/点線は馴染まない）、色と太さだけ持つ
+export interface DrawnBrush {
+  id: number;
+  points: { time: number; price: number }[];
+  color: string;
+  width: LineWidth;
+}
+
 // ── テキストボックス ─────────────────────────────────────────────────────
 
 // 文字サイズは4段階固定（px値そのものを持つ。S/M/L/XL相当）
@@ -131,5 +143,5 @@ export interface DrawnText {
   border: TextBorderStyle;
 }
 
-// 水平線・垂直線・四角形・トレンドライン・テキストを問わず「選択中の1つ」を表す
-export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'text'; id: number };
+// 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストを問わず「選択中の1つ」を表す
+export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'brush' | 'text'; id: number };

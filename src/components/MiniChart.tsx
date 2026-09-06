@@ -52,6 +52,8 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const syncRectsRef = useRef<() => void>(() => {});
   const trendCanvasRef = useRef<HTMLCanvasElement>(null);
   const syncTrendLinesRef = useRef<() => void>(() => {});
+  const brushCanvasRef = useRef<HTMLCanvasElement>(null);
+  const syncBrushesRef = useRef<() => void>(() => {});
   const textOverlayRef = useRef<HTMLDivElement>(null);
   const textElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
   const syncTextsRef = useRef<() => void>(() => {});
@@ -76,6 +78,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   const vlines = useTraderStore(s => s.vlines);
   const rects = useTraderStore(s => s.rects);
   const trendLines = useTraderStore(s => s.trendLines);
+  const brushes = useTraderStore(s => s.brushes);
   const texts = useTraderStore(s => s.texts);
   const mySourceId = String(slot);
   // メインの現在足が閉じた時点（=これより先の情報は「未来」として隠す境界）
@@ -403,6 +406,41 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     };
     syncTrendLinesRef.current = syncTrendLines;
 
+    // ブラシ（フリーハンド）を canvas に再描画（表示専用、ドラッグ操作なし）
+    const syncBrushes = () => {
+      const canvas = brushCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      ctx.clearRect(0, 0, w, h);
+
+      const { brushes: currentBrushes } = useTraderStore.getState();
+      for (const b of currentBrushes) {
+        const pixelPoints: { x: number; y: number }[] = [];
+        for (const p of b.points) {
+          const x = timeToX(p.time);
+          const y = seriesRef.current.priceToCoordinate(p.price);
+          if (x === null || y === null) continue;
+          pixelPoints.push({ x, y });
+        }
+        if (pixelPoints.length < 2) continue;
+        ctx.save();
+        ctx.strokeStyle = b.color;
+        ctx.lineWidth = b.width;
+        ctx.lineCap = 'round';
+        ctx.lineJoin = 'round';
+        ctx.beginPath();
+        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+        for (let i = 1; i < pixelPoints.length; i++) ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+        ctx.stroke();
+        ctx.restore();
+      }
+    };
+    syncBrushesRef.current = syncBrushes;
+
     // テキストボックスの位置を再計算してDOMに反映（表示専用、ドラッグ操作なし）
     const syncTexts = () => {
       if (!chartRef.current || !seriesRef.current || !textOverlayRef.current) return;
@@ -448,6 +486,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncVLines();
       syncRects();
       syncTrendLines();
+      syncBrushes();
       syncTexts();
     });
     ro.observe(container);
@@ -460,6 +499,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncVLines();
       syncRects();
       syncTrendLines();
+      syncBrushes();
       syncTexts();
       if (saveViewTimer !== undefined) window.clearTimeout(saveViewTimer);
       saveViewTimer = window.setTimeout(() => {
@@ -530,6 +570,10 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
   useEffect(() => {
     syncTrendLinesRef.current();
   }, [trendLines]);
+
+  useEffect(() => {
+    syncBrushesRef.current();
+  }, [brushes]);
 
   useEffect(() => {
     syncTextsRef.current();
@@ -643,6 +687,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncBrushesRef.current();
       syncTextsRef.current();
     }
 
@@ -656,6 +701,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncBrushesRef.current();
       syncTextsRef.current();
     });
     return () => cancelAnimationFrame(raf);
@@ -692,6 +738,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
       <div ref={rectOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
       <canvas ref={trendCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 9 }} />
+      <canvas ref={brushCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 9 }} />
       <div ref={textOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={vlineOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />

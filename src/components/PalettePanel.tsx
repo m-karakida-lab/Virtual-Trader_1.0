@@ -20,6 +20,7 @@ export function PalettePanel() {
   const chartRightMargin  = useTraderStore(s => s.chartRightMargin);
   const selected = useTraderStore(s => s.selected);
   const isText = selected?.kind === 'text';
+  const isBrush = selected?.kind === 'brush';
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; el: HTMLDivElement } | null>(null);
@@ -123,6 +124,21 @@ export function PalettePanel() {
             ))}
           </div>
         </>
+      ) : isBrush ? (
+        <div style={{ display: 'flex', gap: '3px' }}>
+          {WIDTH_OPTIONS.map(w => (
+            <button
+              key={w}
+              onClick={() => setPaletteStyle({ width: w })}
+              style={{
+                backgroundColor: paletteStyle.width === w ? '#2a2a2a' : '#161616',
+                color: paletteStyle.width === w ? '#e0e0e0' : '#666',
+                border: paletteStyle.width === w ? '2px solid #42a5f5' : '1px solid #222',
+                borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+              }}
+            >{w}px</button>
+          ))}
+        </div>
       ) : (
         <>
           <div style={{ display: 'flex', gap: '3px' }}>

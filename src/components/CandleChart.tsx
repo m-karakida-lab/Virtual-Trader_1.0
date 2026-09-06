@@ -181,6 +181,8 @@ export function CandleChart() {
   const rectDraftBoxRef = useRef<HTMLDivElement>(null);
   const trendCanvasRef = useRef<HTMLCanvasElement>(null);
   const syncTrendLinesRef = useRef<() => void>(() => {});
+  const brushCanvasRef = useRef<HTMLCanvasElement>(null);
+  const syncBrushesRef = useRef<() => void>(() => {});
   const textOverlayRef = useRef<HTMLDivElement>(null);
   const textElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
   const syncTextsRef = useRef<() => void>(() => {});
@@ -211,6 +213,7 @@ export function CandleChart() {
   const vlines    = useTraderStore(s => s.vlines);
   const rects     = useTraderStore(s => s.rects);
   const trendLines = useTraderStore(s => s.trendLines);
+  const brushes   = useTraderStore(s => s.brushes);
   const texts     = useTraderStore(s => s.texts);
   const selected  = useTraderStore(s => s.selected);
   const isDrawingLine  = useTraderStore(s => s.isDrawingLine);
@@ -218,6 +221,7 @@ export function CandleChart() {
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
   const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
+  const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText  = useTraderStore(s => s.isDrawingText);
   const pickTarget     = useTraderStore(s => s.pickTarget);
   const orderType      = useTraderStore(s => s.orderType);
@@ -685,6 +689,81 @@ export function CandleChart() {
     syncTrendLinesRef.current = syncTrendLines;
     syncTrendLines();
 
+    // ── ブラシ（フリーハンド、TradingViewの「ブラシ」相当） ────────────────
+    // トレンドラインと同じcanvas方式だが、2点ではなくドラッグの軌跡をそのまま
+    // 点列として繋いで描く。線種の概念は無い（フリーハンドに破線/点線は馴染まない）
+    const drawBrushStroke = (
+      points: { time: number; price: number }[],
+      color: string, width: number, selected: boolean,
+    ) => {
+      if (!seriesRef.current || points.length < 2) return;
+      const canvas = brushCanvasRef.current;
+      const ctx = canvas?.getContext('2d');
+      if (!ctx) return;
+      const pixelPoints: { x: number; y: number }[] = [];
+      for (const p of points) {
+        const x = timeToX(p.time);
+        const y = seriesRef.current.priceToCoordinate(p.price);
+        if (x === null || y === null) continue;
+        pixelPoints.push({ x, y });
+      }
+      if (pixelPoints.length < 2) return;
+      ctx.save();
+      ctx.strokeStyle = color;
+      ctx.lineWidth = width;
+      ctx.lineCap = 'round';
+      ctx.lineJoin = 'round';
+      ctx.beginPath();
+      ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+      for (let i = 1; i < pixelPoints.length; i++) ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+      ctx.stroke();
+      if (selected) {
+        // 選択リング: 始点・終点に小さな円（フリーハンドは端点が無数にあるため、
+        // トレンドラインの端点ハンドルのような編集用ハンドルではなく単なる選択の目印）
+        ctx.fillStyle = '#42a5f5';
+        ctx.strokeStyle = '#fff';
+        ctx.lineWidth = 1;
+        for (const p of [pixelPoints[0], pixelPoints[pixelPoints.length - 1]]) {
+          ctx.beginPath();
+          ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+    };
+
+    // ドラッグ中の平行移動プレビュー（storeを経由しない、他の描画要素と同じ作法）
+    let brushDragPreview: { id: number; points: { time: number; price: number }[] } | null = null;
+    // 新規描画中（まだstoreに存在しない）の軌跡。ドラッグしている間だけ生きる
+    let newBrushDraft: { time: number; price: number }[] | null = null;
+
+    const syncBrushes = () => {
+      const canvas = brushCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w) canvas.width = w;
+      if (canvas.height !== h) canvas.height = h;
+      ctx.clearRect(0, 0, w, h);
+
+      const { brushes: currentBrushes, selected } = useTraderStore.getState();
+      const selectedBrushId = selected?.kind === 'brush' ? selected.id : null;
+
+      for (const b of currentBrushes) {
+        const live = brushDragPreview && brushDragPreview.id === b.id ? brushDragPreview.points : b.points;
+        drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId);
+      }
+
+      if (newBrushDraft) {
+        const { brushDraft } = useTraderStore.getState();
+        drawBrushStroke(newBrushDraft, brushDraft.color, brushDraft.width, false);
+      }
+    };
+    syncBrushesRef.current = syncBrushes;
+    syncBrushes();
+
     // ── テキストの直接編集中の状態 ─────────────────────────────────────
     // TradingView同様window.prompt()を使わず、DOM要素自体をcontentEditableにして
     // その場で直接入力させる。新規配置も既存編集も同じ経路: 新規配置は空文字の
@@ -1055,7 +1134,7 @@ export function CandleChart() {
       }, 400);
     };
 
-    const onRangeChange = () => { syncVLines(); syncRects(); syncTrendLines(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView(); };
+    const onRangeChange = () => { syncVLines(); syncRects(); syncTrendLines(); syncBrushes(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView(); };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
@@ -1109,6 +1188,15 @@ export function CandleChart() {
     let trendLineDragging = false;
     let trendLineStart: { x: number; y: number; price: number } | null = null;
     let pendingTrendLineEnd: { x: number; y: number; price: number } | null = null;
+
+    // ── ブラシ（ドラッグで自由に描画） ──────────────────────────────
+    // 記録する点数はrAFで間引く（draggingTrendEndpoint等と同じ「1フレームにつき
+    // 最新の1点だけ採用する」パターンをそのまま流用し、マウスの生イベント頻度より
+    // 粗い間隔で点を積む。これをしないと1本のブラシが数百〜数千点になりファイル
+    // サイズ・描画負荷が肥大化する）
+    let brushDrawing = false;
+    let brushPoints: { time: number; price: number }[] = [];
+    let pendingBrushPoint: { time: number; price: number } | null = null;
 
     // ── ものさし（ドラッグで価格差・本数・期間を計測） ──────────────
     let measuringDrag = false;
@@ -1221,6 +1309,14 @@ export function CandleChart() {
     // 時間方向の移動は四角形の平行移動と同じ理由で足のインデックス差分を使う
     let trendMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
     let pendingTrendMoveDelta: { idx: number; dp: number } | null = null;
+    // ── ブラシの平行移動ドラッグ ─────────────────────────────────────
+    // フリーハンドは点ごとに個別の意味を持たないため、リサイズ（個々の点の編集）は
+    // 提供せず、掴んだ点全体を平行移動するだけ。四角形/トレンドラインと違い、
+    // 「幅を保つ」ような不変条件も無いので、足のインデックスではなく素の時間差分で
+    // 全ての点をまとめてずらす（実装が単純になる。週末等の足抜けを気にする必要が無い）
+    let draggingBrushMoveId: number | null = null;
+    let brushMoveStart: { points: { time: number; price: number }[]; startTime: number; startPrice: number } | null = null;
+    let pendingBrushMoveDelta: { dt: number; dp: number } | null = null;
     // ── テキストボックスの移動ドラッグ ─────────────────────────────
     // 掴んだ位置とテキスト要素の左上とのピクセルオフセットを保持し、ドラッグ中は
     // そのオフセット分だけずらした位置に要素を追従させる（垂直線ドラッグと同じ考え方）
@@ -1479,6 +1575,22 @@ export function CandleChart() {
       return null;
     };
 
+    // ブラシ（フリーハンド）の近傍判定。点列を線分の連なりとみなし、隣接する各線分との
+    // 最短距離がしきい値以内ならヒットとする（トレンドラインと同じdistanceToSegmentを使う）
+    const findBrushNear = (x: number, y: number): number | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { brushes: currentBrushes } = useTraderStore.getState();
+      for (const b of currentBrushes) {
+        const pts = b.points.map(p => ({ x: timeToX(p.time), y: seriesRef.current!.priceToCoordinate(p.price) }));
+        for (let i = 0; i < pts.length - 1; i++) {
+          const p0 = pts[i], p1 = pts[i + 1];
+          if (p0.x === null || p0.y === null || p1.x === null || p1.y === null) continue;
+          if (distanceToSegment(x, y, p0.x, p0.y, p1.x, p1.y) <= DRAG_TOLERANCE_PX) return b.id;
+        }
+      }
+      return null;
+    };
+
     // テキストボックスの近傍判定。実体はDOM要素なので、time/priceから座標を再計算せず
     // 直接そのDOM要素の実測位置・サイズ（offsetLeft/Top/Width/Height）を使う
     // （文字数でサイズが変わるため、rectのような座標計算では判定できない）
@@ -1556,7 +1668,7 @@ export function CandleChart() {
       // 範囲選択などブラウザ標準のテキスト編集操作に委ね、こちらの図形ドラッグ判定は行わない
       // （行うと編集中のテキストボックスが意図せず動いてしまう）
       if (editingTextId !== null) return;
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -1593,6 +1705,21 @@ export function CandleChart() {
         chart.applyOptions({ handleScroll: false, handleScale: false });
         newTrendDraft = { x1: x, y1: snap.y, x2: x, y2: snap.y };
         syncTrendLines();
+        return;
+      }
+
+      if (isB) {
+        // フリーハンドはマグネットで吸着させない（吸着すると滑らかな線が描けなくなり
+        // ブラシの意味が無くなる）。素の座標をそのまま使う
+        if (!seriesRef.current || !chartRef.current) return;
+        const price = seriesRef.current.coordinateToPrice(y);
+        const time = pixelToTime(x);
+        if (price === null || time === null) return;
+        brushDrawing = true;
+        brushPoints = [{ time, price }];
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        newBrushDraft = brushPoints;
+        syncBrushes();
         return;
       }
 
@@ -1705,6 +1832,22 @@ export function CandleChart() {
         return;
       }
 
+      const brushId = findBrushNear(x, y);
+      if (brushId !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const { brushes: brushesAtDown } = useTraderStore.getState();
+        const src = brushesAtDown.find(b => b.id === brushId);
+        const startTime = pixelToTime(x);
+        const startPrice = seriesRef.current.coordinateToPrice(y);
+        if (!src || startTime === null || startPrice === null) return;
+        draggingBrushMoveId = brushId;
+        brushMoveStart = { points: src.points, startTime, startPrice };
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'move';
+        useTraderStore.getState().selectLine({ kind: 'brush', id: brushId });
+        return;
+      }
+
       const textId = findTextNear(x, y);
       if (textId !== null) {
         const el = textElsRef.current.get(textId);
@@ -1756,6 +1899,25 @@ export function CandleChart() {
         pendingTrendLineEnd = { x, y: snap.y, price: snap.price };
         newTrendDraft = { x1: trendLineStart.x, y1: trendLineStart.y, x2: x, y2: snap.y };
         syncTrendLines();
+        return;
+      }
+
+      if (brushDrawing) {
+        if (!seriesRef.current) return;
+        const price = seriesRef.current.coordinateToPrice(y);
+        const time = pixelToTime(x);
+        if (price === null || time === null) return;
+        pendingBrushPoint = { time, price };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (!brushDrawing || pendingBrushPoint === null) return;
+            brushPoints = [...brushPoints, pendingBrushPoint];
+            newBrushDraft = brushPoints;
+            syncBrushes();
+          });
+        }
         return;
       }
 
@@ -1991,6 +2153,28 @@ export function CandleChart() {
         return;
       }
 
+      if (draggingBrushMoveId !== null && brushMoveStart) {
+        if (!seriesRef.current) return;
+        const t = pixelToTime(x);
+        const p = seriesRef.current.coordinateToPrice(y);
+        if (t === null || p === null) return;
+        pendingBrushMoveDelta = { dt: t - brushMoveStart.startTime, dp: p - brushMoveStart.startPrice };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingBrushMoveId === null || pendingBrushMoveDelta === null || brushMoveStart === null) return;
+            const { dt, dp } = pendingBrushMoveDelta;
+            brushDragPreview = {
+              id: draggingBrushMoveId,
+              points: brushMoveStart.points.map(pt => ({ time: pt.time + dt, price: pt.price + dp })),
+            };
+            syncBrushes();
+          });
+        }
+        return;
+      }
+
       if (draggingTextId !== null) {
         pendingTextXY = { x: x - textGrabDX, y: y - textGrabDY };
         if (!rafScheduled) {
@@ -2015,6 +2199,7 @@ export function CandleChart() {
           syncVLines();
           syncRects();
           syncTrendLines();
+          syncBrushes();
           syncTexts();
           syncWeekLines();
           syncCloud();
@@ -2022,8 +2207,8 @@ export function CandleChart() {
       }
 
       // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
-      if (!dH && !dV && !isM && !isR && !isTL && !dT && pick === null) {
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
+      if (!dH && !dV && !isM && !isR && !isTL && !isB && !dT && pick === null) {
         const draft = findDraftNear(y);
         if (draft !== null) { container.style.cursor = 'ns-resize'; return; }
         const target = findPriceTargetNear(y);
@@ -2042,6 +2227,8 @@ export function CandleChart() {
         if (trendEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const trendLineHoverId = findTrendLineNear(x, y);
         if (trendLineHoverId !== null) { container.style.cursor = 'move'; return; }
+        const brushHoverId = findBrushNear(x, y);
+        if (brushHoverId !== null) { container.style.cursor = 'move'; return; }
         const textId = findTextNear(x, y);
         if (textId !== null) { container.style.cursor = 'move'; return; }
         // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
@@ -2085,6 +2272,18 @@ export function CandleChart() {
         syncTrendLines(); // ドラフトのクリア（実際に追加された場合はstore更新側の再描画とも重複するが無害）
         trendLineStart = null;
         pendingTrendLineEnd = null;
+        return;
+      }
+      if (brushDrawing) {
+        brushDrawing = false;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        newBrushDraft = null;
+        if (brushPoints.length >= 2) {
+          useTraderStore.getState().addBrush(brushPoints);
+        }
+        syncBrushes(); // ドラフトのクリア
+        brushPoints = [];
+        pendingBrushPoint = null;
         return;
       }
       if (measuringDrag) {
@@ -2204,6 +2403,20 @@ export function CandleChart() {
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';
       }
+      if (draggingBrushMoveId !== null) {
+        if (pendingBrushMoveDelta !== null && brushMoveStart !== null) {
+          const { dt, dp } = pendingBrushMoveDelta;
+          useTraderStore.getState().updateBrush(draggingBrushMoveId, {
+            points: brushMoveStart.points.map(pt => ({ time: pt.time + dt, price: pt.price + dp })),
+          });
+        }
+        draggingBrushMoveId = null;
+        brushMoveStart = null;
+        pendingBrushMoveDelta = null;
+        brushDragPreview = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
+      }
       if (draggingTextId !== null) {
         if (pendingTextXY !== null && seriesRef.current) {
           const time = pixelToTime(pendingTextXY.x);
@@ -2245,12 +2458,13 @@ export function CandleChart() {
       if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        const { selected: sel, removeLine, removeVLine, removeRect, removeTrendLine, removeText } = useTraderStore.getState();
+        const { selected: sel, removeLine, removeVLine, removeRect, removeTrendLine, removeBrush, removeText } = useTraderStore.getState();
         if (!sel) return;
         if (sel.kind === 'h') removeLine(sel.id);
         else if (sel.kind === 'v') removeVLine(sel.id);
         else if (sel.kind === 'rect') removeRect(sel.id);
         else if (sel.kind === 'trend') removeTrendLine(sel.id);
+        else if (sel.kind === 'brush') removeBrush(sel.id);
         else removeText(sel.id);
         return;
       }
@@ -2325,6 +2539,21 @@ export function CandleChart() {
           const newId = useTraderStore.getState().nextTrendLineId - 1;
           store.selectLine({ kind: 'trend', id: newId });
           clipboard = { kind: 'trend', id: newId };
+        } else if (clipboard.kind === 'brush') {
+          const src = store.brushes.find(b => b.id === clipboard!.id);
+          if (!src) return;
+          // 各点を同じピクセル量だけずらす（先頭点のオフセットをtime/priceの差分に変換し、全点へ適用）
+          const x0 = timeToX(src.points[0].time), y0 = seriesRef.current.priceToCoordinate(src.points[0].price);
+          if (x0 === null || y0 === null) return;
+          const newTime0 = pixelToTime(x0 + PASTE_OFFSET_PX);
+          const newPrice0 = seriesRef.current.coordinateToPrice(y0 + PASTE_OFFSET_PX);
+          if (newTime0 === null || newPrice0 === null) return;
+          const dt = newTime0 - src.points[0].time, dp = newPrice0 - src.points[0].price;
+          const newPoints = src.points.map(p => ({ time: p.time + dt, price: p.price + dp }));
+          store.duplicateBrush(src.id, newPoints);
+          const newId = useTraderStore.getState().nextBrushId - 1;
+          store.selectLine({ kind: 'brush', id: newId });
+          clipboard = { kind: 'brush', id: newId };
         } else {
           const src = store.texts.find(t => t.id === clipboard!.id);
           if (!src) return;
@@ -2351,6 +2580,7 @@ export function CandleChart() {
       syncVLines();
       syncRects();
       syncTrendLines();
+      syncBrushes();
       syncTexts();
       syncWeekLines();
       updateRRPreview();
@@ -2412,10 +2642,10 @@ export function CandleChart() {
 
   // 描画・計測・価格ピッキングモード中はカーソルを crosshair に
   useEffect(() => {
-    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingText || pickTarget !== null)) {
+    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingBrush || isDrawingText || pickTarget !== null)) {
       containerRef.current.style.cursor = 'crosshair';
     }
-  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingTrendLine, isDrawingText, pickTarget]);
+  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingTrendLine, isDrawingBrush, isDrawingText, pickTarget]);
 
   // ものさしモードを解除したら表示を消す
   useEffect(() => {
@@ -2648,6 +2878,11 @@ export function CandleChart() {
     syncTrendLinesRef.current();
   }, [trendLines, selected]);
 
+  // ブラシの再描画（選択状態が変わった時も選択リング表示を更新する）
+  useEffect(() => {
+    syncBrushesRef.current();
+  }, [brushes, selected]);
+
   // テキストボックスの再描画（選択状態が変わった時も枠表示を更新する）
   useEffect(() => {
     syncTextsRef.current();
@@ -2782,6 +3017,7 @@ export function CandleChart() {
     syncVLinesRef.current();
     syncRectsRef.current();
     syncTrendLinesRef.current();
+    syncBrushesRef.current();
     syncTextsRef.current();
     syncWeekLinesRef.current();
     syncScrubberRef.current();
@@ -2796,6 +3032,7 @@ export function CandleChart() {
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncBrushesRef.current();
       syncTextsRef.current();
       syncWeekLinesRef.current();
       syncCloudRef.current();
@@ -3022,6 +3259,7 @@ export function CandleChart() {
       {/* トレンドラインは斜めの線分なのでDOMのborderで表現できず、専用canvasに描く
           （雲と同じ方式）。価格軸に被らないよう幅は四角形・テキストのオーバーレイと揃える */}
       <canvas ref={trendCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9 }} />
+      <canvas ref={brushCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9 }} />
       <div ref={textOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />
