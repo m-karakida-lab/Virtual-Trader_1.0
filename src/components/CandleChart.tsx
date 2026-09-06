@@ -600,7 +600,8 @@ export function CandleChart() {
     // ── テキストの直接編集中の状態 ─────────────────────────────────────
     // TradingView同様window.prompt()を使わず、DOM要素自体をcontentEditableにして
     // その場で直接入力させる。新規配置中はまだstoreに存在しない仮のDOM要素を編集し、
-    // 確定（blur/Enter）した時だけaddTextでstoreに反映する（空文字なら何もしない）。
+    // 確定（他をクリックしてblur、Escapeなら破棄）した時だけaddTextでstoreに反映する
+    // （空文字なら何もしない）。Enterキーは確定ではなく改行に使う。
     // 既存テキストの編集は、そのテキストの実体であるDOM要素をそのまま編集モードにする
     let editingText: { mode: 'new'; time: number; price: number } | { mode: 'edit'; id: number } | null = null;
     let editingTextEl: HTMLDivElement | null = null;
@@ -658,12 +659,16 @@ export function CandleChart() {
 
     // テキストの編集中に矢印キー・Backspace・Cmd+Z等がグローバルショートカット
     // （図形削除・Undo・コピペ）に奪われないようにする（グローバルonKeyDown側も
-    // contentEditableをガードしているが、念のためここでも伝播を止める）
+    // contentEditableをガードしているが、念のためここでも伝播を止める）。
+    // 確定はEnterではなくblur（他をクリック/Tab移動）またはEscape（破棄）で行う。
+    // Enterキーは改行に使うため、ブラウザ標準の挙動（<div>/<br>を挿入し、textContent
+    // 取得時に改行が失われることがある）に任せず、execCommandで素の'\n'文字を挿入する
+    // （white-space:preで描画しているため、'\n'がそのまま改行として表示される）
     const onTextEditKeyDown = (e: KeyboardEvent) => {
       e.stopPropagation();
-      if (e.key === 'Enter' && !e.shiftKey) {
+      if (e.key === 'Enter') {
         e.preventDefault();
-        (e.currentTarget as HTMLElement).blur();
+        document.execCommand('insertText', false, '\n');
       } else if (e.key === 'Escape') {
         e.preventDefault();
         cancelTextEdit();
@@ -1924,7 +1929,7 @@ export function CandleChart() {
     };
 
     // テキストボックスのダブルクリックで内容を編集する（削除は選択してDelete/Backspaceキー、
-    // 編集中に全部消してblur/Enterすると削除扱いになる）
+    // 編集中に全部消してblurすると削除扱いになる（Escapeは編集前の状態に戻すだけ）
     const onDblClick = (e: MouseEvent) => {
       if (editingText !== null) return;
       const rect = container.getBoundingClientRect();

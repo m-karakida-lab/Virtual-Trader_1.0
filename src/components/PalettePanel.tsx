@@ -1,12 +1,11 @@
 import { useRef, useState, useEffect } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import { LINE_COLORS, TEXT_FONT_SIZES, type LineDash, type LineWidth, type TextFontSize, type TextBorderStyle } from '../types';
+import { LINE_COLORS, TEXT_FONT_SIZES, type LineDash, type LineWidth, type TextBorderStyle } from '../types';
 
 const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
 const DASH_OPTIONS: { v: LineDash; label: string }[] = [
   { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
 ];
-const FONT_SIZE_LABELS: Record<TextFontSize, string> = { 11: 'S', 14: 'M', 18: 'L', 24: 'XL' };
 const TEXT_BORDER_OPTIONS: { v: TextBorderStyle; label: string }[] = [
   { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' }, { v: 'none', label: '枠なし' },
 ];
@@ -106,7 +105,7 @@ export function PalettePanel() {
                   border: paletteStyle.fontSize === sz ? '2px solid #42a5f5' : '1px solid #222',
                   borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
                 }}
-              >{FONT_SIZE_LABELS[sz]}</button>
+              >{sz}px</button>
             ))}
           </div>
           <div style={{ display: 'flex', gap: '3px' }}>
