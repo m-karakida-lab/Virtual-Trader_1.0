@@ -706,6 +706,28 @@ export function CandleChart() {
     // ── ブラシ（フリーハンド、TradingViewの「ブラシ」相当） ────────────────
     // トレンドラインと同じcanvas方式だが、2点ではなくドラッグの軌跡をそのまま
     // 点列として繋いで描く。線種の概念は無い（フリーハンドに破線/点線は馴染まない）
+
+    // マウスの生の点列をそのまま繋ぐと手ブレがそのまま線に出る。TradingView等は
+    // 描画前に点を平滑化（移動平均）してからなめらかな曲線を引いている模様なので、
+    // ここでも描画直前（記録データ自体はいじらない）にボックスフィルタを2パスかける。
+    // 両端は動かさない（ストロークの始点・終点がズレると選択リング等とズレて見える）
+    const smoothPixelPoints = (pts: { x: number; y: number }[]): { x: number; y: number }[] => {
+      if (pts.length < 3) return pts;
+      let cur = pts;
+      for (let pass = 0; pass < 2; pass++) {
+        const next: { x: number; y: number }[] = [cur[0]];
+        for (let i = 1; i < cur.length - 1; i++) {
+          next.push({
+            x: (cur[i - 1].x + cur[i].x + cur[i + 1].x) / 3,
+            y: (cur[i - 1].y + cur[i].y + cur[i + 1].y) / 3,
+          });
+        }
+        next.push(cur[cur.length - 1]);
+        cur = next;
+      }
+      return cur;
+    };
+
     const drawBrushStroke = (
       points: { time: number; price: number }[],
       color: string, width: number, selected: boolean,
@@ -722,22 +744,23 @@ export function CandleChart() {
         pixelPoints.push({ x, y });
       }
       if (pixelPoints.length < 2) return;
+      const smoothed = smoothPixelPoints(pixelPoints);
       ctx.save();
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+      ctx.moveTo(smoothed[0].x, smoothed[0].y);
       // 隣接点同士をただの直線（lineTo）で繋ぐと、点の間隔が粗い時にカクカクした
       // 多角形に見えてしまう。各点をコントロールポイントに、次の点との中点までを
       // 2次ベジェで繋ぐ定番の手書き線平滑化（各セグメントの継ぎ目で接線が連続になる）
-      for (let i = 1; i < pixelPoints.length - 1; i++) {
-        const midX = (pixelPoints[i].x + pixelPoints[i + 1].x) / 2;
-        const midY = (pixelPoints[i].y + pixelPoints[i + 1].y) / 2;
-        ctx.quadraticCurveTo(pixelPoints[i].x, pixelPoints[i].y, midX, midY);
+      for (let i = 1; i < smoothed.length - 1; i++) {
+        const midX = (smoothed[i].x + smoothed[i + 1].x) / 2;
+        const midY = (smoothed[i].y + smoothed[i + 1].y) / 2;
+        ctx.quadraticCurveTo(smoothed[i].x, smoothed[i].y, midX, midY);
       }
-      const last = pixelPoints[pixelPoints.length - 1];
+      const last = smoothed[smoothed.length - 1];
       ctx.lineTo(last.x, last.y);
       ctx.stroke();
       if (selected) {

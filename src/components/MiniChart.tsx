@@ -414,6 +414,25 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     };
     syncTrendLinesRef.current = syncTrendLines;
 
+    // マウスの生の点列をそのまま繋ぐと手ブレがそのまま出る。描画直前にボックスフィルタを
+    // 2パスかけて平滑化する（詳細はCandleChart側の同名関数のコメント参照。記録データ自体は触らない）
+    const smoothPixelPoints = (pts: { x: number; y: number }[]): { x: number; y: number }[] => {
+      if (pts.length < 3) return pts;
+      let cur = pts;
+      for (let pass = 0; pass < 2; pass++) {
+        const next: { x: number; y: number }[] = [cur[0]];
+        for (let i = 1; i < cur.length - 1; i++) {
+          next.push({
+            x: (cur[i - 1].x + cur[i].x + cur[i + 1].x) / 3,
+            y: (cur[i - 1].y + cur[i].y + cur[i + 1].y) / 3,
+          });
+        }
+        next.push(cur[cur.length - 1]);
+        cur = next;
+      }
+      return cur;
+    };
+
     // ブラシ（フリーハンド）を canvas に再描画（表示専用、ドラッグ操作なし）
     const syncBrushes = () => {
       const canvas = brushCanvasRef.current;
@@ -439,20 +458,21 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
           pixelPoints.push({ x, y });
         }
         if (pixelPoints.length < 2) continue;
+        const smoothed = smoothPixelPoints(pixelPoints);
         ctx.save();
         ctx.strokeStyle = b.color;
         ctx.lineWidth = b.width;
         ctx.lineCap = 'round';
         ctx.lineJoin = 'round';
         ctx.beginPath();
-        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+        ctx.moveTo(smoothed[0].x, smoothed[0].y);
         // CandleChart側と同じ2次ベジェによる手書き線平滑化（詳細はそちらのコメント参照）
-        for (let i = 1; i < pixelPoints.length - 1; i++) {
-          const midX = (pixelPoints[i].x + pixelPoints[i + 1].x) / 2;
-          const midY = (pixelPoints[i].y + pixelPoints[i + 1].y) / 2;
-          ctx.quadraticCurveTo(pixelPoints[i].x, pixelPoints[i].y, midX, midY);
+        for (let i = 1; i < smoothed.length - 1; i++) {
+          const midX = (smoothed[i].x + smoothed[i + 1].x) / 2;
+          const midY = (smoothed[i].y + smoothed[i + 1].y) / 2;
+          ctx.quadraticCurveTo(smoothed[i].x, smoothed[i].y, midX, midY);
         }
-        const last = pixelPoints[pixelPoints.length - 1];
+        const last = smoothed[smoothed.length - 1];
         ctx.lineTo(last.x, last.y);
         ctx.stroke();
         ctx.restore();
