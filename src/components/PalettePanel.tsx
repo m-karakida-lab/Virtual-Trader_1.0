@@ -19,19 +19,65 @@ export function PalettePanel() {
   const setPaletteStyle = useTraderStore(s => s.setPaletteStyle);
   const chartRightMargin  = useTraderStore(s => s.chartRightMargin);
   const selected = useTraderStore(s => s.selected);
+  const isDrawingLine = useTraderStore(s => s.isDrawingLine);
+  const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
+  const isDrawingRect = useTraderStore(s => s.isDrawingRect);
+  const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
   const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
+  const isDrawingText = useTraderStore(s => s.isDrawingText);
+  const lineDraft = useTraderStore(s => s.lineDraft);
+  const rectDraft = useTraderStore(s => s.rectDraft);
+  const trendLineDraft = useTraderStore(s => s.trendLineDraft);
   const brushDraft = useTraderStore(s => s.brushDraft);
+  const textDraft = useTraderStore(s => s.textDraft);
+  const setLineDraft = useTraderStore(s => s.setLineDraft);
+  const setRectDraft = useTraderStore(s => s.setRectDraft);
+  const setTrendLineDraft = useTraderStore(s => s.setTrendLineDraft);
   const setBrushDraft = useTraderStore(s => s.setBrushDraft);
-  const isText = selected?.kind === 'text';
-  // ブラシは「書いてから太さを直す」だけでなく「太さを決めてから書く」需要があるため、
-  // 図形を選択していなくてもブラシツールが起動中（配置前）ならパレットを出し、
-  // その場合は選択中の図形ではなく次に描く時に使うbrushDraftへ直接書き込む
-  const isArmedBrush = isDrawingBrush && !selected;
-  const isBrush = selected?.kind === 'brush' || isArmedBrush;
-  const activeColor = isArmedBrush ? brushDraft.color : paletteStyle.color;
-  const activeWidth = isArmedBrush ? brushDraft.width : paletteStyle.width;
-  const setColor = (color: string) => isArmedBrush ? setBrushDraft({ color }) : setPaletteStyle({ color });
-  const setWidth = (width: typeof paletteStyle.width) => isArmedBrush ? setBrushDraft({ width }) : setPaletteStyle({ width });
+  const setTextDraft = useTraderStore(s => s.setTextDraft);
+
+  // 「書いてから見た目を直す」だけでなく「見た目を決めてから書く」需要があるため、図形を
+  // 選択していなくても描画ツールのどれかが起動中（配置前）ならパレットを出す。その場合は
+  // 選択中の図形ではなく、次に配置する時に使う各種Draft（lineDraft等）へ直接書き込む
+  // （水平線・垂直線は同じlineDraftを共有——addLine/addVLine自体がそうなっているため）
+  const armedKind = selected ? null
+    : isDrawingLine ? 'h' as const
+    : isDrawingVLine ? 'v' as const
+    : isDrawingRect ? 'rect' as const
+    : isDrawingTrendLine ? 'trend' as const
+    : isDrawingBrush ? 'brush' as const
+    : isDrawingText ? 'text' as const
+    : null;
+  const kind = selected?.kind ?? armedKind;
+  const isText = kind === 'text';
+  const isBrush = kind === 'brush';
+
+  const armedDraft = armedKind === 'text' ? textDraft
+    : armedKind === 'brush' ? brushDraft
+    : armedKind === 'rect' ? rectDraft
+    : armedKind === 'trend' ? trendLineDraft
+    : armedKind === 'h' || armedKind === 'v' ? lineDraft
+    : null;
+  const activeColor = armedDraft ? armedDraft.color : paletteStyle.color;
+  const activeDash = armedDraft && 'dash' in armedDraft ? armedDraft.dash : paletteStyle.dash;
+  const activeWidth = armedDraft && 'width' in armedDraft ? armedDraft.width : paletteStyle.width;
+  const activeFontSize = armedDraft && 'fontSize' in armedDraft ? armedDraft.fontSize : paletteStyle.fontSize;
+  const activeBorder = armedDraft && 'border' in armedDraft ? armedDraft.border : paletteStyle.border;
+
+  type StylePatch = Partial<{ color: string; dash: LineDash; width: LineWidth; fontSize: typeof paletteStyle.fontSize; border: TextBorderStyle }>;
+  const setStyle = (patch: StylePatch) => {
+    if (!armedKind) { setPaletteStyle(patch); return; }
+    if (armedKind === 'text') setTextDraft(patch);
+    else if (armedKind === 'brush') setBrushDraft(patch);
+    else if (armedKind === 'rect') setRectDraft(patch);
+    else if (armedKind === 'trend') setTrendLineDraft(patch);
+    else setLineDraft(patch);
+  };
+  const setColor = (color: string) => setStyle({ color });
+  const setDash = (dash: LineDash) => setStyle({ dash });
+  const setWidth = (width: LineWidth) => setStyle({ width });
+  const setFontSize = (fontSize: typeof paletteStyle.fontSize) => setStyle({ fontSize });
+  const setBorder = (border: TextBorderStyle) => setStyle({ border });
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; el: HTMLDivElement } | null>(null);
@@ -61,7 +107,7 @@ export function PalettePanel() {
     };
   }, []);
 
-  if (!paletteMode && !isArmedBrush) return null;
+  if (!paletteMode && !armedKind) return null;
 
   const onHandleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const panel = e.currentTarget.parentElement as HTMLDivElement;
@@ -110,11 +156,11 @@ export function PalettePanel() {
             {TEXT_FONT_SIZES.map(sz => (
               <button
                 key={sz}
-                onClick={() => setPaletteStyle({ fontSize: sz })}
+                onClick={() => setFontSize(sz)}
                 style={{
-                  backgroundColor: paletteStyle.fontSize === sz ? '#2a2a2a' : '#161616',
-                  color: paletteStyle.fontSize === sz ? '#e0e0e0' : '#666',
-                  border: paletteStyle.fontSize === sz ? '2px solid #42a5f5' : '1px solid #222',
+                  backgroundColor: activeFontSize === sz ? '#2a2a2a' : '#161616',
+                  color: activeFontSize === sz ? '#e0e0e0' : '#666',
+                  border: activeFontSize === sz ? '2px solid #42a5f5' : '1px solid #222',
                   borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
                 }}
               >{sz}px</button>
@@ -124,11 +170,11 @@ export function PalettePanel() {
             {TEXT_BORDER_OPTIONS.map(b => (
               <button
                 key={b.v}
-                onClick={() => setPaletteStyle({ border: b.v })}
+                onClick={() => setBorder(b.v)}
                 style={{
-                  backgroundColor: paletteStyle.border === b.v ? '#2a2a2a' : '#161616',
-                  color: paletteStyle.border === b.v ? '#e0e0e0' : '#666',
-                  border: paletteStyle.border === b.v ? '1px solid #3a3a3a' : '1px solid #222',
+                  backgroundColor: activeBorder === b.v ? '#2a2a2a' : '#161616',
+                  color: activeBorder === b.v ? '#e0e0e0' : '#666',
+                  border: activeBorder === b.v ? '1px solid #3a3a3a' : '1px solid #222',
                   borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
                 }}
               >{b.label}</button>
@@ -156,11 +202,11 @@ export function PalettePanel() {
             {DASH_OPTIONS.map(d => (
               <button
                 key={d.v}
-                onClick={() => setPaletteStyle({ dash: d.v })}
+                onClick={() => setDash(d.v)}
                 style={{
-                  backgroundColor: paletteStyle.dash === d.v ? '#2a2a2a' : '#161616',
-                  color: paletteStyle.dash === d.v ? '#e0e0e0' : '#666',
-                  border: paletteStyle.dash === d.v ? '1px solid #3a3a3a' : '1px solid #222',
+                  backgroundColor: activeDash === d.v ? '#2a2a2a' : '#161616',
+                  color: activeDash === d.v ? '#e0e0e0' : '#666',
+                  border: activeDash === d.v ? '1px solid #3a3a3a' : '1px solid #222',
                   borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
                 }}
               >{d.label}</button>
@@ -170,11 +216,11 @@ export function PalettePanel() {
             {WIDTH_OPTIONS.map(w => (
               <button
                 key={w}
-                onClick={() => setPaletteStyle({ width: w })}
+                onClick={() => setWidth(w)}
                 style={{
-                  backgroundColor: paletteStyle.width === w ? '#2a2a2a' : '#161616',
-                  color: paletteStyle.width === w ? '#e0e0e0' : '#666',
-                  border: paletteStyle.width === w ? '2px solid #42a5f5' : '1px solid #222',
+                  backgroundColor: activeWidth === w ? '#2a2a2a' : '#161616',
+                  color: activeWidth === w ? '#e0e0e0' : '#666',
+                  border: activeWidth === w ? '2px solid #42a5f5' : '1px solid #222',
                   borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
                 }}
               >{w}px</button>

@@ -252,6 +252,7 @@ interface TraderState {
   removeLine: (id: number) => void;
   duplicateLine: (id: number, newPrice: number) => void;
   toggleDrawLine: () => void;
+  setLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   addVLine: (time: number) => void;
   updateVLine: (id: number, patch: Partial<Omit<DrawnVLine, 'id'>>) => void;
   removeVLine: (id: number) => void;
@@ -263,11 +264,13 @@ interface TraderState {
   removeRect: (id: number) => void;
   duplicateRect: (id: number, time1: number, price1: number, time2: number, price2: number) => void;
   toggleDrawRect: () => void;
+  setRectDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   addTrendLine: (time1: number, price1: number, time2: number, price2: number) => void;
   updateTrendLine: (id: number, patch: Partial<Omit<DrawnTrendLine, 'id'>>) => void;
   removeTrendLine: (id: number) => void;
   duplicateTrendLine: (id: number, time1: number, price1: number, time2: number, price2: number) => void;
   toggleDrawTrendLine: () => void;
+  setTrendLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   addBrush: (points: { time: number; price: number }[]) => void;
   updateBrush: (id: number, patch: Partial<Omit<DrawnBrush, 'id'>>) => void;
   removeBrush: (id: number) => void;
@@ -279,6 +282,7 @@ interface TraderState {
   removeText: (id: number) => void;
   duplicateText: (id: number, time: number, price: number) => void;
   toggleDrawText: () => void;
+  setTextDraft: (patch: Partial<{ color: string; fontSize: TextFontSize; border: TextBorderStyle }>) => void;
   undo: () => void; // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストの直前の変更を1つ戻す
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
@@ -374,6 +378,13 @@ function pushDrawHistory(get: () => TraderState, set: (fn: (s: TraderState) => P
   const { lines, vlines, rects, trendLines, brushes, texts, nextLineId, nextVLineId, nextRectId, nextTrendLineId, nextBrushId, nextTextId, drawHistory } = get();
   const snapshot: DrawSnapshot = { lines, vlines, rects, trendLines, brushes, texts, nextLineId, nextVLineId, nextRectId, nextTrendLineId, nextBrushId, nextTextId };
   set(() => ({ drawHistory: [...drawHistory, snapshot].slice(-MAX_DRAW_UNDO) }));
+}
+
+// 描画ツールをONにする（armする）瞬間に呼ぶ。既存の選択（＝別図形の編集パレット）を
+// 残したままだと、「配置前に太さ等を決める」ための専用パレット（PalettePanel.tsx側の
+// armedKind判定）に切り替わらず、古い選択中図形のパレットが出続けてしまうため
+function armPatch(next: boolean): Partial<TraderState> {
+  return next ? { selected: null, paletteMode: false } : {};
 }
 
 // パレットモード中に、選択中の図形へ現在のpaletteStyleを書き込む（色・線種・太さ）。
@@ -891,7 +902,12 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     pushDrawHistory(get, set);
     set({ lines: [...lines, { ...src, id: nextLineId, price: newPrice }], nextLineId: nextLineId + 1 });
   },
-  toggleDrawLine: () => set(s => ({ isDrawingLine: !s.isDrawingLine, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null })),
+  toggleDrawLine: () => set(s => {
+    const next = !s.isDrawingLine;
+    return { isDrawingLine: next, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+  }),
+  // 水平線・垂直線は同じlineDraftを共有する（addLine/addVLineとも参照している通り）
+  setLineDraft: patch => set(s => ({ lineDraft: { ...s.lineDraft, ...patch } })),
 
   addVLine: (time: number) => {
     pushDrawHistory(get, set);
@@ -925,7 +941,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     pushDrawHistory(get, set);
     set({ vlines: [...vlines, { ...src, id: nextVLineId, time: newTime }], nextVLineId: nextVLineId + 1 });
   },
-  toggleDrawVLine: () => set(s => ({ isDrawingVLine: !s.isDrawingVLine, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null })),
+  toggleDrawVLine: () => set(s => {
+    const next = !s.isDrawingVLine;
+    return { isDrawingVLine: next, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+  }),
   toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null })),
 
   addRect: (time1: number, price1: number, time2: number, price2: number) => {
@@ -960,7 +979,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     pushDrawHistory(get, set);
     set({ rects: [...rects, { ...src, id: nextRectId, time1, price1, time2, price2 }], nextRectId: nextRectId + 1 });
   },
-  toggleDrawRect: () => set(s => ({ isDrawingRect: !s.isDrawingRect, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null })),
+  toggleDrawRect: () => set(s => {
+    const next = !s.isDrawingRect;
+    return { isDrawingRect: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+  }),
+  setRectDraft: patch => set(s => ({ rectDraft: { ...s.rectDraft, ...patch } })),
 
   addTrendLine: (time1: number, price1: number, time2: number, price2: number) => {
     pushDrawHistory(get, set);
@@ -994,7 +1017,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     pushDrawHistory(get, set);
     set({ trendLines: [...trendLines, { ...src, id: nextTrendLineId, time1, price1, time2, price2 }], nextTrendLineId: nextTrendLineId + 1 });
   },
-  toggleDrawTrendLine: () => set(s => ({ isDrawingTrendLine: !s.isDrawingTrendLine, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null })),
+  toggleDrawTrendLine: () => set(s => {
+    const next = !s.isDrawingTrendLine;
+    return { isDrawingTrendLine: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+  }),
+  setTrendLineDraft: patch => set(s => ({ trendLineDraft: { ...s.trendLineDraft, ...patch } })),
 
   addBrush: (points: { time: number; price: number }[]) => {
     pushDrawHistory(get, set);
@@ -1030,13 +1057,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawBrush: () => set(s => {
     const next = !s.isDrawingBrush;
-    return {
-      isDrawingBrush: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingText: false, pickTarget: null,
-      // ONにする時は既存の選択（＝別の図形の編集パレット）を解除しておく。そのままだと
-      // 「太さを決めてから書く」ためのブラシ専用パレット（isArmedBrush、PalettePanel.tsx側）
-      // に切り替わらず、古い選択中図形のパレットが出続けてしまう
-      ...(next ? { selected: null, paletteMode: false } : {}),
-    };
+    return { isDrawingBrush: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
   }),
   setBrushDraft: patch => set(s => ({ brushDraft: { ...s.brushDraft, ...patch } })),
 
@@ -1072,7 +1093,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     pushDrawHistory(get, set);
     set({ texts: [...texts, { ...src, id: nextTextId, time, price }], nextTextId: nextTextId + 1 });
   },
-  toggleDrawText: () => set(s => ({ isDrawingText: !s.isDrawingText, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, pickTarget: null })),
+  toggleDrawText: () => set(s => {
+    const next = !s.isDrawingText;
+    return { isDrawingText: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, pickTarget: null, ...armPatch(next) };
+  }),
+  setTextDraft: patch => set(s => ({ textDraft: { ...s.textDraft, ...patch } })),
 
   undo: () => {
     const { drawHistory } = get();
