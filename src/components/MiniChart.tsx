@@ -419,7 +419,7 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
     const smoothPixelPoints = (pts: { x: number; y: number }[]): { x: number; y: number }[] => {
       if (pts.length < 3) return pts;
       let cur = pts;
-      for (let pass = 0; pass < 2; pass++) {
+      for (let pass = 0; pass < 8; pass++) {
         const next: { x: number; y: number }[] = [cur[0]];
         for (let i = 1; i < cur.length - 1; i++) {
           next.push({
