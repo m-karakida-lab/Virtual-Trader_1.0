@@ -19,8 +19,19 @@ export function PalettePanel() {
   const setPaletteStyle = useTraderStore(s => s.setPaletteStyle);
   const chartRightMargin  = useTraderStore(s => s.chartRightMargin);
   const selected = useTraderStore(s => s.selected);
+  const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
+  const brushDraft = useTraderStore(s => s.brushDraft);
+  const setBrushDraft = useTraderStore(s => s.setBrushDraft);
   const isText = selected?.kind === 'text';
-  const isBrush = selected?.kind === 'brush';
+  // ブラシは「書いてから太さを直す」だけでなく「太さを決めてから書く」需要があるため、
+  // 図形を選択していなくてもブラシツールが起動中（配置前）ならパレットを出し、
+  // その場合は選択中の図形ではなく次に描く時に使うbrushDraftへ直接書き込む
+  const isArmedBrush = isDrawingBrush && !selected;
+  const isBrush = selected?.kind === 'brush' || isArmedBrush;
+  const activeColor = isArmedBrush ? brushDraft.color : paletteStyle.color;
+  const activeWidth = isArmedBrush ? brushDraft.width : paletteStyle.width;
+  const setColor = (color: string) => isArmedBrush ? setBrushDraft({ color }) : setPaletteStyle({ color });
+  const setWidth = (width: typeof paletteStyle.width) => isArmedBrush ? setBrushDraft({ width }) : setPaletteStyle({ width });
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; el: HTMLDivElement } | null>(null);
@@ -50,7 +61,7 @@ export function PalettePanel() {
     };
   }, []);
 
-  if (!paletteMode) return null;
+  if (!paletteMode && !isArmedBrush) return null;
 
   const onHandleMouseDown = (e: React.MouseEvent<HTMLDivElement>) => {
     const panel = e.currentTarget.parentElement as HTMLDivElement;
@@ -84,10 +95,10 @@ export function PalettePanel() {
         {LINE_COLORS.map(c => (
           <button
             key={c}
-            onClick={() => setPaletteStyle({ color: c })}
+            onClick={() => setColor(c)}
             style={{
               width: '20px', height: '20px', borderRadius: '50%', backgroundColor: c,
-              border: paletteStyle.color === c ? '2px solid #fff' : '2px solid transparent',
+              border: activeColor === c ? '2px solid #fff' : '2px solid transparent',
               cursor: 'pointer', padding: 0,
             }}
           />
@@ -129,11 +140,11 @@ export function PalettePanel() {
           {WIDTH_OPTIONS.map(w => (
             <button
               key={w}
-              onClick={() => setPaletteStyle({ width: w })}
+              onClick={() => setWidth(w)}
               style={{
-                backgroundColor: paletteStyle.width === w ? '#2a2a2a' : '#161616',
-                color: paletteStyle.width === w ? '#e0e0e0' : '#666',
-                border: paletteStyle.width === w ? '2px solid #42a5f5' : '1px solid #222',
+                backgroundColor: activeWidth === w ? '#2a2a2a' : '#161616',
+                color: activeWidth === w ? '#e0e0e0' : '#666',
+                border: activeWidth === w ? '2px solid #42a5f5' : '1px solid #222',
                 borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
               }}
             >{w}px</button>

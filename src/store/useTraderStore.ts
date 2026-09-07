@@ -273,6 +273,7 @@ interface TraderState {
   removeBrush: (id: number) => void;
   duplicateBrush: (id: number, points: { time: number; price: number }[]) => void;
   toggleDrawBrush: () => void;
+  setBrushDraft: (patch: Partial<{ color: string; width: LineWidth }>) => void;
   addText: (time: number, price: number, text: string) => void;
   updateText: (id: number, patch: Partial<Omit<DrawnText, 'id'>>) => void;
   removeText: (id: number) => void;
@@ -1027,7 +1028,17 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     pushDrawHistory(get, set);
     set({ brushes: [...brushes, { ...src, id: nextBrushId, points }], nextBrushId: nextBrushId + 1 });
   },
-  toggleDrawBrush: () => set(s => ({ isDrawingBrush: !s.isDrawingBrush, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingText: false, pickTarget: null })),
+  toggleDrawBrush: () => set(s => {
+    const next = !s.isDrawingBrush;
+    return {
+      isDrawingBrush: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingText: false, pickTarget: null,
+      // ONにする時は既存の選択（＝別の図形の編集パレット）を解除しておく。そのままだと
+      // 「太さを決めてから書く」ためのブラシ専用パレット（isArmedBrush、PalettePanel.tsx側）
+      // に切り替わらず、古い選択中図形のパレットが出続けてしまう
+      ...(next ? { selected: null, paletteMode: false } : {}),
+    };
+  }),
+  setBrushDraft: patch => set(s => ({ brushDraft: { ...s.brushDraft, ...patch } })),
 
   addText: (time: number, price: number, text: string) => {
     pushDrawHistory(get, set);
