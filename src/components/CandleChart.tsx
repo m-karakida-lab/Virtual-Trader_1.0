@@ -844,8 +844,11 @@ export function CandleChart() {
       }
 
       for (const t of currentTexts) {
-        // 編集中の実体には触らない（ここで内容を上書きすると入力中の文字が消える）
-        if (editingTextId === t.id) continue;
+        // 編集中の実体はcontentEditableの入力中の文字を上書きしてはいけないが、色・文字
+        // サイズ・枠線・位置はパレット側の変更をその場で反映したい（連続描画中に「太さを
+        // 決めてから書く」ならぬ「色を見ながら入力中に直す」需要が実際にあった）ため、
+        // textContentの上書きだけをスキップし、スタイル反映は編集中でも続ける
+        const isEditing = editingTextId === t.id;
         let el = existing.get(t.id);
         if (!el) {
           el = document.createElement('div');
@@ -866,7 +869,7 @@ export function CandleChart() {
         el.style.top = `${y}px`;
         el.style.fontSize = `${t.fontSize}px`;
         el.style.color = t.color;
-        el.textContent = t.text;
+        if (!isEditing) el.textContent = t.text;
         // 選択中は枠線自体を変えず（テキストの実際の枠設定を上書きしない）、box-shadowで
         // 選択リングを重ねるだけにする（四角形と違いハンドルを持たないため唯一の選択表示）
         const isSelected = t.id === selectedTextId;

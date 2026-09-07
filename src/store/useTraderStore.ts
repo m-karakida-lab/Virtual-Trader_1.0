@@ -1077,10 +1077,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       nextTextId: nextTextId + 1,
       isDrawingText: continuousDrawing,
     });
-    // 連続描画中でも編集モード（DOM側のcontentEditable）には入れる必要があるため
-    // beginNewTextEdit側は変わらず動くが、selected/paletteModeはここでは更新しない
-    // （armedKind経由の見た目プリセットパレットを維持し、次のテキストにも引き継げるようにする）
-    if (!continuousDrawing) get().selectLine({ kind: 'text', id: nextTextId });
+    // 他の図形と違い、テキストは配置直後がそのまま入力中の編集セッションになる。
+    // 連続描画中でも選択状態には必ず入れる（selectLineを呼ぶ）——そうしないと
+    // 入力中のこのテキスト自身の色をパレットから変えられなくなる（armedKind経由の
+    // 「次に置く分」のtextDraftを触るだけになり、今書いている実体には反映されない）。
+    // isDrawingTextはcontinuousDrawing側で維持しているので、この後編集を終えれば
+    // （blur等）そのまま次のテキストを続けて置ける
+    get().selectLine({ kind: 'text', id: nextTextId });
   },
   updateText: (id: number, patch: Partial<Omit<DrawnText, 'id'>>) => {
     pushDrawHistory(get, set);
