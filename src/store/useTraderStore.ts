@@ -183,6 +183,10 @@ interface TraderState {
   nextTextId: number;
   isDrawingText: boolean;
   drawHistory: DrawSnapshot[]; // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストのUndo用スナップショット（最新が末尾）
+  // ON中は配置してもツールをOFFにせず、置いた図形も選択（編集モード）に入れない。
+  // TradingViewの「連続描画」相当。他のisDrawingX等と違い描画ツールの切替では消えない
+  // 独立した設定（ロック的な位置づけ）。デフォルトOFF
+  continuousDrawing: boolean;
   magnetMode: MagnetMode; // 描画時に価格を足の高値/安値/始値/終値へ吸着させる強さ
   magnetStrength: Exclude<MagnetMode, 'off'>; // OFF→ON時に使う強さ（localStorageに記憶）
   selected: LineSelection | null; // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストのいずれか選択中の1つ
@@ -283,6 +287,7 @@ interface TraderState {
   duplicateText: (id: number, time: number, price: number) => void;
   toggleDrawText: () => void;
   setTextDraft: (patch: Partial<{ color: string; fontSize: TextFontSize; border: TextBorderStyle }>) => void;
+  toggleContinuousDrawing: () => void;
   undo: () => void; // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストの直前の変更を1つ戻す
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
@@ -478,6 +483,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   texts: [],
   nextTextId: 1,
   isDrawingText: false,
+  continuousDrawing: false,
   drawHistory: [],
   magnetMode: loadSavedMagnetStrength(), // デフォルトでON（起動のたびON、強さは前回記憶した方から始まる）
   magnetStrength: loadSavedMagnetStrength(),
@@ -868,14 +874,16 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   addLine: (price: number) => {
     pushDrawHistory(get, set);
     // 丸めない（表示側で toFixed するだけにし、線の位置は連続値で持つ）
-    const { lines, nextLineId, lineDraft } = get();
+    const { lines, nextLineId, lineDraft, continuousDrawing } = get();
     set({
       lines: [...lines, { id: nextLineId, price, ...lineDraft }],
       nextLineId: nextLineId + 1,
-      isDrawingLine: false,
+      // 連続描画中はツールをOFFにせず、続けて次を置ける状態を保つ
+      isDrawingLine: continuousDrawing,
     });
-    // 配置直後はそのまま編集モードに入れる（selectLine経由でパレットモードの自動ONも揃う）
-    get().selectLine({ kind: 'h', id: nextLineId });
+    // 配置直後はそのまま編集モードに入れる（selectLine経由でパレットモードの自動ONも揃う）。
+    // 連続描画中は選択に入れない（選択すると編集用パレットに切り替わり連続配置できなくなる）
+    if (!continuousDrawing) get().selectLine({ kind: 'h', id: nextLineId });
   },
   updateLine: (id: number, patch: Partial<Omit<DrawnLine, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -911,13 +919,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   addVLine: (time: number) => {
     pushDrawHistory(get, set);
-    const { vlines, nextVLineId, lineDraft } = get();
+    const { vlines, nextVLineId, lineDraft, continuousDrawing } = get();
     set({
       vlines: [...vlines, { id: nextVLineId, time, ...lineDraft }],
       nextVLineId: nextVLineId + 1,
-      isDrawingVLine: false,
+      isDrawingVLine: continuousDrawing,
     });
-    get().selectLine({ kind: 'v', id: nextVLineId });
+    if (!continuousDrawing) get().selectLine({ kind: 'v', id: nextVLineId });
   },
   updateVLine: (id: number, patch: Partial<Omit<DrawnVLine, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -949,13 +957,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   addRect: (time1: number, price1: number, time2: number, price2: number) => {
     pushDrawHistory(get, set);
-    const { rects, nextRectId, rectDraft } = get();
+    const { rects, nextRectId, rectDraft, continuousDrawing } = get();
     set({
       rects: [...rects, { id: nextRectId, time1, price1, time2, price2, ...rectDraft }],
       nextRectId: nextRectId + 1,
-      isDrawingRect: false,
+      isDrawingRect: continuousDrawing,
     });
-    get().selectLine({ kind: 'rect', id: nextRectId });
+    if (!continuousDrawing) get().selectLine({ kind: 'rect', id: nextRectId });
   },
   updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -987,13 +995,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   addTrendLine: (time1: number, price1: number, time2: number, price2: number) => {
     pushDrawHistory(get, set);
-    const { trendLines, nextTrendLineId, trendLineDraft } = get();
+    const { trendLines, nextTrendLineId, trendLineDraft, continuousDrawing } = get();
     set({
       trendLines: [...trendLines, { id: nextTrendLineId, time1, price1, time2, price2, ...trendLineDraft }],
       nextTrendLineId: nextTrendLineId + 1,
-      isDrawingTrendLine: false,
+      isDrawingTrendLine: continuousDrawing,
     });
-    get().selectLine({ kind: 'trend', id: nextTrendLineId });
+    if (!continuousDrawing) get().selectLine({ kind: 'trend', id: nextTrendLineId });
   },
   updateTrendLine: (id: number, patch: Partial<Omit<DrawnTrendLine, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -1025,13 +1033,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   addBrush: (points: { time: number; price: number }[]) => {
     pushDrawHistory(get, set);
-    const { brushes, nextBrushId, brushDraft } = get();
+    const { brushes, nextBrushId, brushDraft, continuousDrawing } = get();
     set({
       brushes: [...brushes, { id: nextBrushId, points, ...brushDraft }],
       nextBrushId: nextBrushId + 1,
-      isDrawingBrush: false,
+      isDrawingBrush: continuousDrawing,
     });
-    get().selectLine({ kind: 'brush', id: nextBrushId });
+    if (!continuousDrawing) get().selectLine({ kind: 'brush', id: nextBrushId });
   },
   updateBrush: (id: number, patch: Partial<Omit<DrawnBrush, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -1063,13 +1071,16 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   addText: (time: number, price: number, text: string) => {
     pushDrawHistory(get, set);
-    const { texts, nextTextId, textDraft } = get();
+    const { texts, nextTextId, textDraft, continuousDrawing } = get();
     set({
       texts: [...texts, { id: nextTextId, time, price, text, ...textDraft }],
       nextTextId: nextTextId + 1,
-      isDrawingText: false,
+      isDrawingText: continuousDrawing,
     });
-    get().selectLine({ kind: 'text', id: nextTextId });
+    // 連続描画中でも編集モード（DOM側のcontentEditable）には入れる必要があるため
+    // beginNewTextEdit側は変わらず動くが、selected/paletteModeはここでは更新しない
+    // （armedKind経由の見た目プリセットパレットを維持し、次のテキストにも引き継げるようにする）
+    if (!continuousDrawing) get().selectLine({ kind: 'text', id: nextTextId });
   },
   updateText: (id: number, patch: Partial<Omit<DrawnText, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -1098,6 +1109,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     return { isDrawingText: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, pickTarget: null, ...armPatch(next) };
   }),
   setTextDraft: patch => set(s => ({ textDraft: { ...s.textDraft, ...patch } })),
+  // 描画ツールの切替（toggleDrawLine等）では触らない独立したロック的トグル
+  toggleContinuousDrawing: () => set(s => ({ continuousDrawing: !s.continuousDrawing })),
 
   undo: () => {
     const { drawHistory } = get();

@@ -61,6 +61,13 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M3 9h4M17 9h4" />
     </svg>
   ),
+  // TradingViewの「連続描画」相当。ロック（鍵）アイコンで表す
+  lock: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <rect x="5" y="11" width="14" height="9" rx="1.5" />
+      <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+    </svg>
+  ),
 };
 
 function ToolButton({
@@ -177,6 +184,8 @@ export function DrawToolbar() {
   const toggleDrawText  = useTraderStore(s => s.toggleDrawText);
   const magnetMode      = useTraderStore(s => s.magnetMode);
   const toggleMagnet    = useTraderStore(s => s.toggleMagnet);
+  const continuousDrawing = useTraderStore(s => s.continuousDrawing);
+  const toggleContinuousDrawing = useTraderStore(s => s.toggleContinuousDrawing);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -187,6 +196,8 @@ export function DrawToolbar() {
       <ToolButton icon="trend" title="トレンドライン" active={isDrawingTrendLine} disabled={!isLoaded} onClick={toggleDrawTrendLine} />
       <ToolButton icon="brush" title="ブラシ" active={isDrawingBrush} disabled={!isLoaded} onClick={toggleDrawBrush} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
+      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
+      <ToolButton icon="lock" title="連続描画（配置してもツールを維持する）" active={continuousDrawing} disabled={!isLoaded} onClick={toggleContinuousDrawing} />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <ToolButton icon="magnet" title="マグネット（足のOHLCに吸着）" active={magnetMode !== 'off'} disabled={!isLoaded} onClick={toggleMagnet} />
