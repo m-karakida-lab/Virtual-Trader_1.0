@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { FileLoader } from './components/FileLoader';
 import { CandleChart } from './components/CandleChart';
-import { MiniChart } from './components/MiniChart';
 import { Controls } from './components/Controls';
 import { HistoryPanel } from './components/HistoryPanel';
 import { FloatingControls } from './components/FloatingControls';
@@ -9,7 +8,6 @@ import { DrawToolbar } from './components/DrawToolbar';
 import { PalettePanel } from './components/PalettePanel';
 import { useTraderStore } from './store/useTraderStore';
 import { initDuckDB } from './lib/duckdb';
-import { TIMEFRAMES } from './types';
 
 // 4画面レイアウトの枠位置は固定（左上・左下・右上・右下）。各枠に表示する時間軸は
 // ユーザーが選べる（store.quadTimeframes、インデックスがこの配列の並びに対応）
@@ -117,13 +115,14 @@ export default function App() {
             }}>
               {QUAD_POSITIONS.map((pos, slot) => (
                 <div key={slot} style={{ gridRow: pos.row, gridColumn: pos.col, position: 'relative', minWidth: 0, minHeight: 0 }}>
-                  {slot === quadMainSlot
-                    ? <CandleChart />
-                    : <MiniChart
-                        timeframeSec={quadTimeframes[slot]}
-                        label={TIMEFRAMES.find(tf => tf.sec === quadTimeframes[slot])!.label}
-                        slot={slot}
-                      />}
+                  {/* 4枠とも常にCandleChart（コンポーネント型を固定することでReactの
+                      unmount/remountを避ける。isMain切替はpropsの変化だけで済む）。
+                      MiniChartは未使用のまま残している（しばらくの間のロールバック用） */}
+                  <CandleChart
+                    slot={slot}
+                    isMain={slot === quadMainSlot}
+                    timeframeSec={quadTimeframes[slot]}
+                  />
                 </div>
               ))}
             </div>

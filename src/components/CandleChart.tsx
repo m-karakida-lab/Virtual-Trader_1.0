@@ -1,4 +1,4 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChart, LineStyle, CrosshairMode,
   type IChartApi, type ISeriesApi, type CandlestickSeriesOptions,
@@ -6,7 +6,7 @@ import {
   type SeriesMarker,
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
-import type { Candle, Position, ClosedTrade, LineSelection } from '../types';
+import type { Candle, Position, ClosedTrade, LineSelection, TimeframeSec } from '../types';
 import { TIMEFRAMES } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
@@ -14,9 +14,10 @@ import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
-import { cloudDisplacedTime } from '../lib/indicators';
+import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud } from '../lib/indicators';
 import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
+import { initDuckDB, queryCandles } from '../lib/duckdb';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -53,6 +54,8 @@ const EMA_PERIOD = 200;
 const SMA_PERIOD = 14;
 const BB_PERIOD = 20;
 const DRAG_TOLERANCE_PX = 6;
+// 非メインパネルでの「ドラッグではなくクリックならメインに昇格」判定用（MiniChart.tsxと同じ値）
+const CLICK_TOLERANCE_PX = 6;
 // 四角形の角・辺ハンドルは見た目が小さく掴みにくいという声を受けて、ヒット判定だけ
 // DRAG_TOLERANCE_PXより広く取る（水平線・垂直線・TP/SL等の他のドラッグ対象は対象外）
 const RECT_HANDLE_HIT_PX = 12;
@@ -146,7 +149,15 @@ function buildTradeMarkers(positions: Position[], closedTrades: ClosedTrade[], s
   return markers;
 }
 
-export function CandleChart() {
+// slot/isMain/timeframeSecは4画面レイアウトで複数インスタンスとして使うためのprops。
+// 省略時（1画面時）は今まで通り「唯一のメインパネル」として振る舞う（isMain=true, slot=0）。
+// isMain=falseの時、timeframeSecは自分が表示すべき時間軸（quadTimeframes[slot]）を指す
+// （省略時はグローバルのメイン時間足にフォールバックするが、非メインでは常に渡される想定）
+export function CandleChart({
+  slot = 0,
+  isMain = true,
+  timeframeSec: timeframeSecProp,
+}: { slot?: number; isMain?: boolean; timeframeSec?: TimeframeSec } = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
   const weekOverlayRef = useRef<HTMLDivElement>(null);
@@ -232,8 +243,9 @@ export function CandleChart() {
   const showSMA   = useTraderStore(s => s.showSMA);
   const showBB    = useTraderStore(s => s.showBB);
   const showCloud = useTraderStore(s => s.showCloud);
-  const timeframeSec = useTraderStore(s => s.timeframeSec);
+  const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const setTimeframe = useTraderStore(s => s.setTimeframe);
+  const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
   const isLoaded = useTraderStore(s => s.isLoaded);
   const dataVersion = useTraderStore(s => s.dataVersion);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
@@ -245,7 +257,56 @@ export function CandleChart() {
   const crosshairTime = useTraderStore(s => s.crosshairTime);
   const chartRightMargin = useTraderStore(s => s.chartRightMargin);
   const chartBottomMargin = useTraderStore(s => s.chartBottomMargin);
+  // 4画面時、クロスヘア同期の自分自身のID。'main'は文字列として固定の特別扱い
+  // （store側のコメント通り「'main'またはミニ枠のslot番号文字列」という既存の取り決め）
+  const mySourceId = isMain ? 'main' : String(slot);
+  // isMain=falseの時はこのインスタンス専用の時間軸（quadTimeframes[slot]）を使う。
+  // isMain=trueの時はグローバルのメイン時間足（リプレイ/約定判定の正）と常に一致する
+  const timeframeSec = isMain ? mainTimeframeSec : (timeframeSecProp ?? mainTimeframeSec);
   const timeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
+
+  // isMain=falseの時、このインスタンス専用に自前集計した足データ（MiniChart.tsxと同じ方式）。
+  // isMain=trueの時は使わない（グローバルのcandlesをそのまま使う）
+  const [nonMainCandles, setNonMainCandles] = useState<Candle[]>([]);
+  useEffect(() => {
+    if (isMain) return;
+    if (!isLoaded) { setNonMainCandles([]); return; }
+    let cancelled = false;
+    (async () => {
+      const db = await initDuckDB();
+      const cs = await queryCandles(db, timeframeSec);
+      if (!cancelled) setNonMainCandles(cs);
+    })();
+    return () => { cancelled = true; };
+  }, [isMain, isLoaded, dataVersion, timeframeSec]);
+  // メインの現在足が閉じた時点（＝これより先は「未来」として隠す境界）。MiniChart.tsxと同じ考え方
+  const nonMainCursorEnd = candles[cursor]?.time !== undefined ? candles[cursor].time + mainTimeframeSec : undefined;
+  // filter()は呼ぶたびに新しい配列参照を返すため、useMemoを挟まないと依存に使う
+  // useEffectが実質毎レンダー発火してしまう（値が同じでも参照が変わるため）
+  const nonMainVisible = useMemo(
+    () => nonMainCursorEnd === undefined
+      ? nonMainCandles
+      : nonMainCandles.filter(c => c.time + timeframeSec <= nonMainCursorEnd),
+    [nonMainCandles, nonMainCursorEnd, timeframeSec],
+  );
+  // このインスタンスが実際に描画すべき足データ（メインはグローバル、非メインは上記の自前集計＋未来隠し）
+  const displayCandles = isMain ? candles : nonMainVisible;
+
+  // マウント時1回のみ実行される巨大なイベント設定用useEffect（下のchart初期化）はpropsを
+  // クロージャで固定してしまうため、4画面でisMain/slotがremountなしに切り替わることに
+  // 対応できない。イベントハンドラ内から常に最新値を読めるようrefに都度反映しておく
+  const isMainRef = useRef(isMain);
+  const slotRef = useRef(slot);
+  const mySourceIdRef = useRef(mySourceId);
+  useEffect(() => {
+    isMainRef.current = isMain;
+    slotRef.current = slot;
+    mySourceIdRef.current = mySourceId;
+  }, [isMain, slot, mySourceId]);
+  // 非メイン時、クリック（ドラッグでない）でメインへ昇格させるための始点記録
+  const nonMainMouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
+  // 非メイン時、新しいデータセットに切り替わった時だけ画面フィットするための直前値記憶
+  const fittedNonMainDataRef = useRef<Candle[] | null>(null);
 
   const prevCursorRef  = useRef(-1);
   const prevCandlesRef = useRef<Candle[]>([]);
@@ -378,7 +439,7 @@ export function CandleChart() {
     // sourceEvent が無い場合は setCrosshairPosition による同期側からの発火なので無視する（無限ループ防止）
     const onCrosshairMove: Parameters<typeof chart.subscribeCrosshairMove>[0] = param => {
       if (!param.sourceEvent) return;
-      useTraderStore.getState().setCrosshair('main', (param.time as number | undefined) ?? null);
+      useTraderStore.getState().setCrosshair(mySourceIdRef.current, (param.time as number | undefined) ?? null);
     };
     chart.subscribeCrosshairMove(onCrosshairMove);
 
@@ -1211,6 +1272,7 @@ export function CandleChart() {
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
     chart.subscribeClick(param => {
+      if (!isMainRef.current) return; // 非メインでの水平線/垂直線/テキスト配置・価格ピックはPhase 2で対応
       const { isDrawingLine: drawingH, isDrawingVLine: drawingV, isDrawingText: drawingT, pickTarget, addLine, addVLine, pickPrice } = useTraderStore.getState();
       if (!param.point || !seriesRef.current) return;
 
@@ -1776,6 +1838,12 @@ export function CandleChart() {
       // 範囲選択などブラウザ標準のテキスト編集操作に委ね、こちらの図形ドラッグ判定は行わない
       // （行うと編集中のテキストボックスが意図せず動いてしまう）
       if (editingTextId !== null) return;
+      // 非メイン（4画面の他3枠）は操作フル機能をまだ持たない（Phase 2で対応予定）。
+      // ドラッグでない単純クリックだけメイン昇格に使う（判定はonMouseUp側で行う）
+      if (!isMainRef.current) {
+        nonMainMouseDownPosRef.current = { x: e.clientX, y: e.clientY };
+        return;
+      }
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -2350,7 +2418,15 @@ export function CandleChart() {
       }
     };
 
-    const onMouseUp = () => {
+    const onMouseUp = (e: MouseEvent) => {
+      if (!isMainRef.current) {
+        const start = nonMainMouseDownPosRef.current;
+        nonMainMouseDownPosRef.current = null;
+        if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) < CLICK_TOLERANCE_PX) {
+          useTraderStore.getState().promoteSlotToMain(slotRef.current);
+        }
+        return;
+      }
       if (rectDragging) {
         rectDragging = false;
         chart.applyOptions({ handleScroll: true, handleScale: true });
@@ -2547,6 +2623,7 @@ export function CandleChart() {
     // テキストボックスのダブルクリックで内容を編集する（削除は選択してDelete/Backspaceキー、
     // 編集中に全部消してblurすると削除扱いになる（Escapeは編集前の状態に戻すだけ）
     const onDblClick = (e: MouseEvent) => {
+      if (!isMainRef.current) return;
       if (editingTextId !== null) return;
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -2564,6 +2641,9 @@ export function CandleChart() {
     // Delete/Backspaceキーで選択中の水平線・垂直線・四角形を削除、Cmd/Ctrl+C・Vでコピー&ペースト
     // （Macのキーボードは物理削除キーが実は⌫=Backspaceで、fn+⌫でようやくDeleteになるため両方拾う）
     const onKeyDown = (e: KeyboardEvent) => {
+      // 4画面時、キーボードショートカットはメインパネルのみが対象（Phase 4で
+      // 「最後に操作した枠」ベースのactivePanelSlotに置き換える予定の暫定対応）
+      if (!isMainRef.current) return;
       const active = document.activeElement as HTMLElement | null;
       const tag = (active?.tagName || '').toLowerCase();
       // テキストボックスの直接編集中（contentEditable）もショートカット対象から除外する
@@ -2698,11 +2778,15 @@ export function CandleChart() {
       updateRRPreview();
       syncCloud();
       syncScrubber();
-      // フロートパネルが価格軸・時間軸に被らないよう、実測サイズをストアに反映
-      useTraderStore.getState().setChartMargins(
-        chart.priceScale('right').width(),
-        chart.timeScale().height(),
-      );
+      // フロートパネルが価格軸・時間軸に被らないよう、実測サイズをストアに反映。
+      // 4画面時は全パネルほぼ同じ幅になるはずだが、書き込みはメインパネルのみに絞り
+      // 複数インスタンスによる値の奪い合い（thrashing）を避ける
+      if (isMainRef.current) {
+        useTraderStore.getState().setChartMargins(
+          chart.priceScale('right').width(),
+          chart.timeScale().height(),
+        );
+      }
     };
     const ro = new ResizeObserver(handleResize);
     ro.observe(container);
@@ -3002,8 +3086,8 @@ export function CandleChart() {
 
   // 価格軸の表示精度: 読み込んだペアの価格帯に合わせる（JPYクロス=小数3桁、それ以外=小数5桁）
   useEffect(() => {
-    if (candles.length === 0) return;
-    const precision = pricePrecision(candles[0].close);
+    if (displayCandles.length === 0) return;
+    const precision = pricePrecision(displayCandles[0].close);
     const minMove = 1 / 10 ** precision;
     const priceFormat = { type: 'price' as const, precision, minMove };
     seriesRef.current?.applyOptions({ priceFormat });
@@ -3017,6 +3101,8 @@ export function CandleChart() {
     senkouASeriesRef.current?.applyOptions({ priceFormat });
     senkouBSeriesRef.current?.applyOptions({ priceFormat });
     // 精度変更で価格軸の幅が変わるため、再描画後に実測してフロートパネルのクランプに反映
+    // （書き込みはメインパネルのみ。理由はhandleResize側の同種コメントを参照）
+    if (!isMain) return;
     requestAnimationFrame(() => {
       if (!chartRef.current) return;
       useTraderStore.getState().setChartMargins(
@@ -3024,13 +3110,13 @@ export function CandleChart() {
         chartRef.current.timeScale().height(),
       );
     });
-  }, [candles]);
+  }, [displayCandles, isMain]);
 
   // 区切り線: candles 変化時に境界を再計算（1D足は週区切り、それ以外は日区切り）、showWeekLines 変化時は表示トグル
   useEffect(() => {
-    weekBoundariesRef.current = computeSeparatorBoundaries(candles, timeframeSec);
+    weekBoundariesRef.current = computeSeparatorBoundaries(displayCandles, timeframeSec);
     syncWeekLinesRef.current();
-  }, [candles, timeframeSec]);
+  }, [displayCandles, timeframeSec]);
 
   useEffect(() => {
     syncWeekLinesRef.current();
@@ -3080,19 +3166,19 @@ export function CandleChart() {
   // パネル切替の瞬間にチャートが破棄されかけている可能性があるため try/catch で保護し、
   // 万一失敗しても画面全体をクラッシュさせない（失敗はerrorLogに記録）
   useEffect(() => {
-    if (!chartRef.current || !seriesRef.current || crosshairSourceId === 'main') return;
+    if (!chartRef.current || !seriesRef.current || crosshairSourceId === mySourceId) return;
     try {
       if (crosshairTime === null) {
         chartRef.current.clearCrosshairPosition();
         return;
       }
-      const price = priceAtTime(candles, crosshairTime, timeframeSec);
+      const price = priceAtTime(displayCandles, crosshairTime, timeframeSec);
       if (price === null) { chartRef.current.clearCrosshairPosition(); return; }
       chartRef.current.setCrosshairPosition(price, crosshairTime as Time, seriesRef.current);
     } catch (e) {
       logError('CandleChart:crosshairSync', e);
     }
-  }, [crosshairSourceId, crosshairTime, candles]);
+  }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId]);
 
   // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット(rightOffset)分の位置に来るよう追従
   useEffect(() => {
@@ -3100,9 +3186,11 @@ export function CandleChart() {
     chartRef.current.timeScale().scrollToRealTime();
   }, [scrollToLatestSignal]);
 
-  // リプレイモード: カーソル変化時にデータ更新（ローソク足 + EMA200）
+  // リプレイモード: カーソル変化時にデータ更新（ローソク足 + EMA200）。
+  // このステップ最適化（.update()による差分更新）はグローバルcandlesが1本ずつ
+  // 増える前提に依存しており、非メイン（自前集計・別時間軸）には成立しないためメイン限定
   useEffect(() => {
-    if (!seriesRef.current || candles.length === 0) return;
+    if (!isMain || !seriesRef.current || candles.length === 0) return;
 
     const isStep =
       candles === prevCandlesRef.current &&
@@ -3151,7 +3239,65 @@ export function CandleChart() {
       syncScrubberRef.current();
     });
     return () => cancelAnimationFrame(raf);
-  }, [candles, cursor]);
+  }, [candles, cursor, isMain]);
+
+  // 非メイン（4画面の他3枠）: 自前集計した足データ＋未来隠しクリップをそのままセットする。
+  // メインと違いカーソル1ステップ＝1本という前提が無いため、MiniChart.tsxと同じ
+  // 「変化のたびに毎回まるごと再計算」方式（indicatorsの共有フル計算関数を使う）
+  useEffect(() => {
+    if (isMain || !seriesRef.current || nonMainVisible.length === 0) return;
+
+    seriesRef.current.setData(nonMainVisible.map(toBar));
+
+    emaSeriesRef.current?.setData(computeEMA(nonMainVisible));
+    smaSeriesRef.current?.setData(computeSMA(nonMainVisible));
+
+    const bb = computeBB(nonMainVisible);
+    bbBasisSeriesRef.current?.setData(bb.basis);
+    bbUpper1SeriesRef.current?.setData(bb.upper1);
+    bbLower1SeriesRef.current?.setData(bb.lower1);
+    bbUpper2SeriesRef.current?.setData(bb.upper2);
+    bbLower2SeriesRef.current?.setData(bb.lower2);
+
+    const cloud = computeCloud(nonMainVisible, timeframeSec, nonMainCandles);
+    senkouASeriesRef.current?.setData(cloud.senkouA);
+    senkouBSeriesRef.current?.setData(cloud.senkouB);
+    cloudDataRef.current = cloud.points;
+    syncCloudRef.current();
+
+    syncVLinesRef.current();
+    syncRectsRef.current();
+    syncTrendLinesRef.current();
+    syncBrushesRef.current();
+    syncTextsRef.current();
+    syncWeekLinesRef.current();
+
+    // 新しいデータセットに切り替わった時だけ画面フィットする（CandleChart側の
+    // 通常のフィット処理はcursor基準のためここでは自前でMiniChart.tsxと同じ判定を行う）
+    if (fittedNonMainDataRef.current !== nonMainCandles) {
+      fittedNonMainDataRef.current = nonMainCandles;
+      const saved = loadChartView(timeframeSec);
+      if (saved) {
+        chartRef.current?.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, nonMainVisible.length));
+      } else if (nonMainCandles.length > 0) {
+        chartRef.current?.timeScale().setVisibleRange({
+          from: nonMainCandles[0].time as Time,
+          to: nonMainCandles[nonMainCandles.length - 1].time as Time,
+        });
+      }
+    }
+
+    const raf = requestAnimationFrame(() => {
+      syncCloudRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
+      syncTrendLinesRef.current();
+      syncBrushesRef.current();
+      syncTextsRef.current();
+      syncWeekLinesRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [isMain, nonMainVisible, nonMainCandles, timeframeSec]);
 
   // 時間軸の切替・新規CSV読み込み時、記憶しておいたズーム/スケール（縮尺）を復元したうえで、
   // 常に最新足に固定する（右端からの位置=barsFromRightではなく、常にrightOffset分の位置に揃える）
@@ -3351,14 +3497,14 @@ export function CandleChart() {
       style={{ width: '100%', height: '100%', position: 'relative' }}
       onMouseLeave={() => {
         const s = useTraderStore.getState();
-        if (s.crosshairSourceId === 'main') s.setCrosshair(null, null);
+        if (s.crosshairSourceId === mySourceId) s.setCrosshair(null, null);
       }}
     >
       <ChartHeader
         symbol={symbol}
         timeframeLabel={timeframeLabel}
         timeframeSec={timeframeSec}
-        onSelectTimeframe={sec => setTimeframe(sec)}
+        onSelectTimeframe={sec => isMain ? setTimeframe(sec) : setQuadTimeframe(slot, sec)}
         disabled={!isLoaded}
       />
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
