@@ -1150,8 +1150,18 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   setPaletteStyle: patch => {
     set(s => ({ paletteStyle: { ...s.paletteStyle, ...patch } }));
     // 編集モード（選択中）のままパレットの設定を変えた時も、選び直さなくてもすぐ反映する
-    const { paletteMode, selected } = get();
-    if (paletteMode && selected) applyPaletteStyleTo(get, selected);
+    const { paletteMode, selected, paletteStyle } = get();
+    if (!paletteMode || !selected) return;
+    applyPaletteStyleTo(get, selected);
+    // 次に同じ種類の図形を新規配置する時のデフォルト値（各種Draft）にも引き継ぐ。
+    // 連続描画中に「1つ前でパレットから変えた色が次の配置に反映されない」という指摘を
+    // 受けて追加した（単発配置でも実害は無い——次に別の図形を選択した時はそちらの現在値が
+    // syncPaletteStyleFromで優先して取り込まれるため、Draftを更新しても上書きされない）
+    if (selected.kind === 'h' || selected.kind === 'v') get().setLineDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
+    else if (selected.kind === 'rect') get().setRectDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
+    else if (selected.kind === 'trend') get().setTrendLineDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
+    else if (selected.kind === 'brush') get().setBrushDraft({ color: paletteStyle.color, width: paletteStyle.width });
+    else get().setTextDraft({ color: paletteStyle.color, fontSize: paletteStyle.fontSize, border: paletteStyle.border });
   },
   toggleEMA: () => set(s => ({ showEMA: !s.showEMA })),
   toggleSMA: () => set(s => ({ showSMA: !s.showSMA })),
