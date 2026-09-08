@@ -309,6 +309,8 @@ export function CandleChart({
   const nonMainMouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   // 非メイン時、新しいデータセットに切り替わった時だけ画面フィットするための直前値記憶
   const fittedNonMainDataRef = useRef<Candle[] | null>(null);
+  // メイン用データ同期effectが「非メイン→メイン昇格直後の初回実行」を検出するためのフラグ
+  const wasMainForDataSyncRef = useRef(false);
 
   const prevCursorRef  = useRef(-1);
   const prevCandlesRef = useRef<Candle[]>([]);
@@ -3194,7 +3196,17 @@ export function CandleChart({
   // このステップ最適化（.update()による差分更新）はグローバルcandlesが1本ずつ
   // 増える前提に依存しており、非メイン（自前集計・別時間軸）には成立しないためメイン限定
   useEffect(() => {
-    if (!isMain || !seriesRef.current || candles.length === 0) return;
+    if (!isMain) { wasMainForDataSyncRef.current = false; return; }
+    if (!seriesRef.current || candles.length === 0) return;
+
+    // 非メイン→メインへ昇格した直後の1回だけは、このインスタンスのprevCandlesRef/
+    // prevCursorRefが未更新（初期値）のため必ずisStep=falseになり、下のelse分岐が
+    // 走ってscrollToRealTime()で最新足へ強制スクロールしてしまう。昇格前まで非メイン
+    // として表示していた内容と実質同じデータなのに見た目だけジャンプし、パネル切替の
+    // たびに「再読み込みしたように見える」原因になっていた（実際に指摘を受けて判明）。
+    // 昇格直後だけこのジャンプを避ける（データ自体のsetDataや指標の再計算は必要なので行う）
+    const justPromoted = !wasMainForDataSyncRef.current;
+    wasMainForDataSyncRef.current = true;
 
     const isStep =
       candles === prevCandlesRef.current &&
@@ -3208,7 +3220,7 @@ export function CandleChart({
       updateCloudStep(candles, cursor);
     } else {
       seriesRef.current.setData(candles.slice(0, cursor + 1).map(toBar));
-      chartRef.current?.timeScale().scrollToRealTime();
+      if (!justPromoted) chartRef.current?.timeScale().scrollToRealTime();
       recomputeEmaFull(candles, cursor);
       recomputeSMAFull(candles, cursor);
       recomputeBBFull(candles, cursor);
