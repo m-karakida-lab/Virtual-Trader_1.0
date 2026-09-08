@@ -886,13 +886,29 @@ export function CandleChart() {
     // contentEditableをガードしているが、念のためここでも伝播を止める）。
     // 確定はEnterではなくblur（他をクリック/Tab移動）またはEscape（破棄）で行う。
     // Enterキーは改行に使うため、ブラウザ標準の挙動（<div>/<br>を挿入し、textContent
-    // 取得時に改行が失われることがある）に任せず、execCommandで素の'\n'文字を挿入する
-    // （white-space:preで描画しているため、'\n'がそのまま改行として表示される）
+    // 取得時に改行が失われることがある）に任せない。以前は`document.execCommand('insertText',
+    // false, '\n')`で素の'\n'文字を挿入していたが、execCommandでの改行挿入はブラウザ実装
+    // 依存で、環境によっては結局<br>要素として挿入されてしまうことがあった——編集中は<br>も
+    // 見た目上改行として表示されるため気付きにくいが、確定時に`el.textContent`を読み出すと
+    // <br>はテキストに一切寄与しない（要素を無視して文字ノードだけ連結される）ため、その
+    // 改行だけ跡形もなく消える不具合を実際に踏んだ。Selection/RangeでDOM文字ノードとして
+    // 直接'\n'を挿入すれば実装依存を避けられる（white-space:preで描画しているため、
+    // 素の'\n'がそのまま改行として表示される）
     const onTextEditKeyDown = (e: KeyboardEvent) => {
       e.stopPropagation();
       if (e.key === 'Enter') {
         e.preventDefault();
-        document.execCommand('insertText', false, '\n');
+        const sel = window.getSelection();
+        if (sel && sel.rangeCount > 0) {
+          const range = sel.getRangeAt(0);
+          range.deleteContents();
+          const nl = document.createTextNode('\n');
+          range.insertNode(nl);
+          range.setStartAfter(nl);
+          range.setEndAfter(nl);
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
       } else if (e.key === 'Escape') {
         e.preventDefault();
         cancelTextEdit();
