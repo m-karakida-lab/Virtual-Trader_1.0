@@ -299,12 +299,26 @@ export function CandleChart({
   const slotRef = useRef(slot);
   const mySourceIdRef = useRef(mySourceId);
   const nonMainCandlesRef = useRef(nonMainCandles);
+  // Phase 2: 非メインでもドラッグ/当たり判定を動かすため、四角形の足インデックススナップ・
+  // マグネットスナップ等が参照する「今表示している足配列」「今の実質カーソル（末尾index）」を
+  // refで持つ。メインはグローバルcandles/cursorそのもの、非メインは自前集計＋未来隠しクリップ
+  // 済みのdisplayCandlesとその末尾index（非メインには「カーソル」という概念自体が無いため、
+  // 見えている最後の足＝末尾を「今の位置」とみなす）
+  const displayCandlesRef = useRef(displayCandles);
+  const effectiveCursorRef = useRef(isMain ? cursor : displayCandles.length - 1);
+  // このインスタンスが実際に表示している時間軸（isMain=falseなら自分のtimeframeSecProp）。
+  // マウント時1回だけのeffectはpropsをクロージャで固定するため、非メインパネルの
+  // ヘッダードロップダウンで時間軸を変えてもここが古い値のまま——他のref同様に同期する
+  const timeframeSecRef = useRef(timeframeSec);
   useEffect(() => {
     isMainRef.current = isMain;
     slotRef.current = slot;
     mySourceIdRef.current = mySourceId;
     nonMainCandlesRef.current = nonMainCandles;
-  }, [isMain, slot, mySourceId, nonMainCandles]);
+    timeframeSecRef.current = timeframeSec;
+    displayCandlesRef.current = displayCandles;
+    effectiveCursorRef.current = isMain ? cursor : displayCandles.length - 1;
+  }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec]);
   // 非メイン時、クリック（ドラッグでない）でメインへ昇格させるための始点記録
   const nonMainMouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   // 非メイン時、新しいデータセットに切り替わった時だけ画面フィットするための直前値記憶
@@ -472,7 +486,8 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { showCloud: show, candles: cs } = useTraderStore.getState();
+      const { showCloud: show } = useTraderStore.getState();
+      const cs = displayCandlesRef.current;
       const points = cloudDataRef.current;
       if (!show || points.length < 2) return;
 
@@ -514,8 +529,9 @@ export function CandleChart({
       const ts = chartRef.current.timeScale();
       const exact = ts.timeToCoordinate(t as Time);
       if (exact !== null) return exact;
-      const { candles: cs, cursor } = useTraderStore.getState();
-      const visible = cs.slice(0, cursor + 1);
+      // メインはcandles.slice(0,cursor+1)と同じ内容、非メインは自前集計＋未来隠しクリップ
+      // 済みのdisplayCandlesRefをそのまま使う（このインスタンスが実際に表示している足）
+      const visible = displayCandlesRef.current;
       if (visible.length === 0) return null;
       if (t <= visible[0].time) return ts.timeToCoordinate(visible[0].time as Time);
       if (t >= visible[visible.length - 1].time) return ts.timeToCoordinate(visible[visible.length - 1].time as Time);
@@ -1271,10 +1287,11 @@ export function CandleChart({
         if (!chartRef.current) return;
         const range = chartRef.current.timeScale().getVisibleLogicalRange();
         if (!range) return;
-        const { cursor: cur, timeframeSec: tf } = useTraderStore.getState();
-        const totalBars = cur + 1;
+        // このパネル自身の時間軸・本数で保存する（非メインパネルにはグローバルcursorが
+        // 意味を持たないため。メインはdisplayCandles.length===cursor+1で従来と同じ結果になる）
+        const totalBars = displayCandlesRef.current.length;
         if (totalBars <= 0) return;
-        saveChartView(tf, { span: range.to - range.from, barsFromRight: totalBars - range.to });
+        saveChartView(timeframeSecRef.current, { span: range.to - range.from, barsFromRight: totalBars - range.to });
       }, 400);
     };
 
@@ -1283,7 +1300,7 @@ export function CandleChart({
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
     chart.subscribeClick(param => {
-      if (!isMainRef.current) return; // 非メインでの水平線/垂直線/テキスト配置・価格ピックはPhase 2で対応
+      // Phase 2: 非メインパネルでも水平線/垂直線/テキスト配置・pickTargetでの価格指定を許可する
       const { isDrawingLine: drawingH, isDrawingVLine: drawingV, isDrawingText: drawingT, pickTarget, addLine, addVLine, pickPrice } = useTraderStore.getState();
       if (!param.point || !seriesRef.current) return;
 
@@ -1396,7 +1413,7 @@ export function CandleChart({
 
       let barText = '';
       if (endTime !== null) {
-        const { candles: cs } = useTraderStore.getState();
+        const cs = displayCandlesRef.current;
         if (cs.length > 0) {
           const bars = Math.abs(candleIndexAt(cs, endTime as number) - candleIndexAt(cs, measureStart.time));
           const dur = fmtDuration((endTime as number) - measureStart.time);
@@ -1766,8 +1783,7 @@ export function CandleChart({
       const ts = chartRef.current.timeScale();
       const t = ts.coordinateToTime(x);
       if (t !== null) return t as number;
-      const { candles: cs, cursor } = useTraderStore.getState();
-      const visible = cs.slice(0, cursor + 1);
+      const visible = displayCandlesRef.current;
       if (visible.length === 0) return null;
       const firstX = ts.timeToCoordinate(visible[0].time as Time);
       const lastX = ts.timeToCoordinate(visible[visible.length - 1].time as Time);
@@ -1787,8 +1803,7 @@ export function CandleChart({
     const pixelToContinuousTime = (x: number): number | null => {
       if (!chartRef.current) return null;
       const ts = chartRef.current.timeScale();
-      const { candles: cs, cursor } = useTraderStore.getState();
-      const visible = cs.slice(0, cursor + 1);
+      const visible = displayCandlesRef.current;
       if (visible.length === 0) return null;
       const firstX = ts.timeToCoordinate(visible[0].time as Time);
       const lastX = ts.timeToCoordinate(visible[visible.length - 1].time as Time);
@@ -1818,9 +1833,9 @@ export function CandleChart({
       if (!seriesRef.current) return null;
       const rawPrice = seriesRef.current.coordinateToPrice(y);
       if (rawPrice === null) return null;
-      const { magnetMode, candles: cs, cursor } = useTraderStore.getState();
-      if (magnetMode === 'off' || cs.length === 0) return { price: rawPrice, y };
-      const visible = cs.slice(0, cursor + 1);
+      const { magnetMode } = useTraderStore.getState();
+      const visible = displayCandlesRef.current;
+      if (magnetMode === 'off' || visible.length === 0) return { price: rawPrice, y };
       const t = pixelToTime(x);
       if (visible.length === 0 || t === null) return { price: rawPrice, y };
       const idx0 = Math.min(Math.max(candleIndexAt(visible, t), 0), visible.length - 1);
@@ -1849,12 +1864,12 @@ export function CandleChart({
       // 範囲選択などブラウザ標準のテキスト編集操作に委ね、こちらの図形ドラッグ判定は行わない
       // （行うと編集中のテキストボックスが意図せず動いてしまう）
       if (editingTextId !== null) return;
-      // 非メイン（4画面の他3枠）は操作フル機能をまだ持たない（Phase 2で対応予定）。
-      // ドラッグでない単純クリックだけメイン昇格に使う（判定はonMouseUp側で行う）
-      if (!isMainRef.current) {
-        nonMainMouseDownPosRef.current = { x: e.clientX, y: e.clientY };
-        return;
-      }
+      // Phase 2: 非メインパネルでも同じドラッグ/当たり判定を動かす。ただし「ドラッグでない
+      // 単純クリックでメイン昇格」という非メイン専用の挙動も残す必要があるため、この関数の
+      // 末尾（何にもヒットしなかった＝空白クリックの分岐）でだけ始点を記録する
+      // （最初にnullへ戻しておき、以降のどこかの分岐で早期returnした＝実際に何か操作した
+      // 場合は昇格候補にしない。onMouseUp側で移動量判定して実際に昇格させる）
+      nonMainMouseDownPosRef.current = null;
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
@@ -1869,6 +1884,12 @@ export function CandleChart({
       }
 
       if (pick !== null) return;
+      // 水平線・垂直線・テキストの新規配置はこの関数の当たり判定チェーンではなく
+      // chart.subscribeClick側で処理される。ここで早期returnしないと、配置後に
+      // どのヒットテストにも当たらず末尾の「空白クリック」分岐へ落ちてしまい、
+      // 非メインパネルで単に線を置いただけなのに同時にメイン昇格まで起きてしまう
+      // （subscribeClickは1回のクリックで別途独立して発火するため、両方が競合して動く）
+      if (dH || dV || dT) return;
 
       if (isR) {
         if (!seriesRef.current || !chartRef.current) return;
@@ -1962,9 +1983,9 @@ export function CandleChart({
       const borderRectId = findRectBorderNear(x, y);
       if (borderRectId !== null) {
         if (!seriesRef.current || !chartRef.current) return;
-        const { rects: rectsAtDown, candles: csAtDown, cursor: curAtDown } = useTraderStore.getState();
+        const { rects: rectsAtDown } = useTraderStore.getState();
         const r = rectsAtDown.find(rr => rr.id === borderRectId);
-        const visibleAtDown = csAtDown.slice(0, curAtDown + 1);
+        const visibleAtDown = displayCandlesRef.current;
         const startTime = pixelToTime(x);
         const startPrice = seriesRef.current.coordinateToPrice(y);
         if (!r || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
@@ -2000,9 +2021,9 @@ export function CandleChart({
       const trendLineId = findTrendLineNear(x, y);
       if (trendLineId !== null) {
         if (!seriesRef.current || !chartRef.current) return;
-        const { trendLines: trendLinesAtDown, candles: csAtDown, cursor: curAtDown } = useTraderStore.getState();
+        const { trendLines: trendLinesAtDown } = useTraderStore.getState();
         const tl = trendLinesAtDown.find(t => t.id === trendLineId);
-        const visibleAtDown = csAtDown.slice(0, curAtDown + 1);
+        const visibleAtDown = displayCandlesRef.current;
         const startTime = pixelToTime(x);
         const startPrice = seriesRef.current.coordinateToPrice(y);
         if (!tl || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
@@ -2065,6 +2086,11 @@ export function CandleChart({
       if (currentSelected !== null) {
         // 図形の外（余白）をクリックしたら選択解除する（TradingView等と同じ挙動）
         useTraderStore.getState().selectLine(null);
+      }
+      // 非メインで、描画ツールも無く、既存図形にもヒットしなかった＝空白クリックの候補。
+      // ドラッグでない単純クリックだった場合のみonMouseUp側でメインへ昇格させる
+      if (!isMainRef.current) {
+        nonMainMouseDownPosRef.current = { x: e.clientX, y: e.clientY };
       }
     };
 
@@ -2255,8 +2281,7 @@ export function CandleChart({
         const t = pixelToTime(x);
         const p = seriesRef.current.coordinateToPrice(y);
         if (t === null || p === null) return;
-        const { candles: csMove, cursor: curMove } = useTraderStore.getState();
-        const visibleMove = csMove.slice(0, curMove + 1);
+        const visibleMove = displayCandlesRef.current;
         if (visibleMove.length === 0) return;
         pendingRectMoveDelta = { idx: candleIndexAt(visibleMove, t) - rectMoveStart.startIdx, dp: p - rectMoveStart.startPrice };
         if (!rafScheduled) {
@@ -2267,8 +2292,7 @@ export function CandleChart({
             if (!chartRef.current || !seriesRef.current) return;
             const el = rectElsRef.current.get(draggingRectMoveId);
             if (!el) return;
-            const { candles: csRaf, cursor: curRaf } = useTraderStore.getState();
-            const visibleRaf = csRaf.slice(0, curRaf + 1);
+            const visibleRaf = displayCandlesRef.current;
             if (visibleRaf.length === 0) return;
             const newIdx1 = Math.min(Math.max(rectMoveStart.idx1 + pendingRectMoveDelta.idx, 0), visibleRaf.length - 1);
             const newIdx2 = Math.min(Math.max(rectMoveStart.idx2 + pendingRectMoveDelta.idx, 0), visibleRaf.length - 1);
@@ -2319,8 +2343,7 @@ export function CandleChart({
         const t = pixelToTime(x);
         const p = seriesRef.current.coordinateToPrice(y);
         if (t === null || p === null) return;
-        const { candles: csMove, cursor: curMove } = useTraderStore.getState();
-        const visibleMove = csMove.slice(0, curMove + 1);
+        const visibleMove = displayCandlesRef.current;
         if (visibleMove.length === 0) return;
         pendingTrendMoveDelta = { idx: candleIndexAt(visibleMove, t) - trendMoveStart.startIdx, dp: p - trendMoveStart.startPrice };
         if (!rafScheduled) {
@@ -2328,8 +2351,7 @@ export function CandleChart({
           requestAnimationFrame(() => {
             rafScheduled = false;
             if (draggingTrendMoveId === null || pendingTrendMoveDelta === null || trendMoveStart === null) return;
-            const { candles: csRaf, cursor: curRaf } = useTraderStore.getState();
-            const visibleRaf = csRaf.slice(0, curRaf + 1);
+            const visibleRaf = displayCandlesRef.current;
             if (visibleRaf.length === 0) return;
             const newIdx1 = Math.min(Math.max(trendMoveStart.idx1 + pendingTrendMoveDelta.idx, 0), visibleRaf.length - 1);
             const newIdx2 = Math.min(Math.max(trendMoveStart.idx2 + pendingTrendMoveDelta.idx, 0), visibleRaf.length - 1);
@@ -2430,16 +2452,6 @@ export function CandleChart({
     };
 
     const onMouseUp = (e: MouseEvent) => {
-      if (!isMainRef.current) {
-        const start = nonMainMouseDownPosRef.current;
-        nonMainMouseDownPosRef.current = null;
-        if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) < CLICK_TOLERANCE_PX) {
-          // このパネルは既にこの時間軸を自前集計済みなので、そのまま渡してDuckDBへの
-          // 再クエリ待ちを省略する（渡す配列は表示用に未来をクリップする前のフル本数）
-          useTraderStore.getState().promoteSlotToMain(slotRef.current, nonMainCandlesRef.current);
-        }
-        return;
-      }
       if (rectDragging) {
         rectDragging = false;
         chart.applyOptions({ handleScroll: true, handleScale: true });
@@ -2551,8 +2563,7 @@ export function CandleChart({
       }
       if (draggingRectMoveId !== null) {
         if (pendingRectMoveDelta !== null && rectMoveStart !== null) {
-          const { candles: csUp, cursor: curUp } = useTraderStore.getState();
-          const visibleUp = csUp.slice(0, curUp + 1);
+          const visibleUp = displayCandlesRef.current;
           if (visibleUp.length > 0) {
             const newIdx1 = Math.min(Math.max(rectMoveStart.idx1 + pendingRectMoveDelta.idx, 0), visibleUp.length - 1);
             const newIdx2 = Math.min(Math.max(rectMoveStart.idx2 + pendingRectMoveDelta.idx, 0), visibleUp.length - 1);
@@ -2584,8 +2595,7 @@ export function CandleChart({
       }
       if (draggingTrendMoveId !== null) {
         if (pendingTrendMoveDelta !== null && trendMoveStart !== null) {
-          const { candles: csUp, cursor: curUp } = useTraderStore.getState();
-          const visibleUp = csUp.slice(0, curUp + 1);
+          const visibleUp = displayCandlesRef.current;
           if (visibleUp.length > 0) {
             const newIdx1 = Math.min(Math.max(trendMoveStart.idx1 + pendingTrendMoveDelta.idx, 0), visibleUp.length - 1);
             const newIdx2 = Math.min(Math.max(trendMoveStart.idx2 + pendingTrendMoveDelta.idx, 0), visibleUp.length - 1);
@@ -2631,12 +2641,23 @@ export function CandleChart({
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';
       }
+      // 非メインで、ここまでのどの分岐にも該当しなかった＝何もドラッグ/操作しなかった場合のみ、
+      // ドラッグでない単純クリックだったかを見てメインへ昇格させる（onMouseDown側の空白クリック
+      // 判定と対になる。何か操作した場合はnonMainMouseDownPosRefがnullのままなので発火しない）
+      if (!isMainRef.current) {
+        const start = nonMainMouseDownPosRef.current;
+        nonMainMouseDownPosRef.current = null;
+        if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) < CLICK_TOLERANCE_PX) {
+          // このパネルは既にこの時間軸を自前集計済みなので、そのまま渡してDuckDBへの
+          // 再クエリ待ちを省略する（渡す配列は表示用に未来をクリップする前のフル本数）
+          useTraderStore.getState().promoteSlotToMain(slotRef.current, nonMainCandlesRef.current);
+        }
+      }
     };
 
     // テキストボックスのダブルクリックで内容を編集する（削除は選択してDelete/Backspaceキー、
     // 編集中に全部消してblurすると削除扱いになる（Escapeは編集前の状態に戻すだけ）
     const onDblClick = (e: MouseEvent) => {
-      if (!isMainRef.current) return;
       if (editingTextId !== null) return;
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
