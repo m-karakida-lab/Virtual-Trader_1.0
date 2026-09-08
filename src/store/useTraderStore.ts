@@ -1003,7 +1003,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       nextTrendLineId: nextTrendLineId + 1,
       isDrawingTrendLine: continuousDrawing,
     });
-    if (!continuousDrawing) get().selectLine({ kind: 'trend', id: nextTrendLineId });
+    get().selectLine({ kind: 'trend', id: nextTrendLineId });
   },
   updateTrendLine: (id: number, patch: Partial<Omit<DrawnTrendLine, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -1041,7 +1041,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       nextBrushId: nextBrushId + 1,
       isDrawingBrush: continuousDrawing,
     });
-    if (!continuousDrawing) get().selectLine({ kind: 'brush', id: nextBrushId });
+    get().selectLine({ kind: 'brush', id: nextBrushId });
   },
   updateBrush: (id: number, patch: Partial<Omit<DrawnBrush, 'id'>>) => {
     pushDrawHistory(get, set);
