@@ -882,8 +882,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       isDrawingLine: continuousDrawing,
     });
     // 配置直後はそのまま編集モードに入れる（selectLine経由でパレットモードの自動ONも揃う）。
-    // 連続描画中は選択に入れない（選択すると編集用パレットに切り替わり連続配置できなくなる）
-    if (!continuousDrawing) get().selectLine({ kind: 'h', id: nextLineId });
+    // 連続描画中でも呼ぶ——isDrawingLineはcontinuousDrawing側で維持しているので選択に
+    // 入れても連続配置は妨げない。呼ばないと置いた直後の図形自身をパレットから直せない
+    // （テキストで同じ理由の不具合を実際に踏んだため、全図形で足並みを揃えた）
+    get().selectLine({ kind: 'h', id: nextLineId });
   },
   updateLine: (id: number, patch: Partial<Omit<DrawnLine, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -925,7 +927,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       nextVLineId: nextVLineId + 1,
       isDrawingVLine: continuousDrawing,
     });
-    if (!continuousDrawing) get().selectLine({ kind: 'v', id: nextVLineId });
+    get().selectLine({ kind: 'v', id: nextVLineId });
   },
   updateVLine: (id: number, patch: Partial<Omit<DrawnVLine, 'id'>>) => {
     pushDrawHistory(get, set);
@@ -963,7 +965,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       nextRectId: nextRectId + 1,
       isDrawingRect: continuousDrawing,
     });
-    if (!continuousDrawing) get().selectLine({ kind: 'rect', id: nextRectId });
+    get().selectLine({ kind: 'rect', id: nextRectId });
   },
   updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => {
     pushDrawHistory(get, set);
