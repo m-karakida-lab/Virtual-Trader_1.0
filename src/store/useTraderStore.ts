@@ -218,6 +218,12 @@ interface TraderState {
   dataVersion: number; // CSV読み込みが完了するたびに増える（ミニチャートの再集計トリガ用）
   crosshairSourceId: string | null; // 4画面時、実際にマウスホバー中のパネルID（'main' またはミニ枠のslot番号文字列）
   crosshairTime: number | null; // ↑のパネルで十字カーソルが指している時刻（Unix秒）。他パネルはこの時刻に同期表示する
+  // 4画面時、直近でmousedownした枠のslot番号。Delete/Undo/コピペ等のキーボード
+  // ショートカットは、4インスタンス同時稼働でも「最後に操作した1枠だけ」に効かせるため
+  // これと自分のslotを突き合わせてガードする（crosshairSourceIdとは別の目的の状態
+  // なので混同しないこと。crosshairSourceIdはホバー起点、こちらはクリック起点）。
+  // localStorageには永続化しない（セッション中の一時的なUI状態）
+  activePanelSlot: number;
 
   setInitialBalance: (v: number) => void;
   resetAccount: () => void;
@@ -305,6 +311,7 @@ interface TraderState {
   setQuadTimeframe: (slot: number, sec: TimeframeSec) => void;
   promoteSlotToMain: (slot: number, preloadedCandles?: Candle[]) => void;
   setCrosshair: (sourceId: string | null, time: number | null) => void;
+  setActivePanelSlot: (slot: number) => void;
   clearError: () => void;
 }
 
@@ -512,6 +519,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   dataVersion: 0,
   crosshairSourceId: null,
   crosshairTime: null,
+  // 起動直後はメイン枠にキーボードショートカットが効くようにしておく
+  // （実際にどこかのパネルをクリックした時点でそちらに切り替わる。loadSavedQuad()は
+  // localStorage読み取り+JSONパースだけの軽い処理なので2回呼んでも実害は無い）
+  activePanelSlot: loadSavedQuad().quadMainSlot,
 
   loadFiles: async (files: FileList | File[], fileHandle?: FileSystemFileHandle) => {
     const fileArray = Array.from(files);
@@ -1226,6 +1237,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // 4画面時、十字カーソルの同期表示用。実マウス操作しているパネル（sourceId）と時刻を共有し、
   // 他パネルはこの時刻に`setCrosshairPosition`で追従表示する
   setCrosshair: (sourceId: string | null, time: number | null) => set({ crosshairSourceId: sourceId, crosshairTime: time }),
+  setActivePanelSlot: (slot: number) => set(s => s.activePanelSlot === slot ? {} : { activePanelSlot: slot }),
   clearError: () => set({ error: null }),
 }));
 

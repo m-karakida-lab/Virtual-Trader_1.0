@@ -149,6 +149,17 @@ function buildTradeMarkers(positions: Position[], closedTrades: ClosedTrade[], s
   return markers;
 }
 
+// Cmd/Ctrl+C→VのクリップボードはCandleChartコンポーネントの寿命内だけ有効な状態だが、
+// 4画面時は4インスタンスとも同じマウント時1回のみのeffect内にそれぞれ別々の
+// ローカル変数として持っていた（以前は1画面=1インスタンスだったため問題にならなかった）。
+// window.addEventListener('keydown', ...)は各インスタンスが独立にwindowへ登録するため、
+// インスタンスごとに別のclipboard変数のままだと「パネルAでコピーしたものをパネルBで
+// ペースト」した時にBの空のclipboardが空振りし、かつ4インスタンス分のonKeyDownが同じ
+// キー入力に反応してしまう（Cmd+Vで4つ複製される等）。モジュールスコープに上げて
+// 全インスタンスで共有し、後述のactivePanelSlotガードと合わせて「最後に操作した1枠だけ
+// が実際に反応する」という単純な形にする
+let clipboard: LineSelection | null = null;
+
 // slot/isMain/timeframeSecは4画面レイアウトで複数インスタンスとして使うためのprops。
 // 省略時（1画面時）は今まで通り「唯一のメインパネル」として振る舞う（isMain=true, slot=0）。
 // isMain=falseの時、timeframeSecは自分が表示すべき時間軸（quadTimeframes[slot]）を指す
@@ -1513,11 +1524,9 @@ export function CandleChart({
     let pendingRectMoveDelta: { idx: number; dp: number } | null = null;
 
     // ── コピー&ペースト（Cmd/Ctrl+C / Cmd/Ctrl+V） ──────────────────────
-    // クリップボードはこのコンポーネントの寿命内だけ有効なローカル変数
-    // （storeに持たせるとリロード後まで残ってしまい、選択解除と挙動が食い違うため）。
+    // clipboard変数自体はモジュールスコープ（ファイル冒頭）で全インスタンス共有。
     // ペースト後はクリップボードを複製先に差し替える。連続でVを押すと
     // その都度OFFSET_PXずつ右下へずれながら複製されていく（斜めに並ぶ）
-    let clipboard: LineSelection | null = null;
     const PASTE_OFFSET_PX = 20;
 
     // 発注パネルの draft 価格（price/TP/SL）のプレビュー線をドラッグで調整
@@ -1860,6 +1869,9 @@ export function CandleChart({
     };
 
     const onMouseDown = (e: MouseEvent) => {
+      // Phase 4: 4画面時、Delete/Undo/コピペ等のキーボードショートカットを「最後に
+      // マウス操作した1枠」だけに効かせるための目印。クリックの種類を問わず常に更新する
+      useTraderStore.getState().setActivePanelSlot(slotRef.current);
       // テキストの直接編集中（contentEditable）は、その中でのクリックはカーソル移動・
       // 範囲選択などブラウザ標準のテキスト編集操作に委ね、こちらの図形ドラッグ判定は行わない
       // （行うと編集中のテキストボックスが意図せず動いてしまう）
@@ -2675,9 +2687,10 @@ export function CandleChart({
     // Delete/Backspaceキーで選択中の水平線・垂直線・四角形を削除、Cmd/Ctrl+C・Vでコピー&ペースト
     // （Macのキーボードは物理削除キーが実は⌫=Backspaceで、fn+⌫でようやくDeleteになるため両方拾う）
     const onKeyDown = (e: KeyboardEvent) => {
-      // 4画面時、キーボードショートカットはメインパネルのみが対象（Phase 4で
-      // 「最後に操作した枠」ベースのactivePanelSlotに置き換える予定の暫定対応）
-      if (!isMainRef.current) return;
+      // Phase 4: 4画面時、Delete/Undo/コピペ等は「最後にマウス操作した1枠」だけに効かせる
+      // （4インスタンス全部がwindowのkeydownを見ているため、絞らないと同じキー入力に
+      // 4枠とも反応してしまう。例: Cmd+Vで意図せず4つ複製される）
+      if (useTraderStore.getState().activePanelSlot !== slotRef.current) return;
       const active = document.activeElement as HTMLElement | null;
       const tag = (active?.tagName || '').toLowerCase();
       // テキストボックスの直接編集中（contentEditable）もショートカット対象から除外する
