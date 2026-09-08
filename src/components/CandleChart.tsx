@@ -311,6 +311,13 @@ export function CandleChart({
   const fittedNonMainDataRef = useRef<Candle[] | null>(null);
   // メイン用データ同期effectが「非メイン→メイン昇格直後の初回実行」を検出するためのフラグ
   const wasMainForDataSyncRef = useRef(false);
+  // メインだった枠が降格した直後の1回だけ、非メイン同期effectの「新データ→フィット」を
+  // スキップするためのフラグ。isMainがtrueになるたびに毎回立て直す（降格→再昇格→再降格の
+  // ような繰り返しにも対応するため、一度消費したら次にまたメインになるまで立たない）
+  const skipNextNonMainFitRef = useRef(false);
+  useEffect(() => {
+    if (isMain) skipNextNonMainFitRef.current = true;
+  }, [isMain]);
 
   const prevCursorRef  = useRef(-1);
   const prevCandlesRef = useRef<Candle[]>([]);
@@ -3289,17 +3296,27 @@ export function CandleChart({
     syncWeekLinesRef.current();
 
     // 新しいデータセットに切り替わった時だけ画面フィットする（CandleChart側の
-    // 通常のフィット処理はcursor基準のためここでは自前でMiniChart.tsxと同じ判定を行う）
+    // 通常のフィット処理はcursor基準のためここでは自前でMiniChart.tsxと同じ判定を行う）。
+    // ただし「メインだった枠が今まさに降格した直後」は、この枠は既にメインとして
+    // 相応の表示位置になっていたはずなので再フィットしない——スキップしないと、
+    // 降格した瞬間にこの枠が勝手に「全期間表示」へ飛んでしまい、クリックした覚えのない
+    // 別パネルが動いたように見える不具合になる（実際に指摘を受けて判明。あるパネルを
+    // クリックしてメインに昇格させると、それまでメインだった別パネルが降格してこの
+    // 分岐を初めて通ることになるため）
     if (fittedNonMainDataRef.current !== nonMainCandles) {
       fittedNonMainDataRef.current = nonMainCandles;
-      const saved = loadChartView(timeframeSec);
-      if (saved) {
-        chartRef.current?.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, nonMainVisible.length));
-      } else if (nonMainCandles.length > 0) {
-        chartRef.current?.timeScale().setVisibleRange({
-          from: nonMainCandles[0].time as Time,
-          to: nonMainCandles[nonMainCandles.length - 1].time as Time,
-        });
+      if (skipNextNonMainFitRef.current) {
+        skipNextNonMainFitRef.current = false;
+      } else {
+        const saved = loadChartView(timeframeSec);
+        if (saved) {
+          chartRef.current?.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, nonMainVisible.length));
+        } else if (nonMainCandles.length > 0) {
+          chartRef.current?.timeScale().setVisibleRange({
+            from: nonMainCandles[0].time as Time,
+            to: nonMainCandles[nonMainCandles.length - 1].time as Time,
+          });
+        }
       }
     }
 
