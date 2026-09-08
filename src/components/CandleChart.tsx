@@ -298,11 +298,13 @@ export function CandleChart({
   const isMainRef = useRef(isMain);
   const slotRef = useRef(slot);
   const mySourceIdRef = useRef(mySourceId);
+  const nonMainCandlesRef = useRef(nonMainCandles);
   useEffect(() => {
     isMainRef.current = isMain;
     slotRef.current = slot;
     mySourceIdRef.current = mySourceId;
-  }, [isMain, slot, mySourceId]);
+    nonMainCandlesRef.current = nonMainCandles;
+  }, [isMain, slot, mySourceId, nonMainCandles]);
   // 非メイン時、クリック（ドラッグでない）でメインへ昇格させるための始点記録
   const nonMainMouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   // 非メイン時、新しいデータセットに切り替わった時だけ画面フィットするための直前値記憶
@@ -2423,7 +2425,9 @@ export function CandleChart({
         const start = nonMainMouseDownPosRef.current;
         nonMainMouseDownPosRef.current = null;
         if (start && Math.hypot(e.clientX - start.x, e.clientY - start.y) < CLICK_TOLERANCE_PX) {
-          useTraderStore.getState().promoteSlotToMain(slotRef.current);
+          // このパネルは既にこの時間軸を自前集計済みなので、そのまま渡してDuckDBへの
+          // 再クエリ待ちを省略する（渡す配列は表示用に未来をクリップする前のフル本数）
+          useTraderStore.getState().promoteSlotToMain(slotRef.current, nonMainCandlesRef.current);
         }
         return;
       }

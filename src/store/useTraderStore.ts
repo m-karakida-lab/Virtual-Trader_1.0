@@ -223,7 +223,7 @@ interface TraderState {
   resetAccount: () => void;
   loadFiles: (files: FileList | File[], fileHandle?: FileSystemFileHandle) => Promise<void>;
   saveChartFile: () => Promise<void>;
-  setTimeframe: (sec: TimeframeSec) => Promise<void>;
+  setTimeframe: (sec: TimeframeSec, preloadedCandles?: Candle[]) => Promise<void>;
   advance: () => boolean;
   stepBack: () => boolean;
   jumpToTime: (targetSec: number) => void;
@@ -303,7 +303,7 @@ interface TraderState {
   setChartMargins: (right: number, bottom: number) => void;
   setChartLayout: (layout: '1' | '4') => void;
   setQuadTimeframe: (slot: number, sec: TimeframeSec) => void;
-  promoteSlotToMain: (slot: number) => void;
+  promoteSlotToMain: (slot: number, preloadedCandles?: Candle[]) => void;
   setCrosshair: (sourceId: string | null, time: number | null) => void;
   clearError: () => void;
 }
@@ -619,7 +619,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     URL.revokeObjectURL(url);
   },
 
-  setTimeframe: async (sec: TimeframeSec) => {
+  setTimeframe: async (sec: TimeframeSec, preloadedCandles?: Candle[]) => {
     const { isLoaded, isLoading, timeframeSec, candles, cursor, quadTimeframes, quadMainSlot } = get();
     if (!isLoaded || isLoading || sec === timeframeSec) return;
 
@@ -628,11 +628,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     // 開始時刻だけで比較すると、切替先の未確定の足が誤って選ばれ1本先出しになる）
     const currentClose = candles[cursor] !== undefined ? candles[cursor].time + timeframeSec : undefined;
 
-    set({ isLoading: true, loadingMsg: '集計中...', isPlaying: false });
-    try {
-      const db = await initDuckDB();
-      const newCandles = await queryCandles(db, sec);
-
+    const applyNewCandles = (newCandles: Candle[]) => {
       let newCursor = 0;
       if (currentClose !== undefined) {
         for (let i = 0; i < newCandles.length; i++) {
@@ -649,8 +645,23 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       set({
         candles: newCandles, timeframeSec: sec, cursor: newCursor,
         quadTimeframes: newQuadTimeframes,
-        isLoading: false, loadingMsg: '',
+        isLoading: false, loadingMsg: '', isPlaying: false,
       });
+    };
+
+    // 4画面でパネルを昇格させる時、その枠（非メインのCandleChartインスタンス）が既に
+    // 自前でこの時間軸を集計済みなら、そのままもらってDuckDBへの再クエリを省略する
+    // （panelは既に表示していたデータなので、切替のたびに待たされる無駄が無くなる）
+    if (preloadedCandles && preloadedCandles.length > 0) {
+      applyNewCandles(preloadedCandles);
+      return;
+    }
+
+    set({ isLoading: true, loadingMsg: '集計中...', isPlaying: false });
+    try {
+      const db = await initDuckDB();
+      const newCandles = await queryCandles(db, sec);
+      applyNewCandles(newCandles);
     } catch (e) {
       set({ error: String(e), isLoading: false, loadingMsg: '' });
     }
@@ -1205,11 +1216,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
 
   // ミニ枠をクリックしてメイン（操作可能パネル）に昇格。枠の時間軸をそのままメインに引き継ぐ
-  promoteSlotToMain: (slot: number) => {
+  promoteSlotToMain: (slot: number, preloadedCandles?: Candle[]) => {
     const { quadTimeframes } = get();
     set({ quadMainSlot: slot });
     saveQuad(quadTimeframes, slot);
-    void get().setTimeframe(quadTimeframes[slot]);
+    void get().setTimeframe(quadTimeframes[slot], preloadedCandles);
   },
 
   // 4画面時、十字カーソルの同期表示用。実マウス操作しているパネル（sourceId）と時刻を共有し、
