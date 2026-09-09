@@ -66,6 +66,18 @@ const TENKAN_PERIOD = 9;
 const KIJUN_PERIOD = 26;
 const SENKOU_B_PERIOD = 52;
 
+// インジケータの本来の線色。overlaysHidden時はvisible:falseにせず、この色→透明の
+// 切替だけで隠す（visible:falseにすると当該シリーズがオートスケール計算から除外され、
+// ローソク足の縦スケールが一瞬でジャンプして見える不具合があったため。データ・座標計算は
+// 裏で継続し、見た目の色だけを消す）
+const EMA_COLOR = '#ffa726';
+const SMA_COLOR = '#ab47bc';
+const BB_BASIS_COLOR = '#42a5f5';
+const BB_SILVER = '#c0c0c0';
+const CLOUD_A_COLOR = '#26a69a';
+const CLOUD_B_COLOR = '#ef5350';
+const TRANSPARENT = 'rgba(0,0,0,0)';
+
 const toBar = (c: Candle): CandlestickData => ({
   time: c.time as Time,
   open: c.open, high: c.high, low: c.low, close: c.close,
@@ -424,14 +436,14 @@ export function CandleChart({
     };
     const series = chart.addCandlestickSeries(seriesOptions);
     const emaSeries = chart.addLineSeries({
-      color: '#ffa726',
+      color: EMA_COLOR,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
       crosshairMarkerVisible: false,
     });
     const smaSeries = chart.addLineSeries({
-      color: '#ab47bc',
+      color: SMA_COLOR,
       lineWidth: 2,
       priceLineVisible: false,
       lastValueVisible: false,
@@ -444,8 +456,7 @@ export function CandleChart({
       crosshairMarkerVisible: false,
       visible: false,
     };
-    const BB_SILVER = '#c0c0c0';
-    const bbBasisSeries  = chart.addLineSeries({ ...bbLineOptions, color: '#42a5f5', lineStyle: LineStyle.Solid });
+    const bbBasisSeries  = chart.addLineSeries({ ...bbLineOptions, color: BB_BASIS_COLOR, lineStyle: LineStyle.Solid });
     const bbUpper1Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.SparseDotted });
     const bbLower1Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.SparseDotted });
     const bbUpper2Series = chart.addLineSeries({ ...bbLineOptions, color: BB_SILVER, lineStyle: LineStyle.Solid });
@@ -457,8 +468,8 @@ export function CandleChart({
       crosshairMarkerVisible: false,
       visible: false,
     };
-    const senkouASeries = chart.addLineSeries({ ...cloudLineOptions, color: '#26a69a' });
-    const senkouBSeries = chart.addLineSeries({ ...cloudLineOptions, color: '#ef5350' });
+    const senkouASeries = chart.addLineSeries({ ...cloudLineOptions, color: CLOUD_A_COLOR });
+    const senkouBSeries = chart.addLineSeries({ ...cloudLineOptions, color: CLOUD_B_COLOR });
 
     chartRef.current = chart;
     seriesRef.current = series;
@@ -3171,31 +3182,33 @@ export function CandleChart({
     syncWeekLinesRef.current();
   }, [showWeekLines]);
 
-  // EMA 表示 ON/OFF（overlaysHidden＝全インジケータ/描画一括非表示トグルもここで併せて反映）
+  // EMA 表示 ON/OFF。overlaysHidden中はvisibleを触らず色だけ透明にする
+  // （visible:falseにするとオートスケール計算から除外され、非表示/復帰のたびに
+  // ローソク足の縦スケールがガクッと動いて見える不具合になるため。詳細はEMA_COLOR等の定義部）
   useEffect(() => {
-    emaSeriesRef.current?.applyOptions({ visible: showEMA && !overlaysHidden });
+    emaSeriesRef.current?.applyOptions({ visible: showEMA, color: overlaysHidden ? TRANSPARENT : EMA_COLOR });
   }, [showEMA, overlaysHidden]);
 
-  // SMA14 表示 ON/OFF（EMA同様、非表示中も裏で計算は継続しておく）
+  // SMA14 表示 ON/OFF（EMA同様、非表示中も裏で計算・オートスケール寄与は継続しておく）
   useEffect(() => {
-    smaSeriesRef.current?.applyOptions({ visible: showSMA && !overlaysHidden });
+    smaSeriesRef.current?.applyOptions({ visible: showSMA, color: overlaysHidden ? TRANSPARENT : SMA_COLOR });
   }, [showSMA, overlaysHidden]);
 
-  // ボリンジャーバンド 表示 ON/OFF（EMA同様、非表示中も裏で計算は継続しておく）
+  // ボリンジャーバンド 表示 ON/OFF（EMA同様、非表示中も裏で計算・オートスケール寄与は継続しておく）
   useEffect(() => {
-    const v = showBB && !overlaysHidden;
-    bbBasisSeriesRef.current?.applyOptions({ visible: v });
-    bbUpper1SeriesRef.current?.applyOptions({ visible: v });
-    bbLower1SeriesRef.current?.applyOptions({ visible: v });
-    bbUpper2SeriesRef.current?.applyOptions({ visible: v });
-    bbLower2SeriesRef.current?.applyOptions({ visible: v });
+    const t = overlaysHidden;
+    bbBasisSeriesRef.current?.applyOptions({ visible: showBB, color: t ? TRANSPARENT : BB_BASIS_COLOR });
+    bbUpper1SeriesRef.current?.applyOptions({ visible: showBB, color: t ? TRANSPARENT : BB_SILVER });
+    bbLower1SeriesRef.current?.applyOptions({ visible: showBB, color: t ? TRANSPARENT : BB_SILVER });
+    bbUpper2SeriesRef.current?.applyOptions({ visible: showBB, color: t ? TRANSPARENT : BB_SILVER });
+    bbLower2SeriesRef.current?.applyOptions({ visible: showBB, color: t ? TRANSPARENT : BB_SILVER });
   }, [showBB, overlaysHidden]);
 
-  // 雲 表示 ON/OFF（同様に非表示中も裏で計算を継続、canvas側は syncCloud 内で showCloud を判定）
+  // 雲 表示 ON/OFF（同様に非表示中も裏で計算・オートスケール寄与は継続、canvas側は syncCloud 内でshowCloud/overlaysHiddenを判定）
   useEffect(() => {
-    const v = showCloud && !overlaysHidden;
-    senkouASeriesRef.current?.applyOptions({ visible: v });
-    senkouBSeriesRef.current?.applyOptions({ visible: v });
+    const v = showCloud;
+    senkouASeriesRef.current?.applyOptions({ visible: v, color: overlaysHidden ? TRANSPARENT : CLOUD_A_COLOR });
+    senkouBSeriesRef.current?.applyOptions({ visible: v, color: overlaysHidden ? TRANSPARENT : CLOUD_B_COLOR });
     syncCloudRef.current();
   }, [showCloud, overlaysHidden]);
 
