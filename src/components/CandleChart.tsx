@@ -651,7 +651,12 @@ export function CandleChart({
         } else {
           el.style.display = 'block';
           el.style.left = `${x}px`;
-          lineEl.style.height = `calc(100% - ${bottomMargin}px)`;
+          // ラベル表示中は、ラベル（軸欄の垂直中央に配置）まで線を伸ばして隙間なくつなげる
+          // （そのぶん線が少し軸欄に入るのはOKという指示）。ラベル非表示時は従来通り
+          // 軸欄の手前で止め、軸欄には一切入らないようにする
+          lineEl.style.height = showVLineDateLabel
+            ? `calc(100% - ${bottomMargin / 2}px)`
+            : `calc(100% - ${bottomMargin}px)`;
           lineEl.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
           label.style.display = showVLineDateLabel ? 'block' : 'none';
           label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
