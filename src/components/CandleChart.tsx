@@ -254,6 +254,7 @@ export function CandleChart({
   const showSMA   = useTraderStore(s => s.showSMA);
   const showBB    = useTraderStore(s => s.showBB);
   const showCloud = useTraderStore(s => s.showCloud);
+  const overlaysHidden = useTraderStore(s => s.overlaysHidden);
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const setTimeframe = useTraderStore(s => s.setTimeframe);
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
@@ -497,10 +498,10 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { showCloud: show } = useTraderStore.getState();
+      const { showCloud: show, overlaysHidden: hidden } = useTraderStore.getState();
       const cs = displayCandlesRef.current;
       const points = cloudDataRef.current;
-      if (!show || points.length < 2) return;
+      if (!show || hidden || points.length < 2) return;
 
       const timeScale = chartRef.current.timeScale();
       const series = seriesRef.current;
@@ -2922,7 +2923,8 @@ export function CandleChart({
           color: line.color,
           lineWidth: line.width,
           lineStyle: DASH_TO_STYLE[line.dash],
-          axisLabelVisible: true,
+          axisLabelVisible: !overlaysHidden,
+          lineVisible: !overlaysHidden,
         };
         const current = existing.get(line.id);
         if (current) {
@@ -2935,7 +2937,7 @@ export function CandleChart({
       logError('CandleChart:hlines', e);
     }
     syncVLinesRef.current();
-  }, [lines, selected]);
+  }, [lines, selected, overlaysHidden]);
 
   // 未約定注文（指値・逆指値）の価格ラインを再描画
   useEffect(() => {
@@ -3169,31 +3171,33 @@ export function CandleChart({
     syncWeekLinesRef.current();
   }, [showWeekLines]);
 
-  // EMA 表示 ON/OFF
+  // EMA 表示 ON/OFF（overlaysHidden＝全インジケータ/描画一括非表示トグルもここで併せて反映）
   useEffect(() => {
-    emaSeriesRef.current?.applyOptions({ visible: showEMA });
-  }, [showEMA]);
+    emaSeriesRef.current?.applyOptions({ visible: showEMA && !overlaysHidden });
+  }, [showEMA, overlaysHidden]);
 
   // SMA14 表示 ON/OFF（EMA同様、非表示中も裏で計算は継続しておく）
   useEffect(() => {
-    smaSeriesRef.current?.applyOptions({ visible: showSMA });
-  }, [showSMA]);
+    smaSeriesRef.current?.applyOptions({ visible: showSMA && !overlaysHidden });
+  }, [showSMA, overlaysHidden]);
 
   // ボリンジャーバンド 表示 ON/OFF（EMA同様、非表示中も裏で計算は継続しておく）
   useEffect(() => {
-    bbBasisSeriesRef.current?.applyOptions({ visible: showBB });
-    bbUpper1SeriesRef.current?.applyOptions({ visible: showBB });
-    bbLower1SeriesRef.current?.applyOptions({ visible: showBB });
-    bbUpper2SeriesRef.current?.applyOptions({ visible: showBB });
-    bbLower2SeriesRef.current?.applyOptions({ visible: showBB });
-  }, [showBB]);
+    const v = showBB && !overlaysHidden;
+    bbBasisSeriesRef.current?.applyOptions({ visible: v });
+    bbUpper1SeriesRef.current?.applyOptions({ visible: v });
+    bbLower1SeriesRef.current?.applyOptions({ visible: v });
+    bbUpper2SeriesRef.current?.applyOptions({ visible: v });
+    bbLower2SeriesRef.current?.applyOptions({ visible: v });
+  }, [showBB, overlaysHidden]);
 
   // 雲 表示 ON/OFF（同様に非表示中も裏で計算を継続、canvas側は syncCloud 内で showCloud を判定）
   useEffect(() => {
-    senkouASeriesRef.current?.applyOptions({ visible: showCloud });
-    senkouBSeriesRef.current?.applyOptions({ visible: showCloud });
+    const v = showCloud && !overlaysHidden;
+    senkouASeriesRef.current?.applyOptions({ visible: v });
+    senkouBSeriesRef.current?.applyOptions({ visible: v });
     syncCloudRef.current();
-  }, [showCloud]);
+  }, [showCloud, overlaysHidden]);
 
   // エントリー / 決済マーカー
   useEffect(() => {
@@ -3578,16 +3582,16 @@ export function CandleChart({
       {/* 四角形・垂直線のオーバーレイは価格軸の領域には侵入させない。overflow:hiddenと
           right:chartRightMarginで、価格軸に被る位置までスクロール/リサイズされた図形は
           その手前で切れて見えるようにする（スクラバーの右クランプと同じ考え方） */}
-      <div ref={rectOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }}>
+      <div ref={rectOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }}>
         <div ref={rectDraftBoxRef} style={{ position: 'absolute', display: 'none' }} />
       </div>
       {/* トレンドラインは斜めの線分なのでDOMのborderで表現できず、専用canvasに描く
           （雲と同じ方式）。価格軸に被らないよう幅は四角形・テキストのオーバーレイと揃える */}
-      <canvas ref={trendCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9 }} />
-      <canvas ref={brushCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9 }} />
-      <div ref={textOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
+      <canvas ref={trendCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
+      <canvas ref={brushCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
+      <div ref={textOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={weekOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
-      <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11 }} />
+      <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={measureOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 12, display: 'none' }}>
         <div ref={measureBoxRef} style={{ position: 'absolute' }} />
         <div ref={measureMidLineRef} style={{ position: 'absolute', width: '0px' }} />
