@@ -92,6 +92,32 @@ function saveMagnetStrength(strength: Exclude<MagnetMode, 'off'>): void {
   }
 }
 
+// 水平線の右端価格ラベル・垂直線の上端日付ラベルの表示ON/OFF。線ごとではなく全体設定
+// （ヒアリング済み）。デフォルトはどちらも表示ON（従来の水平線の見た目のまま）
+const LINE_LABELS_STORAGE_KEY = 'vt:lineLabels';
+
+function loadSavedLineLabels(): { showHLinePriceLabel: boolean; showVLineDateLabel: boolean } {
+  try {
+    const raw = localStorage.getItem(LINE_LABELS_STORAGE_KEY);
+    if (!raw) throw new Error('no saved line labels');
+    const parsed = JSON.parse(raw);
+    return {
+      showHLinePriceLabel: parsed.showHLinePriceLabel !== false,
+      showVLineDateLabel: parsed.showVLineDateLabel !== false,
+    };
+  } catch {
+    return { showHLinePriceLabel: true, showVLineDateLabel: true };
+  }
+}
+
+function saveLineLabels(showHLinePriceLabel: boolean, showVLineDateLabel: boolean): void {
+  try {
+    localStorage.setItem(LINE_LABELS_STORAGE_KEY, JSON.stringify({ showHLinePriceLabel, showVLineDateLabel }));
+  } catch {
+    // localStorage が使えない場合は無視
+  }
+}
+
 // 4画面レイアウトの「どの枠にどの時間軸を表示するか」（枠の位置=左上/左下/右上/右下は固定、
 // 中身の時間軸だけユーザーが選べる）。デフォルトは 左上15m・左下1H・右上4H・右下1D
 const QUAD_STORAGE_KEY = 'vt:quad';
@@ -176,6 +202,8 @@ interface TraderState {
   vlines: DrawnVLine[];
   nextVLineId: number;
   isDrawingVLine: boolean;
+  showHLinePriceLabel: boolean; // 水平線の右端価格ラベルON/OFF（全線共通、localStorageに記憶）
+  showVLineDateLabel: boolean;  // 垂直線の上端日付ラベルON/OFF（全線共通、localStorageに記憶）
   isMeasuring: boolean;
   rects: DrawnRect[];
   nextRectId: number;
@@ -278,6 +306,8 @@ interface TraderState {
   removeVLine: (id: number) => void;
   duplicateVLine: (id: number, newTime: number) => void;
   toggleDrawVLine: () => void;
+  toggleHLinePriceLabel: () => void;
+  toggleVLineDateLabel: () => void;
   toggleMeasure: () => void;
   addRect: (time1: number, price1: number, time2: number, price2: number) => void;
   updateRect: (id: number, patch: Partial<Omit<DrawnRect, 'id'>>) => void;
@@ -492,6 +522,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   vlines: [],
   nextVLineId: 1,
   isDrawingVLine: false,
+  ...loadSavedLineLabels(),
   isMeasuring: false,
   rects: [],
   nextRectId: 1,
@@ -1004,6 +1035,16 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     return { isDrawingVLine: next, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false })),
+  toggleHLinePriceLabel: () => set(s => {
+    const next = !s.showHLinePriceLabel;
+    saveLineLabels(next, s.showVLineDateLabel);
+    return { showHLinePriceLabel: next };
+  }),
+  toggleVLineDateLabel: () => set(s => {
+    const next = !s.showVLineDateLabel;
+    saveLineLabels(s.showHLinePriceLabel, next);
+    return { showVLineDateLabel: next };
+  }),
 
   addRect: (time1: number, price1: number, time2: number, price2: number) => {
     pushDrawHistory(get, set);

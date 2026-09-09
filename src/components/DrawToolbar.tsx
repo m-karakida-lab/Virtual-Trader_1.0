@@ -188,6 +188,29 @@ function MagnetStrengthPopup({ disabled }: { disabled: boolean }) {
   );
 }
 
+// 水平線の価格ラベル・垂直線の日付ラベルのON/OFFを選ぶ矢印つきポップアップ。
+// マグネットの強さ選択（あり/なしの2択）と同じ見た目・操作感に揃える
+function LabelTogglePopup({ title, show, onToggle, disabled }: { title: string; show: boolean; onToggle: () => void; disabled: boolean }) {
+  return (
+    <StyleArrow title={title} disabled={disabled}>
+      <div style={{ display: 'flex', gap: '3px' }}>
+        {([{ v: true, label: 'あり' }, { v: false, label: 'なし' }] as const).map(o => (
+          <button
+            key={String(o.v)}
+            onClick={() => { if (show !== o.v) onToggle(); }}
+            style={{
+              backgroundColor: show === o.v ? '#2a2a2a' : '#161616',
+              color: show === o.v ? '#e0e0e0' : '#666',
+              border: show === o.v ? '1px solid #3a3a3a' : '1px solid #222',
+              borderRadius: '3px', padding: '4px 8px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+            }}
+          >{o.label}</button>
+        ))}
+      </div>
+    </StyleArrow>
+  );
+}
+
 export function DrawToolbar() {
   const isLoaded = useTraderStore(s => s.isLoaded);
   const isDrawingLine  = useTraderStore(s => s.isDrawingLine);
@@ -213,11 +236,21 @@ export function DrawToolbar() {
   const isJumpSync = useTraderStore(s => s.isJumpSync);
   const toggleJumpSync = useTraderStore(s => s.toggleJumpSync);
   const chartLayout = useTraderStore(s => s.chartLayout);
+  const showHLinePriceLabel = useTraderStore(s => s.showHLinePriceLabel);
+  const toggleHLinePriceLabel = useTraderStore(s => s.toggleHLinePriceLabel);
+  const showVLineDateLabel = useTraderStore(s => s.showVLineDateLabel);
+  const toggleVLineDateLabel = useTraderStore(s => s.toggleVLineDateLabel);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-      <ToolButton icon="hline" title="水平線" active={isDrawingLine} disabled={!isLoaded} onClick={toggleDrawLine} />
-      <ToolButton icon="vline" title="垂直線" active={isDrawingVLine} disabled={!isLoaded} onClick={toggleDrawVLine} />
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <ToolButton icon="hline" title="水平線" active={isDrawingLine} disabled={!isLoaded} onClick={toggleDrawLine} />
+        <LabelTogglePopup title="価格ラベルの表示" show={showHLinePriceLabel} onToggle={toggleHLinePriceLabel} disabled={!isLoaded} />
+      </div>
+      <div style={{ display: 'flex', alignItems: 'center' }}>
+        <ToolButton icon="vline" title="垂直線" active={isDrawingVLine} disabled={!isLoaded} onClick={toggleDrawVLine} />
+        <LabelTogglePopup title="日付ラベルの表示" show={showVLineDateLabel} onToggle={toggleVLineDateLabel} disabled={!isLoaded} />
+      </div>
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />
       <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
       <ToolButton icon="trend" title="トレンドライン" active={isDrawingTrendLine} disabled={!isLoaded} onClick={toggleDrawTrendLine} />

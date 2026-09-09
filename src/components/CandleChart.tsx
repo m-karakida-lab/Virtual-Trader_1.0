@@ -83,6 +83,18 @@ const toBar = (c: Candle): CandlestickData => ({
   open: c.open, high: c.high, low: c.low, close: c.close,
 });
 
+// 垂直線の日付ラベル用。他の箇所（Controls.tsxの現在位置表示等）と同じく、Unix秒を
+// ブラウザのローカルタイムゾーンに変換せずUTCゲッターで読む（足の時刻は既にJST変換済みの
+// 「壁時計時刻」を秒数として持っているため、これでそのままJST表記になる）
+function formatVLineDate(sec: number): string {
+  const d = new Date(sec * 1000);
+  const M = d.getUTCMonth() + 1;
+  const D = d.getUTCDate();
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${M}/${D} ${hh}:${mm}`;
+}
+
 // 直近 period 本（idx を含む）の高値・安値
 function highLowWindow(cs: Candle[], idx: number, period: number): { hi: number; lo: number } {
   let hi = -Infinity, lo = Infinity;
@@ -271,6 +283,8 @@ export function CandleChart({
   const showBB    = useTraderStore(s => s.showBB);
   const showCloud = useTraderStore(s => s.showCloud);
   const overlaysHidden = useTraderStore(s => s.overlaysHidden);
+  const showHLinePriceLabel = useTraderStore(s => s.showHLinePriceLabel);
+  const showVLineDateLabel = useTraderStore(s => s.showVLineDateLabel);
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const setTimeframe = useTraderStore(s => s.setTimeframe);
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
@@ -578,7 +592,7 @@ export function CandleChart({
     // ── 垂直線の位置を再計算して DOM に反映 ────────────────────────
     const syncVLines = () => {
       if (!chartRef.current || !overlayRef.current || !seriesRef.current) return;
-      const { vlines: currentVLines, lines: currentLines, selected } = useTraderStore.getState();
+      const { vlines: currentVLines, lines: currentLines, selected, showVLineDateLabel } = useTraderStore.getState();
       const overlay = overlayRef.current;
       const existing = vlineElsRef.current;
       const nextIds = new Set(currentVLines.map(v => v.id));
@@ -589,6 +603,7 @@ export function CandleChart({
 
       for (const v of currentVLines) {
         let el = existing.get(v.id);
+        let label: HTMLDivElement;
         if (!el) {
           el = document.createElement('div');
           el.style.position = 'absolute';
@@ -596,8 +611,25 @@ export function CandleChart({
           el.style.height = '100%';
           el.style.width = '0px';
           el.style.pointerEvents = 'none';
+          // 線の上端（グラフの一番上）に表示する小さな日付ラベル。線自体はwidth:0pxの
+          // ボーダーで表現しているため、ラベルはこの子要素として左端基準で配置し
+          // translateXで中央寄せする
+          label = document.createElement('div');
+          label.style.position = 'absolute';
+          label.style.top = '0';
+          label.style.left = '0';
+          label.style.transform = 'translateX(-50%)';
+          label.style.whiteSpace = 'nowrap';
+          label.style.fontSize = '10px';
+          label.style.lineHeight = '1.4';
+          label.style.padding = '1px 4px';
+          label.style.borderRadius = '3px';
+          label.style.backgroundColor = 'rgba(20,20,20,0.85)';
+          el.appendChild(label);
           overlay.appendChild(el);
           existing.set(v.id, el);
+        } else {
+          label = el.firstChild as HTMLDivElement;
         }
         const x = timeToX(v.time);
         if (x === null) {
@@ -606,6 +638,9 @@ export function CandleChart({
           el.style.display = 'block';
           el.style.left = `${x}px`;
           el.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
+          label.style.display = showVLineDateLabel ? 'block' : 'none';
+          label.style.color = v.color;
+          label.textContent = formatVLineDate(v.time);
         }
       }
 
@@ -2949,7 +2984,7 @@ export function CandleChart({
           color: line.color,
           lineWidth: line.width,
           lineStyle: DASH_TO_STYLE[line.dash],
-          axisLabelVisible: !overlaysHidden,
+          axisLabelVisible: !overlaysHidden && showHLinePriceLabel,
           lineVisible: !overlaysHidden,
         };
         const current = existing.get(line.id);
@@ -2963,7 +2998,13 @@ export function CandleChart({
       logError('CandleChart:hlines', e);
     }
     syncVLinesRef.current();
-  }, [lines, selected, overlaysHidden]);
+  }, [lines, selected, overlaysHidden, showHLinePriceLabel]);
+
+  // 垂直線の日付ラベルON/OFFが切り替わった時だけ再同期する（vlines自体の変化は
+  // 上のhline用useEffect末尾のsyncVLinesRef経由で既にカバーされている）
+  useEffect(() => {
+    syncVLinesRef.current();
+  }, [showVLineDateLabel]);
 
   // 未約定注文（指値・逆指値）の価格ラインを再描画
   useEffect(() => {
