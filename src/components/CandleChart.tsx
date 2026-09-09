@@ -86,13 +86,15 @@ const toBar = (c: Candle): CandlestickData => ({
 // 垂直線の日付ラベル用。他の箇所（Controls.tsxの現在位置表示等）と同じく、Unix秒を
 // ブラウザのローカルタイムゾーンに変換せずUTCゲッターで読む（足の時刻は既にJST変換済みの
 // 「壁時計時刻」を秒数として持っているため、これでそのままJST表記になる）
+// 年入り2桁表記（`yy`）はチャートの日付軸目盛り（tickMarkFormatter、下記）と同じ書式に揃える
 function formatVLineDate(sec: number): string {
   const d = new Date(sec * 1000);
+  const yy = String(d.getUTCFullYear()).slice(2);
   const M = d.getUTCMonth() + 1;
   const D = d.getUTCDate();
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const mm = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${M}/${D} ${hh}:${mm}`;
+  return `${yy} ${M}/${D} ${hh}:${mm}`;
 }
 
 // 直近 period 本（idx を含む）の高値・安値
@@ -611,13 +613,14 @@ export function CandleChart({
           el.style.height = '100%';
           el.style.width = '0px';
           el.style.pointerEvents = 'none';
-          // 日付軸欄（chartBottomMargin分の帯）の中に埋め込む日付ラベル（TradingView同様、
-          // 軸欄の上に浮かせるのではなく軸欄そのものに重ねて表示する）。線自体はwidth:0pxの
-          // ボーダーで表現しているため、ラベルはこの子要素として1点を基準に配置し、
-          // translateで水平・垂直とも中央寄せする
+          // 日付軸欄（チャート本体の下、chartBottomMargin分の帯）には重ねず、その少し上に
+          // 表示する日付ラベル（軸欄に重ねると本来の日付目盛りと文字が衝突して読みにくいという
+          // 指摘を受けて、埋め込み方式から戻した）。線自体はwidth:0pxのボーダーで表現している
+          // ため、ラベルはこの子要素として左端基準で配置しtranslateXで水平中央寄せする
           label = document.createElement('div');
           label.style.position = 'absolute';
           label.style.left = '0';
+          label.style.transform = 'translateX(-50%)';
           label.style.whiteSpace = 'nowrap';
           label.style.fontSize = '10px';
           label.style.fontWeight = '700';
@@ -639,10 +642,8 @@ export function CandleChart({
           el.style.left = `${x}px`;
           el.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
           label.style.display = showVLineDateLabel ? 'block' : 'none';
-          // 日付軸欄の帯（下端からbottomMargin px分）の垂直中央に来る1点を基準にして、
-          // その点を中心に水平・垂直とも中央寄せする
-          label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
-          label.style.transform = 'translate(-50%, -50%)';
+          // 日付軸欄（bottomMargin px分の帯）の少し上に置く。軸欄そのものには重ねない
+          label.style.bottom = `${bottomMargin + 3}px`;
           label.style.backgroundColor = v.color;
           label.textContent = formatVLineDate(v.time);
         }
