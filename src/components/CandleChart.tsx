@@ -611,18 +611,20 @@ export function CandleChart({
           el.style.height = '100%';
           el.style.width = '0px';
           el.style.pointerEvents = 'none';
-          // 下端の日付軸欄に表示する小さな日付ラベル。線自体はwidth:0pxのボーダーで
-          // 表現しているため、ラベルはこの子要素として左端基準で配置しtranslateXで中央寄せする
+          // 日付軸欄（chartBottomMargin分の帯）の中に埋め込む日付ラベル（TradingView同様、
+          // 軸欄の上に浮かせるのではなく軸欄そのものに重ねて表示する）。線自体はwidth:0pxの
+          // ボーダーで表現しているため、ラベルはこの子要素として1点を基準に配置し、
+          // translateで水平・垂直とも中央寄せする
           label = document.createElement('div');
           label.style.position = 'absolute';
           label.style.left = '0';
-          label.style.transform = 'translateX(-50%)';
           label.style.whiteSpace = 'nowrap';
           label.style.fontSize = '10px';
+          label.style.fontWeight = '700';
           label.style.lineHeight = '1.4';
           label.style.padding = '1px 4px';
           label.style.borderRadius = '3px';
-          label.style.backgroundColor = 'rgba(20,20,20,0.85)';
+          label.style.color = '#0d0d0d';
           el.appendChild(label);
           overlay.appendChild(el);
           existing.set(v.id, el);
@@ -637,8 +639,11 @@ export function CandleChart({
           el.style.left = `${x}px`;
           el.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
           label.style.display = showVLineDateLabel ? 'block' : 'none';
-          label.style.bottom = `${Math.max(0, bottomMargin - 2)}px`;
-          label.style.color = v.color;
+          // 日付軸欄の帯（下端からbottomMargin px分）の垂直中央に来る1点を基準にして、
+          // その点を中心に水平・垂直とも中央寄せする
+          label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
+          label.style.transform = 'translate(-50%, -50%)';
+          label.style.backgroundColor = v.color;
           label.textContent = formatVLineDate(v.time);
         }
       }
