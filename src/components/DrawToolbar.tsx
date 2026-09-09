@@ -260,7 +260,7 @@ export function DrawToolbar() {
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <ToolButton
         icon="jumpSync"
-        title={chartLayout === '4' ? 'このツールを有効化した後、いずれかのパネルで足をクリックすると他の枠がその時刻へ移動します' : '4画面表示でのみ使えます'}
+        title={chartLayout === '4' ? 'ジャンプモード（有効化後、いずれかのパネルで足をクリックすると他の枠がその時刻へ移動します）' : 'ジャンプモード（4画面表示でのみ使えます）'}
         active={isJumpSync}
         disabled={!isLoaded || chartLayout !== '4'}
         onClick={toggleJumpSync}

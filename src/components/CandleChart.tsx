@@ -2515,9 +2515,11 @@ export function CandleChart({
         });
       }
 
-      // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
-      if (!dH && !dV && !isM && !isR && !isTL && !isB && !dT && pick === null) {
+      // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に。ジャンプモード中は
+      // 図形をドラッグ編集できる状態ではない（クリックは足の時刻ピックに使われる）ため、
+      // 垂直線等に重なっても「ドラッグできる」ことを示す矢印カーソルは出さない
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
+      if (!dH && !dV && !isM && !isR && !isTL && !isB && !dT && pick === null && !jumpSync) {
         const draft = findDraftNear(y);
         if (draft !== null) { container.style.cursor = 'ns-resize'; return; }
         const target = findPriceTargetNear(y);
