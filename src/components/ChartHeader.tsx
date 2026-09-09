@@ -39,7 +39,7 @@ export function ChartHeader({
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: '6px',
-        backgroundColor: 'rgba(15,15,15,0.55)', borderRadius: '8px',
+        backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: '8px',
         padding: '4px 8px',
       }}>
         {/* 銘柄名は今のところ選択肢が1つ（読み込んだファイルの通貨ペア）しか無いため、
@@ -59,8 +59,7 @@ export function ChartHeader({
               disabled={disabled}
               style={{
                 display: 'flex', alignItems: 'center', gap: '2px',
-                background: 'rgba(255,255,255,0.12)', border: 'none', borderRadius: '9999px',
-                padding: '3px 7px',
+                background: 'none', border: 'none', padding: 0,
                 color: 'rgba(255,255,255,0.75)', fontSize: '12px', fontWeight: 600,
                 fontFamily: CHART_FONT_FAMILY, cursor: disabled ? 'default' : 'pointer',
               }}
@@ -92,7 +91,6 @@ export function ChartHeader({
         ) : (
           <span style={{
             display: 'flex', alignItems: 'center', gap: '2px',
-            background: 'rgba(255,255,255,0.12)', borderRadius: '9999px', padding: '3px 7px',
             color: 'rgba(255,255,255,0.75)', fontSize: '12px', fontWeight: 600,
           }}>{timeframeLabel}<ChevronDown color="rgba(255,255,255,0.6)" /></span>
         )}
