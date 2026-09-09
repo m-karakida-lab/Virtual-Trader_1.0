@@ -3320,7 +3320,13 @@ export function CandleChart({
   // メインと違いカーソル1ステップ＝1本という前提が無いため、MiniChart.tsxと同じ
   // 「変化のたびに毎回まるごと再計算」方式（indicatorsの共有フル計算関数を使う）
   useEffect(() => {
-    if (isMain || !seriesRef.current || nonMainVisible.length === 0) return;
+    // nonMainVisible.length===0 でもここで早期returnしてはいけない。「未来隠しクリップの
+    // 結果たまたま0本になった」場合も含まれるため、returnすると空のsetDataすら呼ばれず、
+    // 直前に描画されていた古いデータセットの見た目がそのまま画面に残り続けてしまう
+    // （新しいCSVを読み込んだ直後、cursor=0付近では上位時間足ほどまだ1本も閉じておらず
+    // 0本になりやすい。この枠をクリックしてメインに昇格させると別経路の描画に切り替わり
+    // 正しいデータに見えるため、あたかも「クリックしないと読み込まれない」不具合に見えていた）
+    if (isMain || !seriesRef.current) return;
 
     seriesRef.current.setData(nonMainVisible.map(toBar));
 
