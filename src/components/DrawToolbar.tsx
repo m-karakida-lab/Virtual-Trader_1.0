@@ -189,12 +189,13 @@ function MagnetStrengthPopup({ disabled }: { disabled: boolean }) {
 }
 
 // 水平線の価格ラベル・垂直線の日付ラベルのON/OFFを選ぶ矢印つきポップアップ。
-// マグネットの強さ選択（あり/なしの2択）と同じ見た目・操作感に揃える
-function LabelTogglePopup({ title, show, onToggle, disabled }: { title: string; show: boolean; onToggle: () => void; disabled: boolean }) {
+// マグネットの強さ選択と同じ見た目・操作感に揃える。ボタン文言は「あり/なし」だけだと
+// 何のON/OFFか分かりづらいという指摘を受け、subject（例:「価格ラベル」）を含めて明示する
+function LabelTogglePopup({ title, subject, show, onToggle, disabled }: { title: string; subject: string; show: boolean; onToggle: () => void; disabled: boolean }) {
   return (
     <StyleArrow title={title} disabled={disabled}>
       <div style={{ display: 'flex', gap: '3px' }}>
-        {([{ v: true, label: 'あり' }, { v: false, label: 'なし' }] as const).map(o => (
+        {([{ v: true, label: `${subject}あり` }, { v: false, label: `${subject}なし` }] as const).map(o => (
           <button
             key={String(o.v)}
             onClick={() => { if (show !== o.v) onToggle(); }}
@@ -245,11 +246,11 @@ export function DrawToolbar() {
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <ToolButton icon="hline" title="水平線" active={isDrawingLine} disabled={!isLoaded} onClick={toggleDrawLine} />
-        <LabelTogglePopup title="価格ラベルの表示" show={showHLinePriceLabel} onToggle={toggleHLinePriceLabel} disabled={!isLoaded} />
+        <LabelTogglePopup title="価格ラベルの表示" subject="価格ラベル" show={showHLinePriceLabel} onToggle={toggleHLinePriceLabel} disabled={!isLoaded} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <ToolButton icon="vline" title="垂直線" active={isDrawingVLine} disabled={!isLoaded} onClick={toggleDrawVLine} />
-        <LabelTogglePopup title="日付ラベルの表示" show={showVLineDateLabel} onToggle={toggleVLineDateLabel} disabled={!isLoaded} />
+        <LabelTogglePopup title="日付ラベルの表示" subject="日付ラベル" show={showVLineDateLabel} onToggle={toggleVLineDateLabel} disabled={!isLoaded} />
       </div>
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />
       <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />

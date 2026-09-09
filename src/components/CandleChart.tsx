@@ -592,7 +592,7 @@ export function CandleChart({
     // ── 垂直線の位置を再計算して DOM に反映 ────────────────────────
     const syncVLines = () => {
       if (!chartRef.current || !overlayRef.current || !seriesRef.current) return;
-      const { vlines: currentVLines, lines: currentLines, selected, showVLineDateLabel } = useTraderStore.getState();
+      const { vlines: currentVLines, lines: currentLines, selected, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
       const overlay = overlayRef.current;
       const existing = vlineElsRef.current;
       const nextIds = new Set(currentVLines.map(v => v.id));
@@ -611,12 +611,10 @@ export function CandleChart({
           el.style.height = '100%';
           el.style.width = '0px';
           el.style.pointerEvents = 'none';
-          // 線の上端（グラフの一番上）に表示する小さな日付ラベル。線自体はwidth:0pxの
-          // ボーダーで表現しているため、ラベルはこの子要素として左端基準で配置し
-          // translateXで中央寄せする
+          // 下端の日付軸欄に表示する小さな日付ラベル。線自体はwidth:0pxのボーダーで
+          // 表現しているため、ラベルはこの子要素として左端基準で配置しtranslateXで中央寄せする
           label = document.createElement('div');
           label.style.position = 'absolute';
-          label.style.top = '0';
           label.style.left = '0';
           label.style.transform = 'translateX(-50%)';
           label.style.whiteSpace = 'nowrap';
@@ -639,6 +637,7 @@ export function CandleChart({
           el.style.left = `${x}px`;
           el.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
           label.style.display = showVLineDateLabel ? 'block' : 'none';
+          label.style.bottom = `${Math.max(0, bottomMargin - 2)}px`;
           label.style.color = v.color;
           label.textContent = formatVLineDate(v.time);
         }
