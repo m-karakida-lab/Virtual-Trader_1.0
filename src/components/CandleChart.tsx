@@ -258,6 +258,10 @@ export function CandleChart({
   const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText  = useTraderStore(s => s.isDrawingText);
   const pickTarget     = useTraderStore(s => s.pickTarget);
+  const isJumpSync     = useTraderStore(s => s.isJumpSync);
+  const jumpSyncSignal = useTraderStore(s => s.jumpSyncSignal);
+  const jumpSyncTarget = useTraderStore(s => s.jumpSyncTarget);
+  const jumpSyncSourceId = useTraderStore(s => s.jumpSyncSourceId);
   const orderType      = useTraderStore(s => s.orderType);
   const draftPrice     = useTraderStore(s => s.draftPrice);
   const draftTP        = useTraderStore(s => s.draftTP);
@@ -1325,8 +1329,15 @@ export function CandleChart({
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
     chart.subscribeClick(param => {
       // Phase 2: 非メインパネルでも水平線/垂直線/テキスト配置・pickTargetでの価格指定を許可する
-      const { isDrawingLine: drawingH, isDrawingVLine: drawingV, isDrawingText: drawingT, pickTarget, addLine, addVLine, pickPrice } = useTraderStore.getState();
+      const { isDrawingLine: drawingH, isDrawingVLine: drawingV, isDrawingText: drawingT, pickTarget, addLine, addVLine, pickPrice, isJumpSync: jumpSync, jumpSyncTo } = useTraderStore.getState();
       if (!param.point || !seriesRef.current) return;
+
+      // 他時間足へジャンプ: クリックした足の時刻をそのまま使う（lightweight-chartsが
+      // 実データ点上のクリックにだけparam.timeを埋めてくれるので、磁石/座標変換は不要）
+      if (jumpSync) {
+        if (param.time !== undefined) jumpSyncTo(mySourceIdRef.current, param.time as number);
+        return;
+      }
 
       if (pickTarget !== null) {
         const price = seriesRef.current.coordinateToPrice(param.point.y);
@@ -1895,7 +1906,7 @@ export function CandleChart({
       // （最初にnullへ戻しておき、以降のどこかの分岐で早期returnした＝実際に何か操作した
       // 場合は昇格候補にしない。onMouseUp側で移動量判定して実際に昇格させる）
       nonMainMouseDownPosRef.current = null;
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick } = useTraderStore.getState();
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -1909,6 +1920,9 @@ export function CandleChart({
       }
 
       if (pick !== null) return;
+      // 他時間足ジャンプツールもsubscribeClick側で処理するため、上のpickTargetと同じ理由で
+      // ここで早期returnする（この関数のヒット判定チェーンへ落として二重に反応させない）
+      if (jumpSync) return;
       // 水平線・垂直線・テキストの新規配置はこの関数の当たり判定チェーンではなく
       // chart.subscribeClick側で処理される。ここで早期returnしないと、配置後に
       // どのヒットテストにも当たらず末尾の「空白クリック」分岐へ落ちてしまい、
@@ -2898,10 +2912,10 @@ export function CandleChart({
 
   // 描画・計測・価格ピッキングモード中はカーソルを crosshair に
   useEffect(() => {
-    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingBrush || isDrawingText || pickTarget !== null)) {
+    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingBrush || isDrawingText || pickTarget !== null || isJumpSync)) {
       containerRef.current.style.cursor = 'crosshair';
     }
-  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingTrendLine, isDrawingBrush, isDrawingText, pickTarget]);
+  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingTrendLine, isDrawingBrush, isDrawingText, pickTarget, isJumpSync]);
 
   // ものさしモードを解除したら表示を消す
   useEffect(() => {
@@ -3432,6 +3446,32 @@ export function CandleChart({
     chart.timeScale().setVisibleLogicalRange({ from: targetIdx - half, to: targetIdx + half });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerSignal]);
+
+  // 他時間足へのジャンプ同期: クリックが発生したパネル自身は動かさず（ヒアリング済み）、
+  // 他の枠だけ「クリックされた足の時刻」を中心に表示位置を移動する。上のcenterSignalと
+  // 似ているが、こちらは各パネル自身が表示しているdisplayCandles（メインならcandles、
+  // 非メインなら自前集計のnonMainVisible）で二分探索する必要がある——グローバルなcandles
+  // （メインの時間軸）をそのまま使うと非メインパネルでは全く違う配列に対するインデックスに
+  // なってしまい、無関係な位置へ飛んでしまう
+  useEffect(() => {
+    if (jumpSyncSignal === 0 || !chartRef.current) return;
+    if (jumpSyncSourceId === mySourceIdRef.current) return;
+    const chart = chartRef.current;
+    const cs = displayCandlesRef.current;
+    if (cs.length === 0) return;
+    let lo = 0, hi = cs.length - 1, targetIdx = 0;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (cs[mid].time <= jumpSyncTarget) { targetIdx = mid; lo = mid + 1; }
+      else hi = mid - 1;
+    }
+    const logicalRange = chart.timeScale().getVisibleLogicalRange();
+    const currentSpan = logicalRange ? logicalRange.to - logicalRange.from : 0;
+    const span = Math.max(currentSpan, MIN_JUMP_SPAN_BARS);
+    const half = span / 2;
+    chart.timeScale().setVisibleLogicalRange({ from: targetIdx - half, to: targetIdx + half });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [jumpSyncSignal]);
 
   function recomputeEmaFull(cs: Candle[], uptoIndex: number) {
     const k = 2 / (EMA_PERIOD + 1);

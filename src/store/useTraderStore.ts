@@ -160,6 +160,13 @@ interface TraderState {
   draftTP: number | null;    // 発注時の TP（draft）
   draftSL: number | null;    // 発注時の SL（draft）
   pickTarget: 'price' | 'tp' | 'sl' | null; // チャートクリックで price/tp/sl に値を入れるモード
+  // 「日足の特定の足を指して他の時間足の同じ時刻へジャンプする」ツール。ONの間に
+  // どれか1つのパネルで足をクリックすると、クリックしなかった他の枠だけがその時刻を
+  // 中心に表示位置を移動する（クリックした枠自身はズームも位置も変えない）
+  isJumpSync: boolean;
+  jumpSyncSignal: number;   // jumpSyncTo が呼ばれるたびに増える
+  jumpSyncTarget: number;   // ジャンプ先の時刻（Unix秒）
+  jumpSyncSourceId: string | null; // クリックが発生したパネルのmySourceId（'main'かslot番号の文字列）。このID自身は移動対象から除外する
   error: string | null;
   isPlaying: boolean;
   speed: number;         // 1〜20
@@ -244,6 +251,8 @@ interface TraderState {
   clearDraft: () => void;
   togglePickTarget: (t: 'price' | 'tp' | 'sl') => void;
   pickPrice: (price: number) => void;
+  toggleJumpSync: () => void;
+  jumpSyncTo: (sourceId: string, time: number) => void;
   submitOrder: (side: Side) => void;
   cancelOrder: (id: number) => void;
   updateOrderPrice: (id: number, price: number) => void;
@@ -470,6 +479,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   draftTP: null,
   draftSL: null,
   pickTarget: null,
+  isJumpSync: false,
+  jumpSyncSignal: 0,
+  jumpSyncTarget: 0,
+  jumpSyncSourceId: null,
   error: null,
   isPlaying: false,
   speed: loadSavedSpeed(),
@@ -763,7 +776,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   togglePickTarget: (t: 'price' | 'tp' | 'sl') => {
     set(s => ({
       pickTarget: s.pickTarget === t ? null : t,
-      isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false,
+      isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, isJumpSync: false,
     }));
   },
   pickPrice: (price: number) => {
@@ -772,6 +785,16 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     else if (pickTarget === 'tp') set({ draftTP: price, pickTarget: null });
     else if (pickTarget === 'sl') set({ draftSL: price, pickTarget: null });
   },
+
+  toggleJumpSync: () => set(s => ({
+    isJumpSync: !s.isJumpSync,
+    isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null,
+  })),
+  // 足をクリックした瞬間に呼ばれる。1回使ったらツールは自動的にOFFへ戻す（連続描画のような
+  // 「置き続ける」概念が無いため、他の描画ツールと違いcontinuousDrawingの対象外）
+  jumpSyncTo: (sourceId: string, time: number) => set(s => ({
+    isJumpSync: false, jumpSyncSourceId: sourceId, jumpSyncTarget: time, jumpSyncSignal: s.jumpSyncSignal + 1,
+  })),
 
   submitOrder: (side: Side) => {
     const { orderType, lots, lotMode, riskPercent, draftPrice, draftTP, draftSL, candles, cursor, positions, nextId, pendingOrders, nextOrderId, balance } = get();
@@ -939,7 +962,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawLine: () => set(s => {
     const next = !s.isDrawingLine;
-    return { isDrawingLine: next, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+    return { isDrawingLine: next, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   // 水平線・垂直線は同じlineDraftを共有する（addLine/addVLineとも参照している通り）
   setLineDraft: patch => set(s => ({ lineDraft: { ...s.lineDraft, ...patch } })),
@@ -978,9 +1001,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawVLine: () => set(s => {
     const next = !s.isDrawingVLine;
-    return { isDrawingVLine: next, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+    return { isDrawingVLine: next, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
-  toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null })),
+  toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false })),
 
   addRect: (time1: number, price1: number, time2: number, price2: number) => {
     pushDrawHistory(get, set);
@@ -1016,7 +1039,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawRect: () => set(s => {
     const next = !s.isDrawingRect;
-    return { isDrawingRect: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+    return { isDrawingRect: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   setRectDraft: patch => set(s => ({ rectDraft: { ...s.rectDraft, ...patch } })),
 
@@ -1054,7 +1077,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawTrendLine: () => set(s => {
     const next = !s.isDrawingTrendLine;
-    return { isDrawingTrendLine: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+    return { isDrawingTrendLine: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   setTrendLineDraft: patch => set(s => ({ trendLineDraft: { ...s.trendLineDraft, ...patch } })),
 
@@ -1092,7 +1115,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawBrush: () => set(s => {
     const next = !s.isDrawingBrush;
-    return { isDrawingBrush: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingText: false, pickTarget: null, ...armPatch(next) };
+    return { isDrawingBrush: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   setBrushDraft: patch => set(s => ({ brushDraft: { ...s.brushDraft, ...patch } })),
 
@@ -1136,7 +1159,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawText: () => set(s => {
     const next = !s.isDrawingText;
-    return { isDrawingText: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, pickTarget: null, ...armPatch(next) };
+    return { isDrawingText: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   setTextDraft: patch => set(s => ({ textDraft: { ...s.textDraft, ...patch } })),
   // 描画ツールの切替（toggleDrawLine等）では触らない独立したロック的トグル

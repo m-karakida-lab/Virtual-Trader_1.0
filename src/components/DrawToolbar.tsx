@@ -82,6 +82,14 @@ const ICONS: Record<string, JSX.Element> = {
       <line x1="3" y1="21" x2="21" y2="3" />
     </svg>
   ),
+  // 他時間足へのジャンプ同期。狙いを定める的（クロスヘア）で「この足を指す」を表す
+  jumpSync: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="12" cy="12" r="7" />
+      <circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none" />
+      <path d="M12 2v3M12 19v3M2 12h3M19 12h3" strokeLinecap="round" />
+    </svg>
+  ),
 };
 
 function ToolButton({
@@ -202,6 +210,9 @@ export function DrawToolbar() {
   const toggleContinuousDrawing = useTraderStore(s => s.toggleContinuousDrawing);
   const overlaysHidden = useTraderStore(s => s.overlaysHidden);
   const toggleOverlaysHidden = useTraderStore(s => s.toggleOverlaysHidden);
+  const isJumpSync = useTraderStore(s => s.isJumpSync);
+  const toggleJumpSync = useTraderStore(s => s.toggleJumpSync);
+  const chartLayout = useTraderStore(s => s.chartLayout);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
@@ -212,6 +223,14 @@ export function DrawToolbar() {
       <ToolButton icon="trend" title="トレンドライン" active={isDrawingTrendLine} disabled={!isLoaded} onClick={toggleDrawTrendLine} />
       <ToolButton icon="brush" title="ブラシ" active={isDrawingBrush} disabled={!isLoaded} onClick={toggleDrawBrush} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
+      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
+      <ToolButton
+        icon="jumpSync"
+        title={chartLayout === '4' ? 'このツールを有効化した後、いずれかのパネルで足をクリックすると他の枠がその時刻へ移動します' : '4画面表示でのみ使えます'}
+        active={isJumpSync}
+        disabled={!isLoaded || chartLayout !== '4'}
+        onClick={toggleJumpSync}
+      />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <ToolButton icon="lock" title="連続描画（配置してもツールを維持する）" active={continuousDrawing} disabled={!isLoaded} onClick={toggleContinuousDrawing} />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
