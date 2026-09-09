@@ -605,22 +605,32 @@ export function CandleChart({
 
       for (const v of currentVLines) {
         let el = existing.get(v.id);
+        let lineEl: HTMLDivElement;
         let label: HTMLDivElement;
         if (!el) {
+          // elは位置決め用の0幅アンカー（top:0, height:100%=コンテナ全体）。ラベルはこの
+          // 100%基準で日付軸欄の帯の中央へ配置したいため、線の見た目（border）はelではなく
+          // 中に入れた子要素lineEl側に持たせ、lineElの高さだけ日付軸欄の手前で止める
+          // （ラベルの表示ON/OFFに関わらず、線自体は常に日付軸欄に重ならないようにする）
           el = document.createElement('div');
           el.style.position = 'absolute';
           el.style.top = '0';
           el.style.height = '100%';
           el.style.width = '0px';
           el.style.pointerEvents = 'none';
-          // 日付軸欄（チャート本体の下、chartBottomMargin分の帯）には重ねず、その少し上に
-          // 表示する日付ラベル（軸欄に重ねると本来の日付目盛りと文字が衝突して読みにくいという
-          // 指摘を受けて、埋め込み方式から戻した）。線自体はwidth:0pxのボーダーで表現している
-          // ため、ラベルはこの子要素として左端基準で配置しtranslateXで水平中央寄せする
+
+          lineEl = document.createElement('div');
+          lineEl.style.position = 'absolute';
+          lineEl.style.top = '0';
+          lineEl.style.width = '0px';
+          el.appendChild(lineEl);
+
+          // 日付軸欄（chartBottomMargin分の帯）そのものに重ねて表示する日付ラベル
+          // （TradingView同様）。帯の垂直中央にあたる1点を基準にtranslateで水平・垂直とも
+          // 中央寄せする
           label = document.createElement('div');
           label.style.position = 'absolute';
           label.style.left = '0';
-          label.style.transform = 'translateX(-50%)';
           label.style.whiteSpace = 'nowrap';
           label.style.fontSize = '10px';
           label.style.fontWeight = '700';
@@ -632,7 +642,8 @@ export function CandleChart({
           overlay.appendChild(el);
           existing.set(v.id, el);
         } else {
-          label = el.firstChild as HTMLDivElement;
+          lineEl = el.firstChild as HTMLDivElement;
+          label = el.lastChild as HTMLDivElement;
         }
         const x = timeToX(v.time);
         if (x === null) {
@@ -640,10 +651,11 @@ export function CandleChart({
         } else {
           el.style.display = 'block';
           el.style.left = `${x}px`;
-          el.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
+          lineEl.style.height = `calc(100% - ${bottomMargin}px)`;
+          lineEl.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
           label.style.display = showVLineDateLabel ? 'block' : 'none';
-          // 日付軸欄（bottomMargin px分の帯）の少し上に置く。軸欄そのものには重ねない
-          label.style.bottom = `${bottomMargin + 3}px`;
+          label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
+          label.style.transform = 'translate(-50%, -50%)';
           label.style.backgroundColor = v.color;
           label.textContent = formatVLineDate(v.time);
         }
