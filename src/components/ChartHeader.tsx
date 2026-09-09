@@ -37,13 +37,12 @@ export function ChartHeader({
       pointerEvents: 'none', fontFamily: CHART_FONT_FAMILY,
     }}>
       {/* 銘柄名は今のところ選択肢が1つ（読み込んだファイルの通貨ペア）しか無いため、
-          ドロップダウンとしては機能させない。デザイン上の見た目（シェブロン含む）だけ揃える */}
+          ドロップダウンとしては機能させない。シェブロンも付けない（クリックできない
+          ものに「開ける」矢印を付けるのは紛らわしいという指摘を受けて撤去） */}
       <span style={{
-        display: 'flex', alignItems: 'center', gap: '2px',
         color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontWeight: 600, letterSpacing: '0.25em',
       }}>
         {symbol || '—'}
-        <ChevronDown color="rgba(255,255,255,0.5)" />
       </span>
       {onSelectTimeframe ? (
         <div ref={ref} style={{ position: 'relative', pointerEvents: 'auto' }}>
