@@ -39,7 +39,11 @@ export function ChartHeader({
     }}>
       <div style={{
         display: 'flex', alignItems: 'center', gap: '6px',
-        backgroundColor: 'rgba(255,255,255,0.12)', borderRadius: '8px',
+        // 半透明のまま(rgba(255,255,255,0.12))だと、真下を横切る区切り線・十字カーソルの
+        // 点線がうっすら透けて見えてしまう。チャート背景色(#0d0d0d)を下地に敷いてから
+        // 半透明の白を重ねることで、見た目の色はそのままに完全に不透明な板にする
+        background: 'linear-gradient(rgba(255,255,255,0.12), rgba(255,255,255,0.12)), #0d0d0d',
+        borderRadius: '8px',
         padding: '4px 8px',
       }}>
         {/* 銘柄名は今のところ選択肢が1つ（読み込んだファイルの通貨ペア）しか無いため、
@@ -104,7 +108,9 @@ export function ChartHeader({
         style={{
           width: '28px', height: '28px', pointerEvents: 'auto',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          backgroundColor: 'rgba(15,15,15,0.55)', border: 'none', borderRadius: '8px',
+          // 左のピルと同じ理由で、下地(#0d0d0d)を敷いて完全に不透明にする
+          background: 'linear-gradient(rgba(15,15,15,0.55), rgba(15,15,15,0.55)), #0d0d0d',
+          border: 'none', borderRadius: '8px',
           color: 'rgba(255,255,255,0.75)', cursor: disabled ? 'default' : 'pointer', padding: 0,
         }}
       >
