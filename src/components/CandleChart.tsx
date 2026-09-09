@@ -270,6 +270,7 @@ export function CandleChart({
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const setTimeframe = useTraderStore(s => s.setTimeframe);
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
+  const chartLayout = useTraderStore(s => s.chartLayout);
   const isLoaded = useTraderStore(s => s.isLoaded);
   const dataVersion = useTraderStore(s => s.dataVersion);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
@@ -3590,6 +3591,18 @@ export function CandleChart({
         timeframeSec={timeframeSec}
         onSelectTimeframe={sec => isMain ? setTimeframe(sec) : setQuadTimeframe(slot, sec)}
         disabled={!isLoaded}
+        isFullscreen={chartLayout === '1'}
+        onToggleFullscreen={() => {
+          const s = useTraderStore.getState();
+          if (s.chartLayout === '4') {
+            // 4画面時、非メイン枠の「全画面化」はまずその枠をメインへ昇格させてから
+            // 1画面に切り替える（メイン以外の時間軸をそのまま1画面表示できるようにするため）
+            if (!isMainRef.current) s.promoteSlotToMain(slotRef.current, nonMainCandlesRef.current);
+            s.setChartLayout('1');
+          } else {
+            s.setChartLayout('4');
+          }
+        }}
       />
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
       {/* 四角形・垂直線のオーバーレイは価格軸の領域には侵入させない。overflow:hiddenと

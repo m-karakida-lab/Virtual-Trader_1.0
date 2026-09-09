@@ -773,6 +773,8 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         timeframeSec={timeframeSec}
         onSelectTimeframe={sec => setQuadTimeframe(slot, sec)}
         disabled={!isLoaded}
+        isFullscreen={false}
+        onToggleFullscreen={() => {}}
       />
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', width: '100%', height: '100%', zIndex: 5 }} />
       <div ref={rectOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 9 }} />
