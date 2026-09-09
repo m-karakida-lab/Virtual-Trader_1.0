@@ -131,6 +131,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 
 ## 不変条件 / 地雷
 
+- チャート本体に重ねるDOM/canvasオーバーレイ（雲・週区切り線・トレンドライン・ブラシ・四角形・垂直線・テキスト等）は、すべて`right: chartRightMargin`px（＋DOM要素は`overflow: hidden`）で価格軸の領域を避けること。`inset: 0`や`width: 100%`で全面に広げると、雲の塗りつぶしや週区切り線が価格軸の数値の上に描画され侵入して見える（実際に雲と週区切り線だけこの指定を忘れており不具合として発覚。新しくオーバーレイを追加する際は既存の`rectOverlayRef`/`trendCanvasRef`等の指定に必ず倣うこと）。canvas系はCSS幅を絞るだけで内部の実描画も自動的に追従する（`syncCloud`等が`canvas.clientWidth`を読んで解像度・座標系を決めているため）
+
 - `showFullHistory`という「一時的に全期間だけ覗き見る」専用の表示フラグは廃止済み（`チャート全表示`が実際に`cursor`を進める方式になったため不要になった）。全期間スクラバーの「全体（totalBars）」は常に`cursor + 1`。`candles.length`（未開示の未来を含む全データ）をそのまま使ってはいけない（先出し防止の原則。`チャート全表示`実行後は`cursor`が末尾に達するので自然に一致する）。スクラバーのつまみが右端に張り付いて見えるのは「リプレイで開示済みの範囲の中で最新に追従している」状態であり、YouTubeのライブ配信のシークバーと同じ挙動として意図している
 - `chart.timeScale().setVisibleLogicalRange({from, to})`へ渡す`from`/`to`は`Logical`という nominal 型だが、`let x: SomeType = range;`のように`LogicalRange`型の変数へ一度代入してから再代入すると型エラーになる。常に`number`型のローカル変数から組み立てた「その場のオブジェクトリテラル」を直接渡すこと（既存の`centerOnTime`エフェクトも同じ書き方）
 
