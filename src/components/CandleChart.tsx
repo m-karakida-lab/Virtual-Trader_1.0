@@ -2896,12 +2896,23 @@ export function CandleChart({
     };
     window.addEventListener('keydown', onKeyDown);
 
-    // ウィンドウリサイズ + Controls 高さ変化（ポジション増減）に追従
+    // ウィンドウリサイズ + Controls 高さ変化（ポジション増減）+ 1画面⇔4画面のレイアウト
+    // 切替（パネル自体は常時マウントされたまま、CSSでセルの大きさだけ変わる）に追従。
+    // lightweight-charts はデフォルトだと幅変更時にbarSpacing（1本あたりのpx幅）を
+    // 維持しようとする＝表示本数を変えて埋めようとするため、何もせず`applyOptions`する
+    // だけだと画面中央にあった足が新しい幅では中央からズレてしまう（4画面⇔1画面を
+    // 切り替えると中央の足がズレるという指摘を受けて発覚）。リサイズ前後で同じ
+    // logical range（本数ベースの表示範囲）を明示的に再適用し、どちらの端からでは
+    // なく「今見えている範囲」自体をそのまま新しい幅へ引き継ぐことで、中央の足が
+    // 常に画面中央のままになるようにする
     const handleResize = () => {
+      const ts = chart.timeScale();
+      const prevRange = ts.getVisibleLogicalRange();
       chart.applyOptions({
         width:  container.clientWidth,
         height: container.clientHeight,
       });
+      if (prevRange) ts.setVisibleLogicalRange(prevRange);
       syncVLines();
       syncRects();
       syncTrendLines();
