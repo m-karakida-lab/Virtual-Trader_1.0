@@ -2910,6 +2910,7 @@ export function CandleChart({
     // （本数を維持するだけだと中央の足がズレる／中央を保つだけだとスケールが変わって
     // 見える、という2つの指摘を両方満たす必要があったため、この2段構えにしている）
     let prevChartWidth = 0;
+    let pendingResizeRaf: number | null = null;
     const handleResize = () => {
       const ts = chart.timeScale();
       const prevRange = ts.getVisibleLogicalRange();
@@ -2945,6 +2946,24 @@ export function CandleChart({
       updateRRPreview();
       syncCloud();
       syncScrubber();
+      // timeToCoordinate/priceToCoordinateは、幅変更・setVisibleLogicalRange直後の
+      // レイアウト未確定なタイミングだと稀に古い座標を返す（他のデータ更新箇所と同じ既知の
+      // lightweight-charts挙動、docs/CURRENT.mdの地雷参照）。1画面⇔4画面の切替直後に
+      // 雲の塗りつぶしだけズレて見え、マウスを動かす（＝再描画のきっかけになる）と直る、
+      // という形で発覚した。1フレーム遅れて座標が確定した場合でも描き直せるよう、
+      // 同じ同期処理をrequestAnimationFrameでもう一度呼ぶ（連続でリサイズが起きても
+      // 前回分のrAFは予約し直す）
+      if (pendingResizeRaf !== null) cancelAnimationFrame(pendingResizeRaf);
+      pendingResizeRaf = requestAnimationFrame(() => {
+        pendingResizeRaf = null;
+        syncCloud();
+        syncVLines();
+        syncRects();
+        syncTrendLines();
+        syncBrushes();
+        syncTexts();
+        syncWeekLines();
+      });
       // フロートパネルが価格軸・時間軸に被らないよう、実測サイズをストアに反映。
       // 4画面時は全パネルほぼ同じ幅になるはずだが、書き込みはメインパネルのみに絞り
       // 複数インスタンスによる値の奪い合い（thrashing）を避ける
@@ -2963,6 +2982,7 @@ export function CandleChart({
 
     return () => {
       ro.disconnect();
+      if (pendingResizeRaf !== null) cancelAnimationFrame(pendingResizeRaf);
       window.removeEventListener('resize', handleResize);
       container.removeEventListener('mousedown', onMouseDown);
       container.removeEventListener('dblclick', onDblClick);
