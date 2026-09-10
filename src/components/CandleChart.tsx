@@ -3389,30 +3389,41 @@ export function CandleChart({
     }
     ts.resetTimeScale();
     chart.priceScale('right').applyOptions({ autoScale: true });
-    if (centerTime !== null) {
-      const newRange = ts.getVisibleLogicalRange();
-      if (newRange && cs.length > 0) {
-        const span = newRange.to - newRange.from;
-        let lo = 0, hi = cs.length - 1, idx = 0;
-        while (lo <= hi) {
-          const mid = (lo + hi) >> 1;
-          if (cs[mid].time <= centerTime) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+    // resetTimeScale()は内部的に更新を次の描画フレームへキューするだけで、
+    // 呼び出し直後にgetVisibleLogicalRange()を読んでもリセット前の古い範囲が
+    // そのまま返ってくる（確認済み: 結果として下のspan計算が常に「リセット前の
+    // 本数」になり、表示が何も変わらないように見えるバグになっていた）。
+    // 1フレーム待ってから新しいデフォルト範囲を読み直す
+    let raf2: number | null = null;
+    const raf1 = requestAnimationFrame(() => {
+      if (centerTime !== null) {
+        const newRange = ts.getVisibleLogicalRange();
+        if (newRange && cs.length > 0) {
+          const span = newRange.to - newRange.from;
+          let lo = 0, hi = cs.length - 1, idx = 0;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (cs[mid].time <= centerTime) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+          }
+          ts.setVisibleLogicalRange({ from: idx - span / 2, to: idx + span / 2 });
         }
-        ts.setVisibleLogicalRange({ from: idx - span / 2, to: idx + span / 2 });
       }
-    }
-    // setVisibleLogicalRange直後の座標ズレ対策（雲の塗りつぶし等が一瞬ズレて見える、
-    // 他の箇所と同じ既知の挙動）
-    const raf = requestAnimationFrame(() => {
-      syncCloudRef.current();
-      syncVLinesRef.current();
-      syncRectsRef.current();
-      syncTrendLinesRef.current();
-      syncBrushesRef.current();
-      syncTextsRef.current();
-      syncWeekLinesRef.current();
+      // setVisibleLogicalRange直後の座標ズレ対策（雲の塗りつぶし等が一瞬ズレて見える、
+      // 他の箇所と同じ既知の挙動）
+      raf2 = requestAnimationFrame(() => {
+        syncCloudRef.current();
+        syncVLinesRef.current();
+        syncRectsRef.current();
+        syncTrendLinesRef.current();
+        syncBrushesRef.current();
+        syncTextsRef.current();
+        syncWeekLinesRef.current();
+      });
     });
-    return () => cancelAnimationFrame(raf);
+    return () => {
+      cancelAnimationFrame(raf1);
+      if (raf2 !== null) cancelAnimationFrame(raf2);
+    };
   }, [fitSignal]);
 
   // 4画面時、他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）。

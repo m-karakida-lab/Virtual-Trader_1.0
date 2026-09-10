@@ -135,6 +135,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 
 - `showFullHistory`という「一時的に全期間だけ覗き見る」専用の表示フラグは廃止済み（`チャート全表示`が実際に`cursor`を進める方式になったため不要になった）。全期間スクラバーの「全体（totalBars）」は常に`cursor + 1`。`candles.length`（未開示の未来を含む全データ）をそのまま使ってはいけない（先出し防止の原則。`チャート全表示`実行後は`cursor`が末尾に達するので自然に一致する）。スクラバーのつまみが右端に張り付いて見えるのは「リプレイで開示済みの範囲の中で最新に追従している」状態であり、YouTubeのライブ配信のシークバーと同じ挙動として意図している
 - `chart.timeScale().setVisibleLogicalRange({from, to})`へ渡す`from`/`to`は`Logical`という nominal 型だが、`let x: SomeType = range;`のように`LogicalRange`型の変数へ一度代入してから再代入すると型エラーになる。常に`number`型のローカル変数から組み立てた「その場のオブジェクトリテラル」を直接渡すこと（既存の`centerOnTime`エフェクトも同じ書き方）
+- `timeScale().resetTimeScale()`は呼び出し直後に`getVisibleLogicalRange()`を読んでも**呼ぶ前の古い範囲がそのまま返ってくる**（内部的に更新を次の描画フレームへキューするだけで同期処理ではない。lightweight-charts本体のソースでも`resetTimeScale`はフラグを立てて`this.In`へpushしているだけ）。呼び出し直後の値をそのまま使うコードは「何も変わっていないように見える」不具合になる（実際に「表示をリセット」の中心保持ロジックで踏んだ）。`requestAnimationFrame`を1回挟んでから読み直すこと
 
 - 自前の`<canvas>`オーバーレイ（雲・トレンドライン・ブラシ）は`canvas.width = canvas.clientWidth`のようにCSSピクセル数をそのままbitmap解像度に使ってはいけない。Retina等の高DPI画面（`devicePixelRatio`>1）だと、ブラウザがその粗いbitmapを拡大表示することになり線がぼやけ、特に斜め線・曲線が階段状にカクカク見える（実際にブラシの線がカクカクするという指摘で発覚した）。`devicePixelRatio`倍で実解像度を確保し、`ctx.setTransform(dpr,0,0,dpr,0,0)`で描画側の座標系はCSSピクセルのまま使えるようにすること（`syncCloud`/`syncTrendLines`/`syncBrushes`で共通のパターン。新しくcanvasベースの描画要素を追加する場合もこれに倣うこと）
 - ボリンジャーバンドはEMA同様、`showBB`がOFFでも裏で計算を継続し`visible:false`で隠すだけ（ON/OFF切替時の再計算漏れを避けるため）。移動窓の合計・二乗和（`bbSumRef`/`bbSumSqRef`）で差分更新し、`recomputeBBFull`は時間軸切替・日付ジャンプ等の非連続更新時のみ呼ぶ
