@@ -3619,6 +3619,20 @@ export function CandleChart({
     const span = Math.max(currentSpan, MIN_JUMP_SPAN_BARS);
     const half = span / 2;
     chart.timeScale().setVisibleLogicalRange({ from: targetIdx - half, to: targetIdx + half });
+    // setVisibleLogicalRange直後はtimeToCoordinate/priceToCoordinateがレイアウト未確定で
+    // 古い座標を返すことがある（他の箇所と同じ既知の挙動）。onRangeChange経由のsyncCloud等は
+    // 効いているはずだがそれも同じタイミングで走るため巻き添えでズレる。雲の塗りつぶしが
+    // 一瞬ズレてマウスを動かすと直る、という形で発覚したためrAFで1フレーム遅れて描き直す
+    const raf = requestAnimationFrame(() => {
+      syncCloudRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
+      syncTrendLinesRef.current();
+      syncBrushesRef.current();
+      syncTextsRef.current();
+      syncWeekLinesRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerSignal]);
 
@@ -3645,6 +3659,18 @@ export function CandleChart({
     const span = Math.max(currentSpan, MIN_JUMP_SPAN_BARS);
     const half = span / 2;
     chart.timeScale().setVisibleLogicalRange({ from: targetIdx - half, to: targetIdx + half });
+    // setVisibleLogicalRange直後の座標ズレ対策。上のcenterSignal効果と同じ理由
+    // （雲の塗りつぶしが一瞬ズレてマウスを動かすと直る、という形で発覚）
+    const raf = requestAnimationFrame(() => {
+      syncCloudRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
+      syncTrendLinesRef.current();
+      syncBrushesRef.current();
+      syncTextsRef.current();
+      syncWeekLinesRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [jumpSyncSignal]);
 
