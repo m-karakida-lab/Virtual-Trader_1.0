@@ -108,8 +108,9 @@ export function ChartHeader({
         style={{
           width: '28px', height: '28px', pointerEvents: 'auto',
           display: 'flex', alignItems: 'center', justifyContent: 'center',
-          // 左のピルと同じ理由で、下地(#0d0d0d)を敷いて完全に不透明にする
-          background: 'linear-gradient(rgba(15,15,15,0.55), rgba(15,15,15,0.55)), #0d0d0d',
+          // 銘柄/時間軸のピルと同じ背景色に揃える（不透明にする理由もピルと同じ:
+          // 下地(#0d0d0d)を敷いてから重ねることで、下を横切る線が透けないようにする）
+          background: 'linear-gradient(rgba(255,255,255,0.12), rgba(255,255,255,0.12)), #0d0d0d',
           border: 'none', borderRadius: '8px',
           color: 'rgba(255,255,255,0.75)', cursor: disabled ? 'default' : 'pointer', padding: 0,
         }}
