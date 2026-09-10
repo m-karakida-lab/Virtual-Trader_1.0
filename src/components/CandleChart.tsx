@@ -1160,7 +1160,7 @@ export function CandleChart({
     // ── 週区切り線の位置を再計算して DOM に反映（控えめなドット線、固定スタイル） ──
     const syncWeekLines = () => {
       if (!chartRef.current || !weekOverlayRef.current) return;
-      const { showWeekLines: show } = useTraderStore.getState();
+      const { showWeekLines: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
       const overlay = weekOverlayRef.current;
       overlay.style.display = show ? 'block' : 'none';
       if (!show) return;
@@ -1172,7 +1172,6 @@ export function CandleChart({
         const el = document.createElement('div');
         el.style.position = 'absolute';
         el.style.top = '0';
-        el.style.height = '100%';
         el.style.width = '0px';
         el.style.borderLeft = '1px dashed #4a4a4a';
         el.style.pointerEvents = 'none';
@@ -1186,6 +1185,8 @@ export function CandleChart({
       boundaries.forEach((t, i) => {
         const x = chartRef.current!.timeScale().timeToCoordinate(t as Time);
         const el = els[i];
+        // 垂直線と同じ理由で、日付軸欄（chartBottomMargin分の帯）には侵入させない
+        el.style.height = `calc(100% - ${bottomMargin}px)`;
         if (x === null) {
           el.style.display = 'none';
         } else {
