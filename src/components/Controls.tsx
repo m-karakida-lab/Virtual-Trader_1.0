@@ -781,7 +781,7 @@ export function Controls() {
         <button
           onClick={() => captureChartArea(`${symbol || 'chart'}_${chartLayout === '4' ? '4画面' : timeframeLabel}`)}
           disabled={!isLoaded}
-          title="チャート画面（価格軸・日付軸含む）をPNGで保存"
+          title="チャート画面（価格軸・日付軸含む）をJPEGで保存"
           style={tfBtn(false, !isLoaded)}
         >📷 キャプチャ</button>
 
