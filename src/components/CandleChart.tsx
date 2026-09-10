@@ -213,6 +213,10 @@ export function CandleChart({
   const cloudDataRef = useRef<{ time: number; a: number; b: number }[]>([]);
   const syncCloudRef = useRef<() => void>(() => {});
   const handleResizeRef = useRef<() => void>(() => {});
+  // ヘッダーの時間足ドロップダウンで切り替えた瞬間、直前に表示していた時間範囲
+  // （実時刻ベース）を控えておく。切替後の効果でこれを使って同じ時間範囲を
+  // 新しい時間足のインデックスへ変換し、最新足へジャンプさせず「そのまま」保つ
+  const pendingTimeframeSwitchRangeRef = useRef<{ from: number; to: number } | null>(null);
   const priceLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const orderLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const tpLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
@@ -3509,7 +3513,23 @@ export function CandleChart({
     // 分岐を初めて通ることになるため）
     if (fittedNonMainDataRef.current !== nonMainCandles) {
       fittedNonMainDataRef.current = nonMainCandles;
-      if (skipNextNonMainFitRef.current) {
+      const pendingRange = pendingTimeframeSwitchRangeRef.current;
+      pendingTimeframeSwitchRangeRef.current = null;
+      if (pendingRange && nonMainCandles.length > 0) {
+        // ヘッダーのドロップダウンでこの枠の時間足を切り替えた直後: 直前の表示時間範囲を
+        // 新しい時間足のインデックスへ変換してそのまま使う（全期間フィットさせない）
+        const idxOf = (t: number) => {
+          let lo = 0, hi = nonMainCandles.length - 1, idx = 0;
+          while (lo <= hi) {
+            const mid = (lo + hi) >> 1;
+            if (nonMainCandles[mid].time <= t) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+          }
+          return idx;
+        };
+        const from = idxOf(pendingRange.from);
+        const to = Math.max(from + 1, idxOf(pendingRange.to));
+        chartRef.current?.timeScale().setVisibleLogicalRange({ from, to });
+      } else if (skipNextNonMainFitRef.current) {
         skipNextNonMainFitRef.current = false;
       } else {
         const saved = loadChartView(timeframeSec);
@@ -3536,14 +3556,37 @@ export function CandleChart({
     return () => cancelAnimationFrame(raf);
   }, [isMain, nonMainVisible, nonMainCandles, timeframeSec]);
 
-  // 時間軸の切替・新規CSV読み込み時、記憶しておいたズーム/スケール（縮尺）を復元したうえで、
-  // 常に最新足に固定する（右端からの位置=barsFromRightではなく、常にrightOffset分の位置に揃える）
-  // （リプレイモード側の setData/scrollToRealTime より後に実行し、その結果を上書きする）
+  // 時間軸の切替・新規CSV読み込み時の表示位置決定。
+  // ユーザーがヘッダーのドロップダウンで時間足を切り替えた直後は、pendingTimeframeSwitchRangeRef
+  // に切替直前の表示時間範囲が入っているので、それを新しい時間足のインデックスへ変換して
+  // そのまま使う（最新足へジャンプさせない。「時間足を変えても画面表示はそのまま」という
+  // 要望を受けて追加。縮尺=本数ではなく実時刻の範囲を保つ方式なので、15m→1Dのように
+  // 1本の間隔が大きく変わる組み合わせでも「同じ期間を見ている」体感になる）。
+  // それ以外（新規CSV読み込み等）は従来通り、記憶しておいたズーム/スケールを復元した上で
+  // 常に最新足に固定する（リプレイモード側の setData/scrollToRealTime より後に実行し、
+  // その結果を上書きする）
   useEffect(() => {
     if (!chartRef.current || candles.length === 0) return;
     const key = `${timeframeSec}:${dataVersion}`;
     if (restoredViewKeyRef.current === key) return;
     restoredViewKeyRef.current = key;
+
+    const pendingRange = pendingTimeframeSwitchRangeRef.current;
+    pendingTimeframeSwitchRangeRef.current = null;
+    if (pendingRange) {
+      const idxOf = (t: number) => {
+        let lo = 0, hi = candles.length - 1, idx = 0;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (candles[mid].time <= t) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+        }
+        return idx;
+      };
+      const from = idxOf(pendingRange.from);
+      const to = Math.max(from + 1, idxOf(pendingRange.to));
+      chartRef.current.timeScale().setVisibleLogicalRange({ from, to });
+      return;
+    }
 
     const saved = loadChartView(timeframeSec);
     const totalBars = cursor + 1;
@@ -3767,7 +3810,15 @@ export function CandleChart({
         symbol={symbol}
         timeframeLabel={timeframeLabel}
         timeframeSec={timeframeSec}
-        onSelectTimeframe={sec => isMain ? setTimeframe(sec) : setQuadTimeframe(slot, sec)}
+        onSelectTimeframe={sec => {
+          // 切替前に今見えている時間範囲（実時刻）を控えておく。読み取りは
+          // setData等の直後ではない「落ち着いた」タイミングなのでgetVisibleRangeで安全に読める
+          const range = chartRef.current?.timeScale().getVisibleRange();
+          if (range) {
+            pendingTimeframeSwitchRangeRef.current = { from: range.from as number, to: range.to as number };
+          }
+          if (isMain) setTimeframe(sec); else setQuadTimeframe(slot, sec);
+        }}
         disabled={!isLoaded}
         isFullscreen={chartLayout === '1'}
         onToggleFullscreen={() => {
