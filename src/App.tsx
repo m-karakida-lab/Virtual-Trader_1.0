@@ -108,27 +108,37 @@ export default function App() {
             左の描画ツールバー・下の発注/操作パネルは含めない。4画面時はこのdiv自体に4枠すべてが
             収まっているため、1回のキャプチャで自然に1枚絵になる */}
         <div id="vt-chart-capture-area" style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
-          {chartLayout === '4' ? (
-            <div style={{
-              position: 'absolute', inset: 0,
-              display: 'grid', gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
-            }}>
-              {QUAD_POSITIONS.map((pos, slot) => (
-                <div key={slot} style={{ gridRow: pos.row, gridColumn: pos.col, position: 'relative', minWidth: 0, minHeight: 0 }}>
-                  {/* 4枠とも常にCandleChart（コンポーネント型を固定することでReactの
-                      unmount/remountを避ける。isMain切替はpropsの変化だけで済む）。
-                      MiniChartは未使用のまま残している（しばらくの間のロールバック用） */}
+          {/* 1画面/4画面とも常にこの4枠構成のまま保つ（chartLayoutでJSXの分岐自体を
+              切り替えない）。1画面時はメイン枠だけを画面いっぱいに表示し、残り3枠は
+              width/height:0で隠すだけでマウントは維持する。以前はchartLayout==='1'の時
+              別途<CandleChart/>を単独レンダーしており、切替のたびに4枠側がまるごと
+              unmount→再mountしていた（レイアウト切替で表示位置・ズームが毎回リセット
+              されてしまうという指摘を受けて発覚）。全枠を常時マウントし続けることで
+              lightweight-chartsのチャートインスタンス自体を破棄しないようにし、
+              1画面⇔4画面を行き来しても各枠の表示状態がそのまま保たれるようにした */}
+          <div style={{
+            position: 'absolute', inset: 0,
+            display: chartLayout === '4' ? 'grid' : 'block',
+            gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
+          }}>
+            {QUAD_POSITIONS.map((pos, slot) => {
+              const isMainSlot = slot === quadMainSlot;
+              const cellStyle = chartLayout === '4'
+                ? { gridRow: pos.row, gridColumn: pos.col, position: 'relative' as const, minWidth: 0, minHeight: 0 }
+                : isMainSlot
+                  ? { position: 'absolute' as const, inset: 0 }
+                  : { position: 'absolute' as const, width: 0, height: 0, overflow: 'hidden' as const, pointerEvents: 'none' as const };
+              return (
+                <div key={slot} style={cellStyle}>
                   <CandleChart
                     slot={slot}
-                    isMain={slot === quadMainSlot}
+                    isMain={isMainSlot}
                     timeframeSec={quadTimeframes[slot]}
                   />
                 </div>
-              ))}
-            </div>
-          ) : (
-            <CandleChart />
-          )}
+              );
+            })}
+          </div>
           <FloatingControls />
           <PalettePanel />
           {error && (
