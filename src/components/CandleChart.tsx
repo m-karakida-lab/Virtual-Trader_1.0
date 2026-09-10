@@ -212,6 +212,7 @@ export function CandleChart({
   const cloudCanvasRef = useRef<HTMLCanvasElement>(null);
   const cloudDataRef = useRef<{ time: number; a: number; b: number }[]>([]);
   const syncCloudRef = useRef<() => void>(() => {});
+  const handleResizeRef = useRef<() => void>(() => {});
   const priceLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const orderLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const tpLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
@@ -2899,21 +2900,42 @@ export function CandleChart({
 
     // ウィンドウリサイズ + Controls 高さ変化（ポジション増減）+ 1画面⇔4画面のレイアウト
     // 切替（パネル自体は常時マウントされたまま、CSSでセルの大きさだけ変わる）に追従。
-    // lightweight-charts はデフォルトだと幅変更時にbarSpacing（1本あたりのpx幅）を
-    // 維持しようとする＝表示本数を変えて埋めようとするため、何もせず`applyOptions`する
-    // だけだと画面中央にあった足が新しい幅では中央からズレてしまう（4画面⇔1画面を
-    // 切り替えると中央の足がズレるという指摘を受けて発覚）。リサイズ前後で同じ
-    // logical range（本数ベースの表示範囲）を明示的に再適用し、どちらの端からでは
-    // なく「今見えている範囲」自体をそのまま新しい幅へ引き継ぐことで、中央の足が
-    // 常に画面中央のままになるようにする
+    // lightweight-charts は`applyOptions({width,height})`だけだとlogical range（本数
+    // ベースの表示範囲）をそのまま維持する＝ローソク足1本のpx幅（barSpacing）の方が
+    // 新しい幅に合わせて伸び縮みする。4画面⇔1画面の切替のように幅が大きく変わる場面では、
+    // 「スケールは変えず表示範囲（本数）だけ広がってほしい」という要望があるため、
+    // 幅の変化率をそのままbarSpacingの維持に使う＝表示本数をwidth比で明示的に
+    // 増減させる。あわせて、本数を増減する基準を右端（最新足）ではなく「リサイズ前に
+    // 画面中央にあった足」にすることで、中央の足も常に画面中央のまま保たれるようにする
+    // （本数を維持するだけだと中央の足がズレる／中央を保つだけだとスケールが変わって
+    // 見える、という2つの指摘を両方満たす必要があったため、この2段構えにしている）
+    let prevChartWidth = 0;
     const handleResize = () => {
       const ts = chart.timeScale();
       const prevRange = ts.getVisibleLogicalRange();
+      const cs = displayCandlesRef.current;
+      const newWidth = container.clientWidth;
+      const oldWidth = prevChartWidth;
+      let centerTime: number | null = null;
+      if (prevRange && cs.length > 0) {
+        const centerIdx = Math.max(0, Math.min(cs.length - 1, Math.round((prevRange.from + prevRange.to) / 2)));
+        centerTime = cs[centerIdx].time;
+      }
       chart.applyOptions({
-        width:  container.clientWidth,
+        width:  newWidth,
         height: container.clientHeight,
       });
-      if (prevRange) ts.setVisibleLogicalRange(prevRange);
+      if (prevRange && centerTime !== null && oldWidth > 0 && newWidth > 0 && cs.length > 0 && newWidth !== oldWidth) {
+        const oldSpan = prevRange.to - prevRange.from;
+        const newSpan = oldSpan * (newWidth / oldWidth);
+        let lo = 0, hi = cs.length - 1, idx = 0;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (cs[mid].time <= centerTime) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+        }
+        ts.setVisibleLogicalRange({ from: idx - newSpan / 2, to: idx + newSpan / 2 });
+      }
+      prevChartWidth = newWidth;
       syncVLines();
       syncRects();
       syncTrendLines();
@@ -2933,6 +2955,7 @@ export function CandleChart({
         );
       }
     };
+    handleResizeRef.current = handleResize;
     const ro = new ResizeObserver(handleResize);
     ro.observe(container);
     window.addEventListener('resize', handleResize);
@@ -3308,6 +3331,18 @@ export function CandleChart({
   useEffect(() => {
     seriesRef.current?.setMarkers(buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)));
   }, [positions, closedTrades, quoteCurrency]);
+
+  // 1画面⇔4画面のレイアウト切替はパネルのCSSサイズだけを変える（ResizeObserver任せ）ため、
+  // 環境によってはResizeObserverの発火が遅れる/信頼できないことがある（自動テスト環境で
+  // ResizeObserver・requestAnimationFrameのどちらも発火しないケースを確認済み。実ブラウザでも
+  // 保険として効く）。chartLayoutの変化を直接のトリガーとしてsetTimeout(0)経由で明示的にも
+  // handleResizeを呼び、スケール維持・中央足維持のリサイズ処理が確実に実行されるようにする
+  // （ResizeObserver側が正常に動く環境では二重に呼ばれるだけで実害はない。newWidth!==oldWidthの
+  // ガードで2回目以降は自然にno-opになる）
+  useEffect(() => {
+    const timer = setTimeout(() => handleResizeRef.current(), 0);
+    return () => clearTimeout(timer);
+  }, [chartLayout]);
 
   // 表示をリセット: TradingViewの「チャート表示をリセット」相当。全データを画面に
   // 収めるズームアウトではなく、時間軸のズーム・スクロール位置をデフォルトに戻し
