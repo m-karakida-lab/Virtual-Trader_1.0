@@ -3369,12 +3369,50 @@ export function CandleChart({
   }, [chartLayout]);
 
   // 表示をリセット: TradingViewの「チャート表示をリセット」相当。全データを画面に
-  // 収めるズームアウトではなく、時間軸のズーム・スクロール位置をデフォルトに戻し
-  // （resetTimeScale）、価格軸の手動スケール調整（ドラッグ等）も解除してautoScaleへ戻す
+  // 収めるズームアウトではなく、時間軸のズーム（本数=スケール）をデフォルトに戻し
+  // （resetTimeScale）、価格軸の手動スケール調整（ドラッグ等）も解除してautoScaleへ戻す。
+  // ただしresetTimeScale単体だと最新足へスクロール位置ごと戻ってしまう（「表示をリセット
+  // したら最新足へ飛んでしまう、スケールだけ直したい」という指摘を受けて対応）。
+  // resetTimeScale前の中心の足を控えておき、リセット後（＝デフォルトの本数が決まった後）に
+  // 同じ本数を保ったまま中心をその足へ戻すことで、スケールだけをデフォルトに戻し
+  // スクロール位置（今見ている期間）はそのまま保つ
   useEffect(() => {
     if (fitSignal === 0 || !chartRef.current) return;
-    chartRef.current.timeScale().resetTimeScale();
-    chartRef.current.priceScale('right').applyOptions({ autoScale: true });
+    const chart = chartRef.current;
+    const ts = chart.timeScale();
+    const cs = displayCandlesRef.current;
+    const prevRange = ts.getVisibleLogicalRange();
+    let centerTime: number | null = null;
+    if (prevRange && cs.length > 0) {
+      const centerIdx = Math.max(0, Math.min(cs.length - 1, Math.round((prevRange.from + prevRange.to) / 2)));
+      centerTime = cs[centerIdx].time;
+    }
+    ts.resetTimeScale();
+    chart.priceScale('right').applyOptions({ autoScale: true });
+    if (centerTime !== null) {
+      const newRange = ts.getVisibleLogicalRange();
+      if (newRange && cs.length > 0) {
+        const span = newRange.to - newRange.from;
+        let lo = 0, hi = cs.length - 1, idx = 0;
+        while (lo <= hi) {
+          const mid = (lo + hi) >> 1;
+          if (cs[mid].time <= centerTime) { idx = mid; lo = mid + 1; } else hi = mid - 1;
+        }
+        ts.setVisibleLogicalRange({ from: idx - span / 2, to: idx + span / 2 });
+      }
+    }
+    // setVisibleLogicalRange直後の座標ズレ対策（雲の塗りつぶし等が一瞬ズレて見える、
+    // 他の箇所と同じ既知の挙動）
+    const raf = requestAnimationFrame(() => {
+      syncCloudRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
+      syncTrendLinesRef.current();
+      syncBrushesRef.current();
+      syncTextsRef.current();
+      syncWeekLinesRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [fitSignal]);
 
   // 4画面時、他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）。
