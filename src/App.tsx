@@ -147,7 +147,7 @@ export default function App() {
                     <div style={{
                       position: 'absolute', inset: 0,
                       boxShadow: isMainSlot
-                        ? 'inset 0 0 0 0.5px rgba(66, 165, 245, 0.45)'
+                        ? 'inset 0 0 0 0.5px rgba(66, 165, 245, 0.8)'
                         : 'inset 0 0 0 0.5px rgba(192, 192, 192, 0.25)',
                       pointerEvents: 'none', zIndex: 10,
                     }} />
