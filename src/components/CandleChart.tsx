@@ -3478,7 +3478,15 @@ export function CandleChart({
     if (scrollToLatestSignal === 0 || !chartRef.current) return;
     const chart = chartRef.current;
     const cs = displayCandlesRef.current;
-    if (cs.length > 0) {
+    // メインパネルのdisplayCandles（=candles）はcursorより先の未来分も含む全期間配列
+    // （非メインのnonMainVisibleと違い先出し防止クリップ済みではない）。実際にseries.setData()
+    // で描画されているのはcandles.slice(0, cursor+1)までなので、「最新（＝実際に描画されている
+    // 最後の足）」はcs.length-1ではなくcursorを使うこと——cs.length-1を使うと、リプレイ途中
+    // （cursorがcandles.length-1より手前）でメイン以外に昇格させたばかりのパネル等で、実際の
+    // 描画範囲よりずっと先の空欄領域に表示位置が飛んでしまう（実際に4H等を昇格させた直後に
+    // 「最新足に固定」を押すと画面が空になる不具合として発覚）
+    const lastIdx = isMain ? Math.min(cursor, cs.length - 1) : cs.length - 1;
+    if (lastIdx >= 0) {
       const prevRange = chart.timeScale().getVisibleLogicalRange();
       const rawSpan = prevRange && prevRange.to > prevRange.from
         ? prevRange.to - prevRange.from
@@ -3486,8 +3494,7 @@ export function CandleChart({
       // 保存済みズーム幅（localStorageのvt:chartView等）は別データセット（本数が違う）の
       // ものを引き継いでいる場合がある。実際の本数を大きく超える幅をそのまま使うと、
       // 実データがごく一部に押し込められほぼ空欄の画面になってしまうため、実本数基準で頭打ちする
-      const span = Math.min(rawSpan, cs.length + CHART_RIGHT_OFFSET_BARS);
-      const lastIdx = cs.length - 1;
+      const span = Math.min(rawSpan, lastIdx + 1 + CHART_RIGHT_OFFSET_BARS);
       const to = lastIdx + CHART_RIGHT_OFFSET_BARS;
       chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
     } else {
