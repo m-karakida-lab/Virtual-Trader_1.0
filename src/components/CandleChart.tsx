@@ -60,6 +60,7 @@ const CLICK_TOLERANCE_PX = 6;
 // DRAG_TOLERANCE_PXより広く取る（水平線・垂直線・TP/SL等の他のドラッグ対象は対象外）
 const RECT_HANDLE_HIT_PX = 12;
 const MIN_JUMP_SPAN_BARS = 30; // 日時ジャンプ時、表示幅がこの本数分未満にはならないようにする
+const CHART_RIGHT_OFFSET_BARS = 10; // createChartのtimeScale.rightOffsetと同じ値（「最新足に固定」を自前計算するため）
 
 // 一目均衡表「雲」（先行スパンA/B）
 const TENKAN_PERIOD = 9;
@@ -3464,14 +3465,34 @@ export function CandleChart({
     }
   }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId]);
 
-  // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット(rightOffset)分の位置に来るよう追従。
-  // scrollToRealTime()はlightweight-charts内部で即座に確定するのではなく既定400msのアニメーション
-  // （requestAnimationFrame駆動）でスクロールするため、呼び出し直後はまだ移動中で座標が確定して
-  // いない。他のsetVisibleLogicalRange系操作と同じく、雲の塗りつぶし等の座標依存の再描画は
-  // 1フレーム後に再同期する（呼び出し直後に同期すると雲がズレて見える不具合として発覚）
+  // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット分の位置に来るよう追従。
+  // 組み込みのscrollToRealTime()は使わない——内部で即座に確定するのではなく既定400msの
+  // アニメーション（lightweight-charts自身の内部更新キュー駆動）でスクロールする仕様で、
+  // その間に他のeffect（非メインパネルのseries.setData()等）がsetVisibleLogicalRange系の
+  // 操作を行うとアニメーションが巻き戻され、最新足まで到達しないまま止まってしまう不具合が
+  // あった（1Dは自分の足が閉じる頻度が低く遭遇しにくいため「1D以外は何回か実行しないと
+  // 最新足が出てこない」という非対称な症状になっていた）。setVisibleLogicalRangeは即座に
+  // 確定する（読み直しても安全な）操作のため、目標範囲をここで自前計算して直接指定することで
+  // アニメーション競合そのものを避ける
   useEffect(() => {
     if (scrollToLatestSignal === 0 || !chartRef.current) return;
-    chartRef.current.timeScale().scrollToRealTime();
+    const chart = chartRef.current;
+    const cs = displayCandlesRef.current;
+    if (cs.length > 0) {
+      const prevRange = chart.timeScale().getVisibleLogicalRange();
+      const rawSpan = prevRange && prevRange.to > prevRange.from
+        ? prevRange.to - prevRange.from
+        : MIN_JUMP_SPAN_BARS;
+      // 保存済みズーム幅（localStorageのvt:chartView等）は別データセット（本数が違う）の
+      // ものを引き継いでいる場合がある。実際の本数を大きく超える幅をそのまま使うと、
+      // 実データがごく一部に押し込められほぼ空欄の画面になってしまうため、実本数基準で頭打ちする
+      const span = Math.min(rawSpan, cs.length + CHART_RIGHT_OFFSET_BARS);
+      const lastIdx = cs.length - 1;
+      const to = lastIdx + CHART_RIGHT_OFFSET_BARS;
+      chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
+    } else {
+      chart.timeScale().scrollToRealTime();
+    }
     const raf = requestAnimationFrame(() => {
       syncCloudRef.current();
       syncVLinesRef.current();
@@ -3619,10 +3640,12 @@ export function CandleChart({
         if (saved) {
           chartRef.current?.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, nonMainVisible.length));
         } else if (nonMainCandles.length > 0) {
-          chartRef.current?.timeScale().setVisibleRange({
-            from: nonMainCandles[0].time as Time,
-            to: nonMainCandles[nonMainCandles.length - 1].time as Time,
-          });
+          // 時刻ベースのsetVisibleRange()は、setData直後などレイアウト未確定なタイミングで
+          // 呼ぶと内部のtime→logical変換が失敗しクラッシュすることがある（実際に新規CSV
+          // 読み込み直後に「Value is null」で画面クラッシュする形で発覚。centerOnTime等
+          // 既存の地雷と同じ理由）。全期間を表示したいだけなので、時刻変換を経由しない
+          // 足のインデックス（logical range）で直接指定する
+          chartRef.current?.timeScale().setVisibleLogicalRange({ from: 0, to: nonMainCandles.length });
         }
       }
     }
