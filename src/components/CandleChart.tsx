@@ -382,11 +382,6 @@ export function CandleChart({
   // マウント時1回だけのeffectはpropsをクロージャで固定するため、非メインパネルの
   // ヘッダードロップダウンで時間軸を変えてもここが古い値のまま——他のref同様に同期する
   const timeframeSecRef = useRef(timeframeSec);
-  // 「最新足に固定」の継続追従（followLatest）用。setVisibleLogicalRangeを呼ぶ直前に
-  // trueにしておき、その結果として発火するonRangeChangeでは追従解除の判定をスキップする
-  // （プログラム側の操作とユーザーの手動パン/ズームを区別するためのフラグ）
-  const followLatestRef = useRef(followLatest);
-  const programmaticRangeChangeRef = useRef(false);
   useEffect(() => {
     isMainRef.current = isMain;
     slotRef.current = slot;
@@ -395,8 +390,7 @@ export function CandleChart({
     timeframeSecRef.current = timeframeSec;
     displayCandlesRef.current = displayCandles;
     effectiveCursorRef.current = isMain ? cursor : displayCandles.length - 1;
-    followLatestRef.current = followLatest;
-  }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec, followLatest]);
+  }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec]);
   // 非メイン時、クリック（ドラッグでない）でメインへ昇格させるための始点記録
   const nonMainMouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   // 非メイン時、新しいデータセットに切り替わった時だけ画面フィットするための直前値記憶
@@ -1415,19 +1409,34 @@ export function CandleChart({
     };
 
     const onRangeChange = () => {
-      // 「最新足に固定」の継続追従（followLatest）中に、プログラム側ではない範囲変更
-      // （ユーザーの手動パン/ズーム/ドラッグ等）が起きたら追従を解除する。programmaticRange
-      // ChangeRefは追従ロジック自身がsetVisibleLogicalRangeを呼ぶ直前にtrueへ立てるので、
-      // それ以外の経路（＝ユーザー操作、またはこのフラグを立てずに呼んでいる他の箇所）で
-      // 範囲が変わった時だけ解除する
-      if (programmaticRangeChangeRef.current) {
-        programmaticRangeChangeRef.current = false;
-      } else if (followLatestRef.current) {
-        useTraderStore.getState().setFollowLatest(false);
-      }
       syncVLines(); syncRects(); syncTrendLines(); syncBrushes(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
+
+    // 「最新足に固定」の継続追従（followLatest）は、ユーザーが手動でパン/ズームしたら
+    // 解除する。当初はvisibleLogicalRangeChangeイベントで「プログラム側の変更か
+    // どうか」を判定しようとしたが、series.update()で足を1本追加するだけでも（明示的に
+    // setVisibleLogicalRangeを呼んでいなくても）このイベントが飛ぶことがあり、再生の
+    // 1tick目で誤って追従解除してしまっていた（「一度は最新足に来るが再生するとすぐ
+    // 画面外に出る」不具合として発覚）。範囲変更イベントではなく、ホイール（ズーム）と
+    // ドラッグ（パン）というユーザー操作そのものを直接検知する方式に切り替えた
+    const cancelFollowOnUserGesture = () => {
+      if (useTraderStore.getState().followLatest) useTraderStore.getState().setFollowLatest(false);
+    };
+    container.addEventListener('wheel', cancelFollowOnUserGesture, { passive: true });
+    let dragStartXY: { x: number; y: number } | null = null;
+    const onContainerMouseDownForFollow = (e: MouseEvent) => { dragStartXY = { x: e.clientX, y: e.clientY }; };
+    const onWindowMouseMoveForFollow = (e: MouseEvent) => {
+      if (!dragStartXY) return;
+      if (Math.hypot(e.clientX - dragStartXY.x, e.clientY - dragStartXY.y) >= CLICK_TOLERANCE_PX) {
+        dragStartXY = null;
+        cancelFollowOnUserGesture();
+      }
+    };
+    const onWindowMouseUpForFollow = () => { dragStartXY = null; };
+    container.addEventListener('mousedown', onContainerMouseDownForFollow);
+    window.addEventListener('mousemove', onWindowMouseMoveForFollow);
+    window.addEventListener('mouseup', onWindowMouseUpForFollow);
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
     chart.subscribeClick(param => {
@@ -2978,9 +2987,6 @@ export function CandleChart({
           const mid = (lo + hi) >> 1;
           if (cs[mid].time <= centerTime) { idx = mid; lo = mid + 1; } else hi = mid - 1;
         }
-        // リサイズによる範囲補正は「最新足に固定」の継続追従を解除する対象ではないため
-        // プログラム側の変更としてマークする（さもないとウィンドウを広げただけで追従が切れる）
-        programmaticRangeChangeRef.current = true;
         ts.setVisibleLogicalRange({ from: idx - newSpan / 2, to: idx + newSpan / 2 });
       }
       prevChartWidth = newWidth;
@@ -3042,6 +3048,10 @@ export function CandleChart({
       window.removeEventListener('mousemove', onScrubberMove);
       window.removeEventListener('mouseup', onScrubberUp);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
+      container.removeEventListener('wheel', cancelFollowOnUserGesture);
+      container.removeEventListener('mousedown', onContainerMouseDownForFollow);
+      window.removeEventListener('mousemove', onWindowMouseMoveForFollow);
+      window.removeEventListener('mouseup', onWindowMouseUpForFollow);
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
       vlineElsRef.current.forEach(el => el.remove());
@@ -3497,9 +3507,17 @@ export function CandleChart({
   // 確定する（読み直しても安全な）操作のため、目標範囲をここで自前計算して直接指定することで
   // アニメーション競合そのものを避ける。
   // ボタンを押した瞬間だけでなく、followLatest中は新しい足が現れるたびにも同じ処理を
-  // 呼びたいため、関数として切り出してrefに持つ（syncCloudRef等と同じパターン）
-  const applyLatestViewRef = useRef<() => void>(() => {});
-  applyLatestViewRef.current = () => {
+  // 呼びたいため、関数として切り出してrefに持つ（syncCloudRef等と同じパターン）。
+  // 表示本数（span）は毎回prevRangeから読み直さない——setVisibleLogicalRange直後は
+  // 座標がレイアウト未確定で不安定なことがある既知の挙動（他の箇所と同じ地雷）があり、
+  // followLatestで毎tick読み直す形にすると、その誤差が次のtickの入力になり何度も
+  // 積み重なって縮尺がどんどん壊れていく（実際に再生を続けるとロウソク足が異常に
+  // 巨大化する不具合として発覚）。ボタンを押した瞬間（またはfollowLatestが有効になった
+  // 瞬間）にだけprevRangeからspanを読み取ってrefに固定し、以降の継続追従ではその固定値を
+  // 使い回すことで誤差の蓄積を断つ
+  const followSpanRef = useRef<number | null>(null);
+  const applyLatestViewRef = useRef<(captureSpan: boolean) => void>(() => {});
+  applyLatestViewRef.current = (captureSpan: boolean) => {
     if (!chartRef.current) return;
     const chart = chartRef.current;
     // メインパネルのdisplayCandles（=candles）はcursorより先の未来分も含む全期間配列
@@ -3511,28 +3529,27 @@ export function CandleChart({
     // 「最新足に固定」を押すと画面が空になる不具合として発覚）
     const lastIdx = effectiveCursorRef.current;
     if (lastIdx >= 0) {
-      const prevRange = chart.timeScale().getVisibleLogicalRange();
-      const rawSpan = prevRange && prevRange.to > prevRange.from
-        ? prevRange.to - prevRange.from
-        : MIN_JUMP_SPAN_BARS;
+      if (captureSpan || followSpanRef.current === null) {
+        const prevRange = chart.timeScale().getVisibleLogicalRange();
+        const rawSpan = prevRange && prevRange.to > prevRange.from
+          ? prevRange.to - prevRange.from
+          : MIN_JUMP_SPAN_BARS;
+        followSpanRef.current = rawSpan;
+      }
       // 保存済みズーム幅（localStorageのvt:chartView等）は別データセット（本数が違う）の
       // ものを引き継いでいる場合がある。実際の本数を大きく超える幅をそのまま使うと、
       // 実データがごく一部に押し込められほぼ空欄の画面になってしまうため、実本数基準で頭打ちする
-      const span = Math.min(rawSpan, lastIdx + 1 + CHART_RIGHT_OFFSET_BARS);
+      const span = Math.min(followSpanRef.current, lastIdx + 1 + CHART_RIGHT_OFFSET_BARS);
       const to = lastIdx + CHART_RIGHT_OFFSET_BARS;
-      // onRangeChangeが「ユーザーの手動操作」と誤認して追従を解除しないよう、
-      // このプログラム側の呼び出しであることを一時的にマークする
-      programmaticRangeChangeRef.current = true;
       chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
     } else {
-      programmaticRangeChangeRef.current = true;
       chart.timeScale().scrollToRealTime();
     }
   };
 
   useEffect(() => {
     if (scrollToLatestSignal === 0 || !chartRef.current) return;
-    applyLatestViewRef.current();
+    applyLatestViewRef.current(true);
     const raf = requestAnimationFrame(() => {
       syncCloudRef.current();
       syncVLinesRef.current();
@@ -3553,8 +3570,9 @@ export function CandleChart({
   // CursorRefに反映済み）が変わるたびに実行し、ユーザーが手動でパン/ズームしたら
   // （onRangeChange側で）自動的にfollowLatestをfalseへ戻して追従を止める
   useEffect(() => {
-    if (!followLatest || !chartRef.current) return;
-    applyLatestViewRef.current();
+    if (!followLatest) { followSpanRef.current = null; return; }
+    if (!chartRef.current) return;
+    applyLatestViewRef.current(false);
     const raf = requestAnimationFrame(() => {
       syncCloudRef.current();
       syncVLinesRef.current();
