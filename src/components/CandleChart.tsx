@@ -1413,27 +1413,43 @@ export function CandleChart({
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
-    // 「最新足に固定」の継続追従（followLatest）は、ユーザーが手動でパン/ズームしたら
-    // 解除する。当初はvisibleLogicalRangeChangeイベントで「プログラム側の変更か
-    // どうか」を判定しようとしたが、series.update()で足を1本追加するだけでも（明示的に
-    // setVisibleLogicalRangeを呼んでいなくても）このイベントが飛ぶことがあり、再生の
-    // 1tick目で誤って追従解除してしまっていた（「一度は最新足に来るが再生するとすぐ
-    // 画面外に出る」不具合として発覚）。範囲変更イベントではなく、ホイール（ズーム）と
-    // ドラッグ（パン）というユーザー操作そのものを直接検知する方式に切り替えた
-    const cancelFollowOnUserGesture = () => {
-      if (useTraderStore.getState().followLatest) useTraderStore.getState().setFollowLatest(false);
+    // 「最新足に固定」の継続追従（followLatest）は4パネル共通のグローバルフラグだが、
+    // 個々のパネルの追従アンカー（followAnchorRef、下の方で定義）はパネルごとに独立している。
+    // ユーザーが手動でパン/ズームした「そのパネルだけ」、その操作後の位置を新しい固定位置として
+    // 引き継ぎたい（他のパネルは無関係のまま追従を続けてほしい）——という要望を受けて、
+    // グローバルなfollowLatestは触らず、このパネル自身のfollowAnchorRefだけを操作後の
+    // 可視範囲で上書きする方式にした（以前はここでfollowLatestをfalseにして全パネルの
+    // 追従を止めていたが、1パネルの操作で他3パネルまで止まってしまうのは意図と異なっていた）。
+    // 当初はvisibleLogicalRangeChangeイベントで「プログラム側の変更かどうか」を判定しようと
+    // したが、series.update()で足を1本追加するだけでも（明示的にsetVisibleLogicalRangeを
+    // 呼んでいなくても）このイベントが飛ぶため、範囲変更イベントではなくホイール（ズーム）と
+    // ドラッグ（パン）というユーザー操作そのものを直接検知する方式を採る
+    const captureFollowAnchorFromCurrentView = () => {
+      if (!useTraderStore.getState().followLatest || !chartRef.current) return;
+      const lastIdx = effectiveCursorRef.current;
+      if (lastIdx < 0) return;
+      const range = chartRef.current.timeScale().getVisibleLogicalRange();
+      if (!range || range.to <= range.from) return;
+      followAnchorRef.current = { span: range.to - range.from, offset: range.to - lastIdx };
     };
-    container.addEventListener('wheel', cancelFollowOnUserGesture, { passive: true });
+    container.addEventListener('wheel', captureFollowAnchorFromCurrentView, { passive: true });
     let dragStartXY: { x: number; y: number } | null = null;
-    const onContainerMouseDownForFollow = (e: MouseEvent) => { dragStartXY = { x: e.clientX, y: e.clientY }; };
+    let isDraggingForFollow = false;
+    const onContainerMouseDownForFollow = (e: MouseEvent) => { dragStartXY = { x: e.clientX, y: e.clientY }; isDraggingForFollow = false; };
     const onWindowMouseMoveForFollow = (e: MouseEvent) => {
-      if (!dragStartXY) return;
+      if (!dragStartXY || isDraggingForFollow) return;
       if (Math.hypot(e.clientX - dragStartXY.x, e.clientY - dragStartXY.y) >= CLICK_TOLERANCE_PX) {
-        dragStartXY = null;
-        cancelFollowOnUserGesture();
+        isDraggingForFollow = true;
       }
     };
-    const onWindowMouseUpForFollow = () => { dragStartXY = null; };
+    // ドラッグ終了（mouseup）時点の可視範囲を確定値としてアンカーに反映する。
+    // ドラッグ中（しきい値超え検知の瞬間）に読むと途中経過の座標を拾ってしまうため、
+    // 必ずドラッグが終わった後の最終位置で読み直す
+    const onWindowMouseUpForFollow = () => {
+      if (isDraggingForFollow) captureFollowAnchorFromCurrentView();
+      dragStartXY = null;
+      isDraggingForFollow = false;
+    };
     container.addEventListener('mousedown', onContainerMouseDownForFollow);
     window.addEventListener('mousemove', onWindowMouseMoveForFollow);
     window.addEventListener('mouseup', onWindowMouseUpForFollow);
@@ -3048,7 +3064,7 @@ export function CandleChart({
       window.removeEventListener('mousemove', onScrubberMove);
       window.removeEventListener('mouseup', onScrubberUp);
       chart.timeScale().unsubscribeVisibleLogicalRangeChange(onRangeChange);
-      container.removeEventListener('wheel', cancelFollowOnUserGesture);
+      container.removeEventListener('wheel', captureFollowAnchorFromCurrentView);
       container.removeEventListener('mousedown', onContainerMouseDownForFollow);
       window.removeEventListener('mousemove', onWindowMouseMoveForFollow);
       window.removeEventListener('mouseup', onWindowMouseUpForFollow);
@@ -3508,14 +3524,19 @@ export function CandleChart({
   // アニメーション競合そのものを避ける。
   // ボタンを押した瞬間だけでなく、followLatest中は新しい足が現れるたびにも同じ処理を
   // 呼びたいため、関数として切り出してrefに持つ（syncCloudRef等と同じパターン）。
-  // 表示本数（span）は毎回prevRangeから読み直さない——setVisibleLogicalRange直後は
-  // 座標がレイアウト未確定で不安定なことがある既知の挙動（他の箇所と同じ地雷）があり、
+  // 表示本数（span）と右オフセットは毎回prevRangeから読み直さない——setVisibleLogicalRange
+  // 直後は座標がレイアウト未確定で不安定なことがある既知の挙動（他の箇所と同じ地雷）があり、
   // followLatestで毎tick読み直す形にすると、その誤差が次のtickの入力になり何度も
   // 積み重なって縮尺がどんどん壊れていく（実際に再生を続けるとロウソク足が異常に
   // 巨大化する不具合として発覚）。ボタンを押した瞬間（またはfollowLatestが有効になった
-  // 瞬間）にだけprevRangeからspanを読み取ってrefに固定し、以降の継続追従ではその固定値を
-  // 使い回すことで誤差の蓄積を断つ
-  const followSpanRef = useRef<number | null>(null);
+  // 瞬間）にだけprevRangeから読み取ってrefに固定し、以降の継続追従ではその固定値を
+  // 使い回すことで誤差の蓄積を断つ。
+  // offsetは「最新足からrefで何本分右にずらして表示するか」——既定はCHART_RIGHT_OFFSET_BARSだが、
+  // ユーザーがこのパネルだけ手動でパン/ズームした場合は、その操作後の位置を新しいoffset/spanとして
+  // captureFollowAnchorFromCurrentView（上の方のmousedown/wheelハンドラ）が上書きする。
+  // これによって「操作したパネルはその位置で固定、他のパネルは無関係に追従を続ける」を実現している
+  // （followAnchorRefはパネルインスタンスごとに独立したrefのため）
+  const followAnchorRef = useRef<{ span: number; offset: number } | null>(null);
   const applyLatestViewRef = useRef<(captureSpan: boolean) => void>(() => {});
   applyLatestViewRef.current = (captureSpan: boolean) => {
     if (!chartRef.current) return;
@@ -3529,18 +3550,22 @@ export function CandleChart({
     // 「最新足に固定」を押すと画面が空になる不具合として発覚）
     const lastIdx = effectiveCursorRef.current;
     if (lastIdx >= 0) {
-      if (captureSpan || followSpanRef.current === null) {
+      // ボタン（「最新足に固定」）を押した瞬間は、パネルごとの手動オフセットをリセットして
+      // 必ず既定の右寄せ位置に戻す（ボタンは「全パネルを標準の最新足表示に揃える」操作のため）
+      if (captureSpan) followAnchorRef.current = null;
+      if (followAnchorRef.current === null) {
         const prevRange = chart.timeScale().getVisibleLogicalRange();
         const rawSpan = prevRange && prevRange.to > prevRange.from
           ? prevRange.to - prevRange.from
           : MIN_JUMP_SPAN_BARS;
-        followSpanRef.current = rawSpan;
+        followAnchorRef.current = { span: rawSpan, offset: CHART_RIGHT_OFFSET_BARS };
       }
       // 保存済みズーム幅（localStorageのvt:chartView等）は別データセット（本数が違う）の
       // ものを引き継いでいる場合がある。実際の本数を大きく超える幅をそのまま使うと、
       // 実データがごく一部に押し込められほぼ空欄の画面になってしまうため、実本数基準で頭打ちする
-      const span = Math.min(followSpanRef.current, lastIdx + 1 + CHART_RIGHT_OFFSET_BARS);
-      const to = lastIdx + CHART_RIGHT_OFFSET_BARS;
+      const { span: rawSpan, offset } = followAnchorRef.current;
+      const span = Math.min(rawSpan, lastIdx + 1 + offset);
+      const to = lastIdx + offset;
       chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
     } else {
       chart.timeScale().scrollToRealTime();
@@ -3567,10 +3592,12 @@ export function CandleChart({
   // 画面外に出て行ってしまう」という不具合として報告された——ボタンは元々ワンショットの
   // ジャンプ（scrollToLatestSignal）でしかなく、以降の新しい足には追従していなかった。
   // メインはcursor、非メインはnonMainVisible（＝displayCandles、どちらもeffective
-  // CursorRefに反映済み）が変わるたびに実行し、ユーザーが手動でパン/ズームしたら
-  // （onRangeChange側で）自動的にfollowLatestをfalseへ戻して追従を止める
+  // CursorRefに反映済み）が変わるたびに実行する。ユーザーがこのパネルを手動でパン/ズーム
+  // した場合は、追従自体は止めず、captureFollowAnchorFromCurrentView（上の方のmousedown/
+  // wheelハンドラ）がfollowAnchorRefをその操作後の位置に上書きするので、以降はその新しい
+  // 位置を保ったまま追従を続ける（他のパネルは自分のfollowAnchorRefのまま無関係に追従継続）
   useEffect(() => {
-    if (!followLatest) { followSpanRef.current = null; return; }
+    if (!followLatest) { followAnchorRef.current = null; return; }
     if (!chartRef.current) return;
     applyLatestViewRef.current(false);
     const raf = requestAnimationFrame(() => {
