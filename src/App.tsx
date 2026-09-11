@@ -135,16 +135,20 @@ export default function App() {
                     isMain={isMainSlot}
                     timeframeSec={quadTimeframes[slot]}
                   />
-                  {/* 4画面時、どの枠がメイン（操作対象）か一目で分かるよう細い枠線で囲う。
-                      1画面時はメイン枠しか表示されないため不要（つけると常時囲われて煩わしいだけ）。
-                      セルのboxShadowで描くとCandleChart側のチャート本体（不透明な背景を持つ）に
-                      上から塗りつぶされ、枠の一部（チャートの描画範囲が届かない隙間）しか
-                      見えなくなってしまう（実際に下端の一部しか出ない不具合として発覚）。
-                      CandleChartの後に重ねて描く別要素にすることで、チャート本体より上のレイヤーに
-                      出るようにしている（pointerEvents:noneでクリック等は透過させる） */}
-                  {chartLayout === '4' && isMainSlot && (
+                  {/* 4画面時、全枠を細い枠線で区切りつつ、メイン枠（操作対象）だけ青で
+                      一目で分かるようにする。1画面時はメイン枠しか表示されないため不要
+                      （つけると常時囲われて煩わしいだけ）。セルのboxShadowで描くと
+                      CandleChart側のチャート本体（不透明な背景を持つ）に上から塗りつぶされ、
+                      枠の一部（チャートの描画範囲が届かない隙間）しか見えなくなってしまう
+                      （実際に下端の一部しか出ない不具合として発覚）。CandleChartの後に
+                      重ねて描く別要素にすることで、チャート本体より上のレイヤーに出るように
+                      している（pointerEvents:noneでクリック等は透過させる） */}
+                  {chartLayout === '4' && (
                     <div style={{
-                      position: 'absolute', inset: 0, boxShadow: 'inset 0 0 0 0.5px rgba(66, 165, 245, 0.45)',
+                      position: 'absolute', inset: 0,
+                      boxShadow: isMainSlot
+                        ? 'inset 0 0 0 0.5px rgba(66, 165, 245, 0.45)'
+                        : 'inset 0 0 0 0.5px rgba(192, 192, 192, 0.25)',
                       pointerEvents: 'none', zIndex: 10,
                     }} />
                   )}
