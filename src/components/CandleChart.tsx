@@ -3562,9 +3562,16 @@ export function CandleChart({
       }
       // 保存済みズーム幅（localStorageのvt:chartView等）は別データセット（本数が違う）の
       // ものを引き継いでいる場合がある。実際の本数を大きく超える幅をそのまま使うと、
-      // 実データがごく一部に押し込められほぼ空欄の画面になってしまうため、実本数基準で頭打ちする
+      // 実データがごく一部に押し込められほぼ空欄の画面になってしまうため頭打ちする——
+      // ただし基準は「今revealされている本数」（lastIdx+1）ではなく「CSV全期間の本数」を
+      // 使うこと。revealされている本数で頭打ちすると、リプレイ序盤で実際に描画されている
+      // 本数がまだ少ない間は、せっかく広く記憶していたズーム幅がその少数本数まで潰され、
+      // 少数のロウソク足が画面いっぱいに間延びして見える「デカ足」になる（CSV読み込み直後の
+      // 初期フィット処理で既に踏んだのと同種の取り違え——「最新足に固定」ボタンはその後で
+      // 別途この頭打ちをかけ直してしまっていたため、ボタンを押すとかえってデカ足になっていた）
+      const fullTotal = isMainRef.current ? candles.length : nonMainCandlesRef.current.length;
       const { span: rawSpan, offset } = followAnchorRef.current;
-      const span = Math.min(rawSpan, lastIdx + 1 + offset);
+      const span = Math.min(rawSpan, fullTotal + offset);
       const to = lastIdx + offset;
       chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
     } else {
