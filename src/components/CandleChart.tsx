@@ -3744,8 +3744,21 @@ export function CandleChart({
         skipNextNonMainFitRef.current = false;
       } else {
         const saved = loadChartView(timeframeSec);
-        if (saved) {
-          chartRef.current?.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, nonMainVisible.length));
+        const lastIdx = nonMainVisible.length - 1;
+        if (saved && nonMainCandles.length > 0 && lastIdx >= 0) {
+          // spanのクランプ基準はnonMainCandles（未来分も含む全期間の本数）を使うこと。
+          // nonMainVisible（未来隠し後の実描画本数）でクランプすると、リプレイ序盤で
+          // 実際に描画されている本数がごく少数な間、保存済みのspan（前回のズーム＝
+          // 拡大率）がその少数本数まで潰されてしまい、少数のロウソク足が画面いっぱいに
+          // 間延びして見える「デカ足」になる（「前回のスケールを覚えて再現してほしい」
+          // という要望に反する——spanはズーム率の記憶なので、全期間本数を基準に
+          // クランプしないと意味がない）。位置（barsFromRight）の方はrelativeViewToLogicalRange
+          // の計算結果を使わず、常にnonMainVisibleの最後（＝実際に描画されている最新足）
+          // を右オフセット分の位置に置く——保存ビューは縮尺だけ引き継ぎ、位置は
+          // 「先頭から見る」仕様どおり常に今revealされている最新足に合わせる
+          const { from, to } = relativeViewToLogicalRange(saved, nonMainCandles.length);
+          const span = to - from;
+          chartRef.current?.timeScale().setVisibleLogicalRange({ from: lastIdx + CHART_RIGHT_OFFSET_BARS - span, to: lastIdx + CHART_RIGHT_OFFSET_BARS });
         } else if (nonMainVisible.length > 0) {
           // 時刻ベースのsetVisibleRange()は、setData直後などレイアウト未確定なタイミングで
           // 呼ぶと内部のtime→logical変換が失敗しクラッシュすることがある（実際に新規CSV
@@ -3807,13 +3820,22 @@ export function CandleChart({
     }
 
     const saved = loadChartView(timeframeSec);
-    const totalBars = cursor + 1;
-    // 記憶したズーム幅（span）が現在の表示可能本数を超える場合（読み込み直後でcursorが
-    // 先頭に戻っている等）は復元すると破綻したlogical rangeになるため復元をスキップする
-    if (saved && totalBars > 0 && saved.span <= totalBars) {
-      chartRef.current.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, totalBars));
+    // spanのクランプ基準はcandles.length（CSV全期間の本数）を使うこと。cursor+1（今
+    // revealされている本数）でクランプしていた以前の実装は、新規読み込み直後は常に
+    // cursor=0＝1本のためほぼ必ずガードに引っかかって復元自体がスキップされ、結果として
+    // 1本のロウソク足が全幅に間延びする「デカ足」表示になっていた（非メインパネルの
+    // nonMainVisible/nonMainCandlesと同種の取り違え）。spanはズーム率の記憶なので、
+    // 全期間本数を基準にクランプしないと意味がない。位置の方はrelativeViewToLogicalRange
+    // の計算結果（barsFromRight基準）を使わず、常にcursor（今revealされている最新足）を
+    // 右オフセット分の位置に置く——保存ビューは縮尺だけ引き継ぎ、位置は「先頭から見る」
+    // 仕様どおり常に最新足に固定する
+    if (saved && candles.length > 0) {
+      const { from, to } = relativeViewToLogicalRange(saved, candles.length);
+      const span = to - from;
+      chartRef.current.timeScale().setVisibleLogicalRange({ from: cursor + CHART_RIGHT_OFFSET_BARS - span, to: cursor + CHART_RIGHT_OFFSET_BARS });
+    } else {
+      chartRef.current.timeScale().scrollToRealTime();
     }
-    chartRef.current.timeScale().scrollToRealTime();
   }, [timeframeSec, dataVersion, candles, cursor]);
 
   // 指定時刻を中心に表示（縮尺=現在の表示本数は維持したまま移動）
