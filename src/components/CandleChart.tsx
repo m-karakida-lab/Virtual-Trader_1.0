@@ -332,13 +332,33 @@ export function CandleChart({
   // メインの現在足が閉じた時点（＝これより先は「未来」として隠す境界）。MiniChart.tsxと同じ考え方
   const nonMainCursorEnd = candles[cursor]?.time !== undefined ? candles[cursor].time + mainTimeframeSec : undefined;
   // filter()は呼ぶたびに新しい配列参照を返すため、useMemoを挟まないと依存に使う
-  // useEffectが実質毎レンダー発火してしまう（値が同じでも参照が変わるため）
-  const nonMainVisible = useMemo(
-    () => nonMainCursorEnd === undefined
+  // useEffectが実質毎レンダー発火してしまう（値が同じでも参照が変わるため）。
+  // ただしnonMainCursorEndはメインのcursorが1本進むたびに毎回変わる（=useMemoの依存自体は
+  // 毎tick変化する）ため、useMemoだけでは不十分——上位足（1H/4H/1D）はメインが1本進んでも
+  // 自分の足がまだ閉じていないことの方が多く、その場合filter結果の中身（本数・最後の足）は
+  // 前回と同じなのに新しい配列参照が返ってしまい、下の「非メインへのsetData」effectが本来
+  // 不要なタイミングでも毎tick再実行されてしまう（series.setDataを毎tick呼ぶことになり、
+  // 「最新足に固定」のscrollToRealTime()アニメーションが完了する前に次のtickのsetDataで
+  // 巻き戻され、1D以外は何回か押さないと最新足まで追従しない不具合の原因になっていた）。
+  // 中身（本数・両端の足）が前回と変わっていなければ前回の配列参照をそのまま返して
+  // 参照を安定させる（同じ`nonMainCandles`からのprefixフィルタなので要素の中身比較は不要、
+  // 本数と両端の要素が同じなら中身も同じと判定できる）
+  const nonMainVisibleRef = useRef<Candle[]>([]);
+  const nonMainVisibleSourceRef = useRef<Candle[] | null>(null);
+  const nonMainVisible = useMemo(() => {
+    const next = nonMainCursorEnd === undefined
       ? nonMainCandles
-      : nonMainCandles.filter(c => c.time + timeframeSec <= nonMainCursorEnd),
-    [nonMainCandles, nonMainCursorEnd, timeframeSec],
-  );
+      : nonMainCandles.filter(c => c.time + timeframeSec <= nonMainCursorEnd);
+    const prev = nonMainVisibleRef.current;
+    const sameSource = nonMainVisibleSourceRef.current === nonMainCandles;
+    const sameContent = sameSource && prev.length === next.length &&
+      (next.length === 0 || (prev[0] === next[0] && prev[next.length - 1] === next[next.length - 1]));
+    if (sameContent) return prev;
+    nonMainVisibleRef.current = next;
+    nonMainVisibleSourceRef.current = nonMainCandles;
+    return next;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nonMainCandles, nonMainCursorEnd, timeframeSec]);
   // このインスタンスが実際に描画すべき足データ（メインはグローバル、非メインは上記の自前集計＋未来隠し）
   const displayCandles = isMain ? candles : nonMainVisible;
 
@@ -3444,10 +3464,24 @@ export function CandleChart({
     }
   }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId]);
 
-  // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット(rightOffset)分の位置に来るよう追従
+  // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット(rightOffset)分の位置に来るよう追従。
+  // scrollToRealTime()はlightweight-charts内部で即座に確定するのではなく既定400msのアニメーション
+  // （requestAnimationFrame駆動）でスクロールするため、呼び出し直後はまだ移動中で座標が確定して
+  // いない。他のsetVisibleLogicalRange系操作と同じく、雲の塗りつぶし等の座標依存の再描画は
+  // 1フレーム後に再同期する（呼び出し直後に同期すると雲がズレて見える不具合として発覚）
   useEffect(() => {
     if (scrollToLatestSignal === 0 || !chartRef.current) return;
     chartRef.current.timeScale().scrollToRealTime();
+    const raf = requestAnimationFrame(() => {
+      syncCloudRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
+      syncTrendLinesRef.current();
+      syncBrushesRef.current();
+      syncTextsRef.current();
+      syncWeekLinesRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
   }, [scrollToLatestSignal]);
 
   // リプレイモード: カーソル変化時にデータ更新（ローソク足 + EMA200）。
