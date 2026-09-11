@@ -3639,13 +3639,18 @@ export function CandleChart({
         const saved = loadChartView(timeframeSec);
         if (saved) {
           chartRef.current?.timeScale().setVisibleLogicalRange(relativeViewToLogicalRange(saved, nonMainVisible.length));
-        } else if (nonMainCandles.length > 0) {
+        } else if (nonMainVisible.length > 0) {
           // 時刻ベースのsetVisibleRange()は、setData直後などレイアウト未確定なタイミングで
           // 呼ぶと内部のtime→logical変換が失敗しクラッシュすることがある（実際に新規CSV
           // 読み込み直後に「Value is null」で画面クラッシュする形で発覚。centerOnTime等
           // 既存の地雷と同じ理由）。全期間を表示したいだけなので、時刻変換を経由しない
-          // 足のインデックス（logical range）で直接指定する
-          chartRef.current?.timeScale().setVisibleLogicalRange({ from: 0, to: nonMainCandles.length });
+          // 足のインデックス（logical range）で直接指定する。
+          // ここは実際にseries.setData()した本数＝nonMainVisible（未来隠し後）の本数を
+          // 使うこと。nonMainCandles（未来分も含む全本数）を使うと、リプレイ序盤で
+          // 実際に描画されている本数（nonMainVisible、ごく少数）がlogical range全体
+          // （nonMainCandles、CSV全期間分）のごく一部に押し込められ、パネルがほぼ空欄に
+          // 見える不具合になる（「特定の時間足にロウソク足が出てこない」不具合として発覚）
+          chartRef.current?.timeScale().setVisibleLogicalRange({ from: 0, to: nonMainVisible.length });
         }
       }
     }
