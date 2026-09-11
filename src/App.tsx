@@ -123,15 +123,8 @@ export default function App() {
           }}>
             {QUAD_POSITIONS.map((pos, slot) => {
               const isMainSlot = slot === quadMainSlot;
-              // 4画面時、どの枠がメイン（操作対象）か一目で分かるよう細い枠線で囲う。
-              // 1画面時はメイン枠しか表示されないため不要（つけると常時囲われて煩わしいだけ）。
-              // レイアウト自体（グリッドのセルサイズ）に影響を与えないようboxShadowのinsetで描く
-              // （borderだとbox-sizing次第でグリッドの2pxギャップとズレる可能性がある）
               const cellStyle = chartLayout === '4'
-                ? {
-                    gridRow: pos.row, gridColumn: pos.col, position: 'relative' as const, minWidth: 0, minHeight: 0,
-                    boxShadow: isMainSlot ? 'inset 0 0 0 1px #42a5f5' : undefined,
-                  }
+                ? { gridRow: pos.row, gridColumn: pos.col, position: 'relative' as const, minWidth: 0, minHeight: 0 }
                 : isMainSlot
                   ? { position: 'absolute' as const, inset: 0 }
                   : { position: 'absolute' as const, width: 0, height: 0, overflow: 'hidden' as const, pointerEvents: 'none' as const };
@@ -142,6 +135,19 @@ export default function App() {
                     isMain={isMainSlot}
                     timeframeSec={quadTimeframes[slot]}
                   />
+                  {/* 4画面時、どの枠がメイン（操作対象）か一目で分かるよう細い枠線で囲う。
+                      1画面時はメイン枠しか表示されないため不要（つけると常時囲われて煩わしいだけ）。
+                      セルのboxShadowで描くとCandleChart側のチャート本体（不透明な背景を持つ）に
+                      上から塗りつぶされ、枠の一部（チャートの描画範囲が届かない隙間）しか
+                      見えなくなってしまう（実際に下端の一部しか出ない不具合として発覚）。
+                      CandleChartの後に重ねて描く別要素にすることで、チャート本体より上のレイヤーに
+                      出るようにしている（pointerEvents:noneでクリック等は透過させる） */}
+                  {chartLayout === '4' && isMainSlot && (
+                    <div style={{
+                      position: 'absolute', inset: 0, boxShadow: 'inset 0 0 0 1px #42a5f5',
+                      pointerEvents: 'none', zIndex: 10,
+                    }} />
+                  )}
                 </div>
               );
             })}
