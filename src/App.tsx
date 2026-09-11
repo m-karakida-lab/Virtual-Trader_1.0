@@ -144,7 +144,7 @@ export default function App() {
                       出るようにしている（pointerEvents:noneでクリック等は透過させる） */}
                   {chartLayout === '4' && isMainSlot && (
                     <div style={{
-                      position: 'absolute', inset: 0, boxShadow: 'inset 0 0 0 1px #42a5f5',
+                      position: 'absolute', inset: 0, boxShadow: 'inset 0 0 0 0.5px #42a5f5',
                       pointerEvents: 'none', zIndex: 10,
                     }} />
                   )}
