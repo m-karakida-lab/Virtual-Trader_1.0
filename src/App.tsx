@@ -123,8 +123,15 @@ export default function App() {
           }}>
             {QUAD_POSITIONS.map((pos, slot) => {
               const isMainSlot = slot === quadMainSlot;
+              // 4画面時、どの枠がメイン（操作対象）か一目で分かるよう細い枠線で囲う。
+              // 1画面時はメイン枠しか表示されないため不要（つけると常時囲われて煩わしいだけ）。
+              // レイアウト自体（グリッドのセルサイズ）に影響を与えないようboxShadowのinsetで描く
+              // （borderだとbox-sizing次第でグリッドの2pxギャップとズレる可能性がある）
               const cellStyle = chartLayout === '4'
-                ? { gridRow: pos.row, gridColumn: pos.col, position: 'relative' as const, minWidth: 0, minHeight: 0 }
+                ? {
+                    gridRow: pos.row, gridColumn: pos.col, position: 'relative' as const, minWidth: 0, minHeight: 0,
+                    boxShadow: isMainSlot ? 'inset 0 0 0 1px #42a5f5' : undefined,
+                  }
                 : isMainSlot
                   ? { position: 'absolute' as const, inset: 0 }
                   : { position: 'absolute' as const, width: 0, height: 0, overflow: 'hidden' as const, pointerEvents: 'none' as const };
