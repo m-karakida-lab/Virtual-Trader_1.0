@@ -3654,13 +3654,18 @@ export function CandleChart({
   // 読み込み直後など一度もズームしていない状態は表示本数が極端に少ないことがあるため、
   // 最小表示本数を下回らないようにする
   useEffect(() => {
-    if (centerSignal === 0 || !chartRef.current || candles.length === 0) return;
+    const cs = displayCandlesRef.current;
+    if (centerSignal === 0 || !chartRef.current || cs.length === 0) return;
     const chart = chartRef.current;
-    // centerTarget（時刻）に対応する足のインデックスを二分探索
-    let lo = 0, hi = candles.length - 1, targetIdx = 0;
+    // centerTarget（時刻）に対応する足のインデックスを二分探索。グローバルなcandles
+    // （メインの時間軸データ）ではなく、このパネル自身が表示しているdisplayCandlesRefを
+    // 使う——4画面時、非メインパネルは別の時間軸（本数が異なる別配列）を表示しているため、
+    // メインの配列で求めたインデックスをそのまま使うと全く違う時刻・本数の位置に飛んで
+    // しまう（日付移動でメインだけ正しく移動し、他3枠は無関係な日付や空白域に飛ぶ不具合として発覚）
+    let lo = 0, hi = cs.length - 1, targetIdx = 0;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (candles[mid].time <= centerTarget) { targetIdx = mid; lo = mid + 1; }
+      if (cs[mid].time <= centerTarget) { targetIdx = mid; lo = mid + 1; }
       else hi = mid - 1;
     }
     const logicalRange = chart.timeScale().getVisibleLogicalRange();
