@@ -302,6 +302,7 @@ export function CandleChart({
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const fitSignal  = useTraderStore(s => s.fitSignal);
   const scrollToLatestSignal = useTraderStore(s => s.scrollToLatestSignal);
+  const followLatest = useTraderStore(s => s.followLatest);
   const centerSignal = useTraderStore(s => s.centerSignal);
   const centerTarget = useTraderStore(s => s.centerTarget);
   const crosshairSourceId = useTraderStore(s => s.crosshairSourceId);
@@ -381,6 +382,11 @@ export function CandleChart({
   // マウント時1回だけのeffectはpropsをクロージャで固定するため、非メインパネルの
   // ヘッダードロップダウンで時間軸を変えてもここが古い値のまま——他のref同様に同期する
   const timeframeSecRef = useRef(timeframeSec);
+  // 「最新足に固定」の継続追従（followLatest）用。setVisibleLogicalRangeを呼ぶ直前に
+  // trueにしておき、その結果として発火するonRangeChangeでは追従解除の判定をスキップする
+  // （プログラム側の操作とユーザーの手動パン/ズームを区別するためのフラグ）
+  const followLatestRef = useRef(followLatest);
+  const programmaticRangeChangeRef = useRef(false);
   useEffect(() => {
     isMainRef.current = isMain;
     slotRef.current = slot;
@@ -389,7 +395,8 @@ export function CandleChart({
     timeframeSecRef.current = timeframeSec;
     displayCandlesRef.current = displayCandles;
     effectiveCursorRef.current = isMain ? cursor : displayCandles.length - 1;
-  }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec]);
+    followLatestRef.current = followLatest;
+  }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec, followLatest]);
   // 非メイン時、クリック（ドラッグでない）でメインへ昇格させるための始点記録
   const nonMainMouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   // 非メイン時、新しいデータセットに切り替わった時だけ画面フィットするための直前値記憶
@@ -1407,7 +1414,19 @@ export function CandleChart({
       }, 400);
     };
 
-    const onRangeChange = () => { syncVLines(); syncRects(); syncTrendLines(); syncBrushes(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView(); };
+    const onRangeChange = () => {
+      // 「最新足に固定」の継続追従（followLatest）中に、プログラム側ではない範囲変更
+      // （ユーザーの手動パン/ズーム/ドラッグ等）が起きたら追従を解除する。programmaticRange
+      // ChangeRefは追従ロジック自身がsetVisibleLogicalRangeを呼ぶ直前にtrueへ立てるので、
+      // それ以外の経路（＝ユーザー操作、またはこのフラグを立てずに呼んでいる他の箇所）で
+      // 範囲が変わった時だけ解除する
+      if (programmaticRangeChangeRef.current) {
+        programmaticRangeChangeRef.current = false;
+      } else if (followLatestRef.current) {
+        useTraderStore.getState().setFollowLatest(false);
+      }
+      syncVLines(); syncRects(); syncTrendLines(); syncBrushes(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
+    };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
@@ -2959,6 +2978,9 @@ export function CandleChart({
           const mid = (lo + hi) >> 1;
           if (cs[mid].time <= centerTime) { idx = mid; lo = mid + 1; } else hi = mid - 1;
         }
+        // リサイズによる範囲補正は「最新足に固定」の継続追従を解除する対象ではないため
+        // プログラム側の変更としてマークする（さもないとウィンドウを広げただけで追従が切れる）
+        programmaticRangeChangeRef.current = true;
         ts.setVisibleLogicalRange({ from: idx - newSpan / 2, to: idx + newSpan / 2 });
       }
       prevChartWidth = newWidth;
@@ -3473,11 +3495,13 @@ export function CandleChart({
   // あった（1Dは自分の足が閉じる頻度が低く遭遇しにくいため「1D以外は何回か実行しないと
   // 最新足が出てこない」という非対称な症状になっていた）。setVisibleLogicalRangeは即座に
   // 確定する（読み直しても安全な）操作のため、目標範囲をここで自前計算して直接指定することで
-  // アニメーション競合そのものを避ける
-  useEffect(() => {
-    if (scrollToLatestSignal === 0 || !chartRef.current) return;
+  // アニメーション競合そのものを避ける。
+  // ボタンを押した瞬間だけでなく、followLatest中は新しい足が現れるたびにも同じ処理を
+  // 呼びたいため、関数として切り出してrefに持つ（syncCloudRef等と同じパターン）
+  const applyLatestViewRef = useRef<() => void>(() => {});
+  applyLatestViewRef.current = () => {
+    if (!chartRef.current) return;
     const chart = chartRef.current;
-    const cs = displayCandlesRef.current;
     // メインパネルのdisplayCandles（=candles）はcursorより先の未来分も含む全期間配列
     // （非メインのnonMainVisibleと違い先出し防止クリップ済みではない）。実際にseries.setData()
     // で描画されているのはcandles.slice(0, cursor+1)までなので、「最新（＝実際に描画されている
@@ -3485,7 +3509,7 @@ export function CandleChart({
     // （cursorがcandles.length-1より手前）でメイン以外に昇格させたばかりのパネル等で、実際の
     // 描画範囲よりずっと先の空欄領域に表示位置が飛んでしまう（実際に4H等を昇格させた直後に
     // 「最新足に固定」を押すと画面が空になる不具合として発覚）
-    const lastIdx = isMain ? Math.min(cursor, cs.length - 1) : cs.length - 1;
+    const lastIdx = effectiveCursorRef.current;
     if (lastIdx >= 0) {
       const prevRange = chart.timeScale().getVisibleLogicalRange();
       const rawSpan = prevRange && prevRange.to > prevRange.from
@@ -3496,10 +3520,19 @@ export function CandleChart({
       // 実データがごく一部に押し込められほぼ空欄の画面になってしまうため、実本数基準で頭打ちする
       const span = Math.min(rawSpan, lastIdx + 1 + CHART_RIGHT_OFFSET_BARS);
       const to = lastIdx + CHART_RIGHT_OFFSET_BARS;
+      // onRangeChangeが「ユーザーの手動操作」と誤認して追従を解除しないよう、
+      // このプログラム側の呼び出しであることを一時的にマークする
+      programmaticRangeChangeRef.current = true;
       chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
     } else {
+      programmaticRangeChangeRef.current = true;
       chart.timeScale().scrollToRealTime();
     }
+  };
+
+  useEffect(() => {
+    if (scrollToLatestSignal === 0 || !chartRef.current) return;
+    applyLatestViewRef.current();
     const raf = requestAnimationFrame(() => {
       syncCloudRef.current();
       syncVLinesRef.current();
@@ -3511,6 +3544,28 @@ export function CandleChart({
     });
     return () => cancelAnimationFrame(raf);
   }, [scrollToLatestSignal]);
+
+  // 「最新足に固定」の継続追従（followLatest）。リプレイ再生中も最新足を右寄せ位置に
+  // 保ち続けたい、という要望を受けて追加。「押した瞬間だけ移動して、再生を続けると
+  // 画面外に出て行ってしまう」という不具合として報告された——ボタンは元々ワンショットの
+  // ジャンプ（scrollToLatestSignal）でしかなく、以降の新しい足には追従していなかった。
+  // メインはcursor、非メインはnonMainVisible（＝displayCandles、どちらもeffective
+  // CursorRefに反映済み）が変わるたびに実行し、ユーザーが手動でパン/ズームしたら
+  // （onRangeChange側で）自動的にfollowLatestをfalseへ戻して追従を止める
+  useEffect(() => {
+    if (!followLatest || !chartRef.current) return;
+    applyLatestViewRef.current();
+    const raf = requestAnimationFrame(() => {
+      syncCloudRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
+      syncTrendLinesRef.current();
+      syncBrushesRef.current();
+      syncTextsRef.current();
+      syncWeekLinesRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [followLatest, cursor, nonMainVisible]);
 
   // リプレイモード: カーソル変化時にデータ更新（ローソク足 + EMA200）。
   // このステップ最適化（.update()による差分更新）はグローバルcandlesが1本ずつ

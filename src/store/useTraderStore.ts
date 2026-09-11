@@ -246,6 +246,8 @@ interface TraderState {
   chartBottomMargin: number; // チャート下部の時間軸の実測高さ(px)。フロートパネルの配置クランプ用
   fitSignal: number;  // fitToScreen が呼ばれるたびに増える（チャート側の fitContent 起動トリガ用）
   scrollToLatestSignal: number; // scrollToLatest が呼ばれるたびに増える（最新足を右寄せで表示するトリガ用）
+  followLatest: boolean; // true の間、新しい足が現れるたびに右寄せ位置を保ち続ける（TradingViewの「リアルタイムに戻る」相当）。
+                          // ユーザーが手動でパン/ズームしたら自動でfalseに戻す
   centerSignal: number; // centerOnTime が呼ばれるたびに増える
   centerTarget: number;  // centerOnTime の移動先（Unix秒）
   chartLayout: '1' | '4'; // 1画面 / 4画面（時間軸別マルチチャート）
@@ -271,6 +273,7 @@ interface TraderState {
   jumpToTime: (targetSec: number) => void;
   fitToScreen: () => void;
   scrollToLatest: () => void;
+  setFollowLatest: (v: boolean) => void;
   centerOnTime: (time: number) => void;
   setOrderType: (t: OrderType) => void;
   setDraftPrice: (v: number | null) => void;
@@ -559,6 +562,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   chartBottomMargin: 28,
   fitSignal: 0,
   scrollToLatestSignal: 0,
+  followLatest: false,
   centerSignal: 0,
   centerTarget: 0,
   chartLayout: loadSavedChartLayout(),
@@ -750,7 +754,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       set({ isPlaying: false });
       return false;
     }
-    set({ cursor: cursor - 1, isPlaying: false });
+    set({ cursor: cursor - 1, isPlaying: false, followLatest: false });
     return true;
   },
 
@@ -778,6 +782,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     // 垂直線チップ移動と同じ「縮尺維持で中心移動」を使う
     set(s => ({
       cursor: Math.max(idx, oldCursor), isPlaying: false, centerTarget: targetSec, centerSignal: s.centerSignal + 1,
+      followLatest: false,
       ...(result?.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,
         closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
@@ -785,9 +790,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     }));
   },
 
-  fitToScreen: () => set(s => ({ fitSignal: s.fitSignal + 1 })),
-  scrollToLatest: () => set(s => ({ scrollToLatestSignal: s.scrollToLatestSignal + 1 })),
-  centerOnTime: (time: number) => set(s => ({ centerTarget: time, centerSignal: s.centerSignal + 1 })),
+  fitToScreen: () => set(s => ({ fitSignal: s.fitSignal + 1, followLatest: false })),
+  scrollToLatest: () => set(s => ({ scrollToLatestSignal: s.scrollToLatestSignal + 1, followLatest: true })),
+  setFollowLatest: (v: boolean) => set(s => s.followLatest === v ? {} : { followLatest: v }),
+  centerOnTime: (time: number) => set(s => ({ centerTarget: time, centerSignal: s.centerSignal + 1, followLatest: false })),
 
   setInitialBalance: (v: number) => set({ initialBalance: Math.max(0, v), isInitialBalanceCustom: true }),
   resetAccount: () => {
