@@ -251,6 +251,12 @@ const chipRemoveStyle: React.CSSProperties = {
 function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const btnRef = useRef<HTMLButtonElement>(null);
+  // ポップアップは位置決めの基準をposition:fixedにする。App.tsx側でこのツールバーを囲む
+  // フレックス行がoverflow:hiddenのため、position:absoluteのままだと画面下寄りのボタンから
+  // 開いた時にポップアップ自身の高さ制限（maxHeight+overflowY）より先にその祖先で見た目が
+  // 切り取られてしまい、スクロールバーごと消えてしまう（実際に四角形が多い時に踏んだ不具合）
+  const [anchor, setAnchor] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
 
   const lines = useTraderStore(s => s.lines);
   const vlines = useTraderStore(s => s.vlines);
@@ -280,10 +286,20 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   const isEmpty = lines.length === 0 && vlines.length === 0 && rects.length === 0
     && trendLines.length === 0 && brushes.length === 0 && texts.length === 0;
 
+  const openPopup = () => {
+    const rect = btnRef.current?.getBoundingClientRect();
+    if (rect) {
+      const margin = 8;
+      setAnchor({ left: rect.right + margin, top: rect.top, maxHeight: window.innerHeight - rect.top - margin });
+    }
+    setOpen(o => !o);
+  };
+
   return (
     <div ref={ref} style={{ position: 'relative' }}>
       <button
-        onClick={() => setOpen(o => !o)}
+        ref={btnRef}
+        onClick={openPopup}
         disabled={disabled}
         title="描画の管理（一覧・選択・削除）"
         style={{
@@ -297,13 +313,13 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
       >
         {ICONS.list}
       </button>
-      {open && (
+      {open && anchor && (
         <div style={{
-          position: 'absolute', left: 'calc(100% + 6px)', top: 0,
+          position: 'fixed', left: anchor.left, top: anchor.top,
           backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
           padding: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 60,
           display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px',
-          maxHeight: '70vh', overflowY: 'auto',
+          maxHeight: `${anchor.maxHeight}px`, overflowY: 'auto',
         }}>
           {isEmpty && <span style={{ color: '#555', fontSize: '14px', padding: '4px 0' }}>描画物はありません</span>}
 
