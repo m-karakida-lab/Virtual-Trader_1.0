@@ -136,6 +136,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 ## 不変条件 / 地雷
 
 - DOMオーバーレイ（雲・トレンドライン・ブラシ・垂直線・テキスト・四角形・週区切り線等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）
+- `App.tsx`のツールバー列を囲むフレックス行が`overflow:hidden`のため、`DrawToolbar.tsx`のポップアップは`position:absolute`だと画面下寄りで開いた時にmaxHeight+overflowYより先に祖先でクリップされ、スクロールバーごと消える。`position:fixed`＋`getBoundingClientRect`基準の座標計算で回避する
 - lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）とグリッド線（`layout.grid`）はSeries Primitivesの対象外でzOrder制御ができず、常に他の描画物より前面に出る。四角形・週区切り線がPrimitivesではなくDOM/canvasオーバーレイなのはこの制約を回避するため（詳細は主要機能の四角形描画の項）
 - `showFullHistory`は廃止済み。全期間スクラバーの「全体」は常に`cursor+1`、`candles.length`（未来含む全データ）は使わない
 - `setVisibleLogicalRange`へ渡す`from`/`to`は`LogicalRange`型変数に一度代入すると型エラーになる。その場のオブジェクトリテラルで直接渡すこと

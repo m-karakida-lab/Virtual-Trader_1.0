@@ -314,7 +314,7 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
         {ICONS.list}
       </button>
       {open && anchor && (
-        <div style={{
+        <div className="vt-dark-scroll" style={{
           position: 'fixed', left: anchor.left, top: anchor.top,
           backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
           padding: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 60,

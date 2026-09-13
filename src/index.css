@@ -8,3 +8,23 @@ body {
   overflow: hidden;
   background: #0d0d0d;
 }
+
+/* 描画管理ポップアップ等、ダーク背景の中でスクロールさせたい要素用。既定のスクロールバーは
+   トラック部分が白背景で浮いて見えるため、細身のダーク配色に差し替える（Firefox/WebKit両対応） */
+.vt-dark-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: #3a3a3a transparent;
+}
+.vt-dark-scroll::-webkit-scrollbar {
+  width: 8px;
+}
+.vt-dark-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}
+.vt-dark-scroll::-webkit-scrollbar-thumb {
+  background-color: #3a3a3a;
+  border-radius: 4px;
+}
+.vt-dark-scroll::-webkit-scrollbar-thumb:hover {
+  background-color: #4a4a4a;
+}
