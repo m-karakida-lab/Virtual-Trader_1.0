@@ -17,7 +17,6 @@ import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud } from '../lib/indicators';
 import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
-import { RectanglesPrimitive, type RectPrimitiveItem } from '../lib/rectPrimitive';
 import { WeekLinesPrimitive } from '../lib/weekLinesPrimitive';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
 
@@ -231,8 +230,8 @@ export function CandleChart({
   const syncVLinesRef = useRef<() => void>(() => {});
   const rectHandleOverlayRef = useRef<HTMLDivElement>(null);
   const rectHandleElsRef = useRef<HTMLDivElement[]>([]); // 選択中の四角形の4隅ハンドル（常に1個の四角形分のみ）
+  const rectCanvasRef = useRef<HTMLCanvasElement>(null);
   const syncRectsRef = useRef<() => void>(() => {});
-  const rectPrimitiveRef = useRef<RectanglesPrimitive | null>(null); // 四角形の枠線本体（下記参照）
   const trendCanvasRef = useRef<HTMLCanvasElement>(null);
   const syncTrendLinesRef = useRef<() => void>(() => {});
   const brushCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -523,20 +522,17 @@ export function CandleChart({
     const senkouASeries = chart.addLineSeries({ ...cloudLineOptions, color: CLOUD_A_COLOR });
     const senkouBSeries = chart.addLineSeries({ ...cloudLineOptions, color: CLOUD_B_COLOR });
 
-    // 四角形の枠線・週区切り線は、ローソク足と重なった部分でローソク足を上に見せたい
-    // （TradingView同様）という要望を受け、DOMオーバーレイではなくSeries Primitives
-    // （zOrder:'bottom'＝背景の上・ローソク足はじめ他の全ての下に描く公式API）で描画する。
-    // DOM要素のz-index調整では実現できない——ローソク足・背景・グリッドは同じ1枚のcanvasに
-    // 一括描画されており、外側のDOM要素はそのcanvas全体の下（背景ごと隠れて見えなくなる）か
-    // 上かの二択しかない。週区切り線を先にattachすることで、同じzOrder:'bottom'同士では
-    // 後からattachした方が上に描かれる（実機で確認済み）ため、四角形が週区切り線の上に来る
+    // 週区切り線は、ローソク足と重なった部分でローソク足を上に見せたい（TradingView同様）
+    // という要望を受け、DOMオーバーレイではなくSeries Primitives（zOrder:'bottom'＝背景の
+    // 上・ローソク足はじめ他の全ての下に描く公式API）で描画する。DOM要素のz-index調整では
+    // 実現できない——ローソク足・背景・グリッドは同じ1枚のcanvasに一括描画されており、
+    // 外側のDOM要素はそのcanvas全体の下（背景ごと隠れて見えなくなる）か上かの二択しかない。
+    // 四角形も当初同じ方式にしたが、グリッド線・標準の価格ラインがSeries Primitivesの対象外で
+    // 常に前面に出てしまい「グリッド線より下」が実現できなかったため、四角形だけは後述の
+    // DOM canvasオーバーレイ＋destination-out方式に戻した（syncRects）
     const weekLinesPrimitive = new WeekLinesPrimitive();
     series.attachPrimitive(weekLinesPrimitive);
     weekLinesPrimitiveRef.current = weekLinesPrimitive;
-
-    const rectPrimitive = new RectanglesPrimitive();
-    series.attachPrimitive(rectPrimitive);
-    rectPrimitiveRef.current = rectPrimitive;
 
     chartRef.current = chart;
     seriesRef.current = series;
@@ -750,13 +746,23 @@ export function CandleChart({
     syncVLinesRef.current = syncVLines;
     syncVLines();
 
-    // ── 四角形（枠線はSeries Primitiveでローソク足の下に描画、選択中のリサイズハンドルのみDOM） ──
-    // 枠線がローソク足に覆いかぶさって見づらいという指摘を受け、DOM borderではなく
-    // series.attachPrimitive（上のチャート初期化箇所）で登録したRectanglesPrimitiveが
-    // canvasに描く。ハンドルは掴む対象なので今まで通りDOM（ローソク足より前面）のまま
+    // ── 四角形（枠線は専用canvasに自前描画、選択中のリサイズハンドルのみDOM） ──
+    // 枠線がローソク足に覆いかぶさって見づらいという指摘を受け、一度はSeries Primitives
+    // （zOrder:'bottom'）でローソク足の下に描く方式にしたが、グリッド線・標準の価格ラインは
+    // Primitivesの対象外で常に前面に出てしまい「グリッド線より下」が実現できなかった。
+    // 水平線・垂直線と同じ「チャート本体canvasの外側に重ねるだけ」の単純な方式に戻し、
+    // 枠線を描いた直後にその時点の全ロウソク足（実体＋ヒゲ、高値〜安値の全域を
+    // barSpacing幅で）をdestination-outで塗って重なった部分だけ透明に抜く。
+    // 抜いた部分は下にあるローソク足本体のcanvasがそのまま透けて見える＝結果的に
+    // ローソク足が上に来て見える。グリッド線はこのcanvasより下（チャート本体側）に
+    // あるため、この方式ならグリッド線より上・ローソク足より下という狙い通りの
+    // 重なり順を、Primitivesの制約を受けずに実現できる
     const RECT_HANDLE_SIZE = 10;
+    const DASH_TO_CANVAS: Record<'solid' | 'dashed' | 'dotted', number[]> = {
+      solid: [], dashed: [7, 5], dotted: [1, 4],
+    };
     // ドラッグ中（コーナー/辺リサイズ・移動・新規描画）はstoreを経由せずここだけ書き換えて
-    // 即座にprimitiveへ反映するプレビュー用（storeのコミットはmouseupまで行わない、
+    // 即座に再描画するプレビュー用（storeのコミットはmouseupまで行わない、
     // トレンドライン等の他の描画要素と同じ作法）
     let rectDragPreviewPx: { id: number; x1: number; y1: number; x2: number; y2: number } | null = null;
     let newRectDraftPx: { x1: number; y1: number; x2: number; y2: number } | null = null;
@@ -780,12 +786,32 @@ export function CandleChart({
       });
     };
 
-    // primitiveが毎フレーム呼ぶデータソース（pull方式）。ドラッグ中プレビュー・新規描画中の
-    // draftも含めてここで解決するので、呼び出し側はrequestUpdate()を呼ぶだけで済む
-    const computeRectItems = (): RectPrimitiveItem[] => {
-      if (!seriesRef.current) return [];
-      const { rects: currentRects, rectDraft } = useTraderStore.getState();
-      const items: RectPrimitiveItem[] = [];
+    const syncRects = () => {
+      const canvas = rectCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current || !rectHandleOverlayRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      // devicePixelRatio対応はトレンドライン等の他のcanvasオーバーレイと同じ理由・同じ方式
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const { rects: currentRects, selected, rectDraft } = useTraderStore.getState();
+      const handleOverlay = rectHandleOverlayRef.current;
+      const selectedRectId = selected?.kind === 'rect' ? selected.id : null;
+
+      const drawBox = (x1: number, y1: number, x2: number, y2: number, color: string, dash: 'solid' | 'dashed' | 'dotted', width: number) => {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.setLineDash(DASH_TO_CANVAS[dash]);
+        ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+        ctx.restore();
+      };
+
       for (const r of currentRects) {
         const live = rectDragPreviewPx && rectDragPreviewPx.id === r.id ? rectDragPreviewPx : null;
         const x1 = live ? live.x1 : timeToX(r.time1);
@@ -793,35 +819,45 @@ export function CandleChart({
         const y1 = live ? live.y1 : seriesRef.current.priceToCoordinate(r.price1);
         const y2 = live ? live.y2 : seriesRef.current.priceToCoordinate(r.price2);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        items.push({ x1, y1, x2, y2, color: r.color, dash: r.dash, width: r.width });
+        drawBox(x1, y1, x2, y2, r.color, r.dash, r.width);
       }
       if (newRectDraftPx) {
-        items.push({ ...newRectDraftPx, color: rectDraft.color, dash: rectDraft.dash, width: rectDraft.width });
+        const { x1, y1, x2, y2 } = newRectDraftPx;
+        drawBox(x1, y1, x2, y2, rectDraft.color, rectDraft.dash, rectDraft.width);
       }
-      return items;
-    };
-    if (rectPrimitiveRef.current) rectPrimitiveRef.current.getItems = computeRectItems;
 
-    const syncRects = () => {
-      if (!chartRef.current || !seriesRef.current || !rectHandleOverlayRef.current) return;
-      const { rects: currentRects, selected } = useTraderStore.getState();
-      const handleOverlay = rectHandleOverlayRef.current;
-      const selectedRectId = selected?.kind === 'rect' ? selected.id : null;
+      // ロウソク足（実体＋ヒゲ）と重なった枠線を透明に抜く。高値〜安値の全域を
+      // barSpacing幅で塗ることで、実体・ヒゲを区別せず一度に抜ける
+      if (currentRects.length > 0 || newRectDraftPx) {
+        const barSpacing = chartRef.current.timeScale().options().barSpacing;
+        ctx.save();
+        ctx.globalCompositeOperation = 'destination-out';
+        ctx.fillStyle = '#000';
+        for (const c of displayCandlesRef.current) {
+          const cx = timeToX(c.time);
+          if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
+          const yHigh = seriesRef.current.priceToCoordinate(c.high);
+          const yLow = seriesRef.current.priceToCoordinate(c.low);
+          if (yHigh === null || yLow === null) continue;
+          ctx.fillRect(cx - barSpacing / 2, Math.min(yHigh, yLow), barSpacing, Math.abs(yLow - yHigh));
+        }
+        ctx.restore();
+      }
 
       // ハンドルは選択中の四角形1つぶんだけ使い回す（毎回作り直さない）
       const handles = rectHandleElsRef.current;
       while (handles.length < 8) {
-        const h = document.createElement('div');
-        h.style.position = 'absolute';
-        h.style.width = `${RECT_HANDLE_SIZE}px`;
-        h.style.height = `${RECT_HANDLE_SIZE}px`;
-        h.style.backgroundColor = '#42a5f5';
-        h.style.border = '1px solid #fff';
-        h.style.borderRadius = '2px';
-        h.style.pointerEvents = 'none';
-        h.style.display = 'none';
-        handleOverlay.appendChild(h);
-        handles.push(h);
+        const hEl = document.createElement('div');
+        hEl.style.position = 'absolute';
+        hEl.style.width = `${RECT_HANDLE_SIZE}px`;
+        hEl.style.height = `${RECT_HANDLE_SIZE}px`;
+        hEl.style.backgroundColor = '#42a5f5';
+        hEl.style.border = '1px solid #fff';
+        hEl.style.borderRadius = '2px';
+        hEl.style.pointerEvents = 'none';
+        hEl.style.display = 'none';
+        handleOverlay.appendChild(hEl);
+        handles.push(hEl);
       }
 
       let hasSelected = false;
@@ -838,9 +874,8 @@ export function CandleChart({
         }
       }
       if (!hasSelected) {
-        handles.forEach(h => { h.style.display = 'none'; });
+        handles.forEach(hEl => { hEl.style.display = 'none'; });
       }
-      rectPrimitiveRef.current?.requestUpdate();
     };
     syncRectsRef.current = syncRects;
     syncRects();
@@ -849,9 +884,7 @@ export function CandleChart({
     // 四角形と違い対角の矩形ではなく斜めの線分なので、DOMのborderでは表現できず
     // 専用canvasに毎回ctx.lineTo()で描き直す（雲の塗りつぶしcanvasと同じ方式）。
     // 選択中の端点ハンドルもDOM要素ではなく同じcanvas上に円で描く
-    const DASH_TO_CANVAS: Record<'solid' | 'dashed' | 'dotted', number[]> = {
-      solid: [], dashed: [7, 5], dotted: [1, 4],
-    };
+    // （DASH_TO_CANVASは四角形の節で定義済みのものを共用）
     const TREND_HANDLE_R = 5;
 
     const drawTrendLineShape = (
@@ -1508,7 +1541,7 @@ export function CandleChart({
 
     const updateRectDraftBox = (x1: number, y1: number, x2: number, y2: number) => {
       newRectDraftPx = { x1, y1, x2, y2 };
-      rectPrimitiveRef.current?.requestUpdate();
+      syncRects();
     };
 
     // ── トレンドライン（ドラッグで描画） ──────────────────────────
@@ -2403,7 +2436,7 @@ export function CandleChart({
             const y2 = seriesRef.current.priceToCoordinate(otherPrice);
             if (x1 === null || x2 === null || y1 === null || y2 === null) return;
             rectDragPreviewPx = { id: r.id, x1, y1, x2, y2 };
-            rectPrimitiveRef.current?.requestUpdate();
+            syncRects();
             positionRectHandles(x1, x2, y1, y2);
           });
         }
@@ -2432,7 +2465,7 @@ export function CandleChart({
             const y2 = seriesRef.current.priceToCoordinate(updated.price2);
             if (x1 === null || x2 === null || y1 === null || y2 === null) return;
             rectDragPreviewPx = { id: r.id, x1, y1, x2, y2 };
-            rectPrimitiveRef.current?.requestUpdate();
+            syncRects();
             positionRectHandles(x1, x2, y1, y2);
           });
         }
@@ -2463,7 +2496,7 @@ export function CandleChart({
             const y2 = seriesRef.current.priceToCoordinate(rectMoveStart.price2 + pendingRectMoveDelta.dp);
             if (x1 === null || x2 === null || y1 === null || y2 === null) return;
             rectDragPreviewPx = { id: draggingRectMoveId, x1, y1, x2, y2 };
-            rectPrimitiveRef.current?.requestUpdate();
+            syncRects();
             positionRectHandles(x1, x2, y1, y2);
           });
         }
@@ -2617,7 +2650,7 @@ export function CandleChart({
         rectDragging = false;
         chart.applyOptions({ handleScroll: true, handleScale: true });
         newRectDraftPx = null;
-        rectPrimitiveRef.current?.requestUpdate();
+        syncRects();
         if (rectStart && pendingRectEnd && seriesRef.current && chartRef.current) {
           const t1 = pixelToTime(rectStart.x);
           const t2 = pixelToTime(pendingRectEnd.x);
@@ -2712,7 +2745,7 @@ export function CandleChart({
         draggingRectCorner = null;
         pendingRectCornerPos = null;
         rectDragPreviewPx = null;
-        rectPrimitiveRef.current?.requestUpdate();
+        syncRects();
         chart.applyOptions({ handleScroll: true, handleScale: true });
       }
       if (draggingRectEdge !== null) {
@@ -2724,7 +2757,7 @@ export function CandleChart({
         draggingRectEdge = null;
         pendingRectEdgeValue = null;
         rectDragPreviewPx = null;
-        rectPrimitiveRef.current?.requestUpdate();
+        syncRects();
         chart.applyOptions({ handleScroll: true, handleScale: true });
       }
       if (draggingRectMoveId !== null) {
@@ -2745,7 +2778,7 @@ export function CandleChart({
         rectMoveStart = null;
         pendingRectMoveDelta = null;
         rectDragPreviewPx = null;
-        rectPrimitiveRef.current?.requestUpdate();
+        syncRects();
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';
       }
@@ -3077,8 +3110,6 @@ export function CandleChart({
       rectHandleElsRef.current = [];
       textElsRef.current.forEach(el => el.remove());
       textElsRef.current.clear();
-      series.detachPrimitive(rectPrimitive);
-      rectPrimitiveRef.current = null;
       series.detachPrimitive(weekLinesPrimitive);
       weekLinesPrimitiveRef.current = null;
       chart.remove();
@@ -4113,11 +4144,12 @@ export function CandleChart({
       {/* 雲は価格軸の領域には侵入させない。他のオーバーレイと同じくright:chartRightMarginで
           幅を絞り、canvasの実描画もclientWidth基準（syncCloud内）なので自動的に追従する */}
       <canvas ref={cloudCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 5 }} />
-      {/* 四角形の枠線本体はSeries Primitive（chart初期化箇所でattachPrimitive済み）が
-          ローソク足の下に描画するため、ここはリサイズハンドルのみ（ローソク足より前面）。
-          垂直線のオーバーレイは価格軸の領域には侵入させない。overflow:hiddenと
+      {/* 四角形の枠線本体は専用canvasに自前描画（syncRects、destination-outでローソク足と
+          重なった部分を透明に抜く）。価格軸に被らないよう幅はトレンドライン等と揃える。
+          垂直線・四角形ハンドルのオーバーレイは価格軸の領域には侵入させない。overflow:hiddenと
           right:chartRightMarginで、価格軸に被る位置までスクロール/リサイズされた図形は
           その手前で切れて見えるようにする（スクラバーの右クランプと同じ考え方） */}
+      <canvas ref={rectCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={rectHandleOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       {/* トレンドラインは斜めの線分なのでDOMのborderで表現できず、専用canvasに描く
           （雲と同じ方式）。価格軸に被らないよう幅は四角形・テキストのオーバーレイと揃える */}

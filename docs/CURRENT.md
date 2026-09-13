@@ -36,7 +36,7 @@
 - ジャンプモード（4画面専用、`isJumpSync`）: 描画ツールバー最下部の的アイコン。ONで足をクリックすると、クリックしたパネル以外の3枠だけその時刻へ移動。使用後は自動OFF。移動先は各パネル自身の`displayCandlesRef`に対する二分探索で算出
 - パレットモード（`paletteMode`、デフォルトOFF）: 図形を選択すると自動ON、選択解除で自動OFF。選択中図形の色・線種・太さをその場で変更可能。変更値は対応する各種Draft（`lineDraft`等）にも同期し次の新規配置のデフォルトになる。図形未選択でもツール起動中（配置前）ならパレットを表示しDraftへ直接反映する
 - 水平線・垂直線描画: クリック配置、ドラッグ移動。配置直後自動選択。選択中にDelete/Backspaceで削除、Cmd/Ctrl+C→Vで右下にずらして複製
-- 四角形描画: ドラッグで対角に描画。色/線種/太さは共通パレット（`LINE_COLORS`8色）。4隅/4辺ドラッグでリサイズ、枠線ドラッグ（`findRectBorderNear`）で平行移動。平行移動は秒数でなく足インデックス差分で計算（週末の足抜け対策）。ヒット許容半径は`RECT_HANDLE_HIT_PX=12`。枠線本体はDOMではなくSeries Primitives（`src/lib/rectPrimitive.ts`のRectanglesPrimitive、`series.attachPrimitive`、zOrder:'bottom'）でローソク足の下に描画（TradingView同様、ローソク足と重なった部分はローソク足が優先表示される）。選択中のリサイズハンドルのみDOM（ローソク足より前面、`rectHandleOverlayRef`）
+- 四角形描画: ドラッグで対角に描画。色/線種/太さは共通パレット（`LINE_COLORS`8色）。4隅/4辺ドラッグでリサイズ、枠線ドラッグ（`findRectBorderNear`）で平行移動。平行移動は秒数でなく足インデックス差分で計算（週末の足抜け対策）。ヒット許容半径は`RECT_HANDLE_HIT_PX=12`。枠線本体は専用canvas（`rectCanvasRef`、トレンドライン等と同じDOMオーバーレイ方式）に自前描画し、描いた直後にその時点の全ロウソク足（実体＋ヒゲ、高値〜安値をbarSpacing幅で）を`globalCompositeOperation:'destination-out'`で塗って重なった部分だけ透明に抜く（TradingView同様、ローソク足と重なった部分はローソク足が優先表示される。グリッド線・標準の価格ラインより上に出したいためSeries Primitivesは使わない——詳細は不変条件/地雷を参照）。選択中のリサイズハンドルのみ別レイヤーのDOM（`rectHandleOverlayRef`）
 - トレンドライン描画: ドラッグで2点の線分。専用`<canvas>`（`trendCanvasRef`）に描画。端点ドラッグでリサイズ、本体ドラッグで平行移動（足インデックス基準）
 - ブラシ描画（フリーハンド）: ドラッグ軌跡を点列（`DrawnBrush.points`）として記録、専用`<canvas>`（`brushCanvasRef`）に2次ベジェで平滑化描画。ピクセル距離基準（`BRUSH_MIN_PX=2px`）で間引いて記録。座標変換は足の内側でも連続値を返す`pixelToContinuousTime`を使用。描画直前にボックスフィルタ8パスで手ブレ補正。移動は素の時間差分（足インデックス基準ではない）
 - テキストボックス描画: クリック配置と同時に編集モード。`contentEditable`直接編集（`window.prompt`不使用）、Enterは改行（`document.createTextNode('\n')`挿入）。空文字のまま確定/Escapeすると削除扱い。文字サイズ4段階（14/18/24/32px）・枠線スタイルはパレットで変更可
@@ -116,7 +116,6 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/indicators.ts` — EMA/SMA/BB/雲の全体再計算版（CandleChartは別途増分計算の最適化版を持つ）。雲のずらし先時刻`cloudDisplacedTime`のみCandleChart共通利用
 - `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`、MN=年区切り、1D/1W=月区切り、4H=週区切り、15m/1H=日区切り）
 - `src/lib/weekLinesPrimitive.ts` — 区間区切り線の描画（Series Primitive、zOrder:'bottom'）
-- `src/lib/rectPrimitive.ts` — 四角形の枠線の描画（Series Primitive、zOrder:'bottom'、週区切りより後にattachして週区切りの上・ローソク足の下に描く）
 - `src/lib/pips.ts` — 価格帯からpip単位・表示精度を推定
 - `src/lib/crosshairSync.ts` — 4画面十字カーソル同期用（`priceAtTime`、範囲外はnull）
 - `src/lib/openHistory.ts` — File System Access APIでフォルダを開いた履歴の保存/復元（IndexedDB）
@@ -159,7 +158,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 水平線・垂直線・TP/SL・draft価格は丸めない（表示側のみ`toFixed`）
 - `onMouseDown`ヒット判定順序は「四角形→トレンドライン→ブラシ→テキスト→水平線」（水平線は全幅ヒットするため最後）
 - DOMオーバーレイのz-indexは10〜13、雲の`<canvas>`はz-index:5
-- ローソク足・背景・グリッドはlightweight-charts内部で同じ1枚のcanvasに一括描画される。DOM要素のz-indexでは「ローソク足の下・背景の上」という中間の重なり順を作れない（負のz-indexにすると背景ごと隠れて何も見えなくなる）。描画物をローソク足より下に見せたい場合はSeries Primitives（`series.attachPrimitive`、zOrder:'bottom'）を使うこと（四角形の枠線で実例、`src/lib/rectPrimitive.ts`）
+- ローソク足・背景・グリッドはlightweight-charts内部で同じ1枚のcanvasに一括描画される。DOM要素のz-indexでは「ローソク足の下・背景の上」という中間の重なり順を作れない（負のz-indexにすると背景ごと隠れて何も見えなくなる）。Series Primitives（`zOrder:'bottom'`）ならこの中間の重なり順を作れるが、グリッド線・標準の価格ラインはPrimitivesの対象外で常にその上に出てしまう（回避策なし）。四角形はこの理由でPrimitivesをやめ、DOM canvasに描いた後`destination-out`でロウソク足と重なった部分だけ透明に抜く方式にした（`syncRects`、`CandleChart.tsx`）。週区切り線は「ローソク足の下」だけで十分なためPrimitivesのまま（`src/lib/weekLinesPrimitive.ts`）
 - 雲の塗りつぶしは`candles[0].time`より左側には描画しないようガードすること（範囲外の外挿防止）
 - `jumpToTime`は過去日付ジャンプで`cursor`を戻さないこと（`Math.max(idx, oldCursor)`）
 - `centerOnTime`は時刻ベースでなく足インデックス（logical range）で計算すること（`getVisibleRange`/`setVisibleRange`は表示幅が狭い時に破綻する）
