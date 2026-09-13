@@ -435,12 +435,12 @@ export function CandleChart({
         fontFamily: CHART_FONT_FAMILY,
       },
       // グリッド線はSeries Primitivesの対象外（zOrderで重なり順を制御できない）で、
-      // 常に四角形（zOrder:'bottom'）より前面に描画されてしまう。四角形の境界線と
-      // 交差する箇所でグリッド線が上に出てしまう不具合として発覚し、対処するにはグリッド線
-      // 自体を消すしかなかった（優先度としては四角形が上に来る方を優先、というヒアリング済み）
+      // 常に四角形（zOrder:'bottom'）より前面に描画される。四角形の境界線と交差する
+      // 箇所でグリッド線が上に出てしまう既知の制約があるが、グリッド線自体は残す方を
+      // 優先（一度非表示にしたが、見た目が変わりすぎるとの指摘を受けて元に戻した）
       grid: {
-        vertLines: { visible: false },
-        horzLines: { visible: false },
+        vertLines: { color: '#1a1a1a' },
+        horzLines: { color: '#1a1a1a' },
       },
       // Magnet（デフォルト）は足の実データ点にしか吸着せず、ローソク足やインジケーターの
       // 無い空白部分（価格レンジの外・右側の余白等）ではカーソルが出ない。Normalにすると
