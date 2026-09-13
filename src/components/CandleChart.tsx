@@ -791,15 +791,34 @@ export function CandleChart({
       const handleOverlay = rectHandleOverlayRef.current;
       const selectedRectId = selected?.kind === 'rect' ? selected.id : null;
 
-      const drawBox = (x1: number, y1: number, x2: number, y2: number, color: string, dash: 'solid' | 'dashed' | 'dotted', width: number) => {
+      // 縦線（左右）と横線（上下）を別々に描く。ロウソク足と重なった部分を透明に抜くのは
+      // 縦線のみとし、横線は常に不透明のまま（ロウソク足の上に出続ける）にしてほしいという
+      // 要望を受けた——横線を消す対象に含めると、水平方向に伸びる罫線としての用途
+      // （レンジの上限/下限ラインの代わり等）で肝心の価格ラインが見えなくなり不便だった
+      const drawVerticalSides = (x1: number, y1: number, x2: number, y2: number, color: string, dash: 'solid' | 'dashed' | 'dotted', width: number) => {
         ctx.save();
         ctx.strokeStyle = color;
         ctx.lineWidth = width;
         ctx.setLineDash(DASH_TO_CANVAS[dash]);
-        ctx.strokeRect(Math.min(x1, x2), Math.min(y1, y2), Math.abs(x2 - x1), Math.abs(y2 - y1));
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x1, y2);
+        ctx.moveTo(x2, y1); ctx.lineTo(x2, y2);
+        ctx.stroke();
+        ctx.restore();
+      };
+      const drawHorizontalSides = (x1: number, y1: number, x2: number, y2: number, color: string, dash: 'solid' | 'dashed' | 'dotted', width: number) => {
+        ctx.save();
+        ctx.strokeStyle = color;
+        ctx.lineWidth = width;
+        ctx.setLineDash(DASH_TO_CANVAS[dash]);
+        ctx.beginPath();
+        ctx.moveTo(x1, y1); ctx.lineTo(x2, y1);
+        ctx.moveTo(x1, y2); ctx.lineTo(x2, y2);
+        ctx.stroke();
         ctx.restore();
       };
 
+      const boxes: { x1: number; y1: number; x2: number; y2: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
       for (const r of currentRects) {
         const live = rectDragPreviewPx && rectDragPreviewPx.id === r.id ? rectDragPreviewPx : null;
         const x1 = live ? live.x1 : timeToX(r.time1);
@@ -807,16 +826,17 @@ export function CandleChart({
         const y1 = live ? live.y1 : seriesRef.current.priceToCoordinate(r.price1);
         const y2 = live ? live.y2 : seriesRef.current.priceToCoordinate(r.price2);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        drawBox(x1, y1, x2, y2, r.color, r.dash, r.width);
+        boxes.push({ x1, y1, x2, y2, color: r.color, dash: r.dash, width: r.width });
       }
       if (newRectDraftPx) {
-        const { x1, y1, x2, y2 } = newRectDraftPx;
-        drawBox(x1, y1, x2, y2, rectDraft.color, rectDraft.dash, rectDraft.width);
+        boxes.push({ ...newRectDraftPx, color: rectDraft.color, dash: rectDraft.dash, width: rectDraft.width });
       }
 
-      // ロウソク足（実体＋ヒゲ）と重なった枠線を透明に抜く。高値〜安値の全域を
+      for (const b of boxes) drawVerticalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
+
+      // ロウソク足（実体＋ヒゲ）と重なった縦線を透明に抜く。高値〜安値の全域を
       // barSpacing幅で塗ることで、実体・ヒゲを区別せず一度に抜ける
-      if (currentRects.length > 0 || newRectDraftPx) {
+      if (boxes.length > 0) {
         const barSpacing = chartRef.current.timeScale().options().barSpacing;
         ctx.save();
         ctx.globalCompositeOperation = 'destination-out';
@@ -831,6 +851,9 @@ export function CandleChart({
         }
         ctx.restore();
       }
+
+      // 横線は消す対象に含めないため、透明抜き処理の後に描く（常に不透明のまま最前面に出る）
+      for (const b of boxes) drawHorizontalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
 
       // ハンドルは選択中の四角形1つぶんだけ使い回す（毎回作り直さない）
       const handles = rectHandleElsRef.current;
