@@ -139,6 +139,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - DOMオーバーレイ（雲・トレンドライン・ブラシ・垂直線・テキスト等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）。Series Primitive（四角形・週区切り線）はpaneの描画範囲自体が軸を含まないためこの配慮は不要
 - 同じzOrderのSeries Primitiveは後からattachした方が上に描かれる（実機で確認済み）。週区切り線→四角形の順でattachすることで「四角形が週区切り線より上」を実現している（`CandleChart.tsx`のチャート初期化箇所）
 - lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）はSeries Primitivesの対象外で、zOrderによる重なり順の制御ができない。四角形・週区切り線より必ず前面に出る（既知の制約、回避するには標準機能を使わず自前描画に置き換える必要がある＝大掛かりなので現状維持）
+- lightweight-charts標準のグリッド線（`layout.grid`）も同じくSeries Primitivesの対象外で、`zOrder:'bottom'`のprimitiveより必ず前面に描画される。四角形の境界線と交差する箇所でグリッド線が上に出てしまう不具合として発覚し、回避策が無いため`vertLines`/`horzLines`とも`visible:false`で非表示にしている（`CandleChart.tsx`のchart初期化オプション）
 - `showFullHistory`は廃止済み。全期間スクラバーの「全体」は常に`cursor+1`、`candles.length`（未来含む全データ）は使わない
 - `setVisibleLogicalRange`へ渡す`from`/`to`は`LogicalRange`型変数に一度代入すると型エラーになる。その場のオブジェクトリテラルで直接渡すこと
 - `resetTimeScale()`直後に`getVisibleLogicalRange()`を読んでも古い値が返る（非同期）。`requestAnimationFrame`を挟んでから読むこと
