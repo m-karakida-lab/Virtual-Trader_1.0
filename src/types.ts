@@ -86,7 +86,8 @@ export interface DrawnVLine {
   width: LineWidth;
 }
 
-export const LINE_COLORS = ['#787b86', '#ef5350', '#26a69a', '#42a5f5', '#ffa726', '#ab47bc', '#ffca28', '#e0e0e0'];
+// 赤→オレンジ→黄→ティール→青→紫→グレー→白の順（指定された表示順）
+export const LINE_COLORS = ['#ef5350', '#ffa726', '#ffca28', '#26a69a', '#42a5f5', '#ab47bc', '#787b86', '#e0e0e0'];
 
 // ── 四角形 ───────────────────────────────────────────────────────────────
 

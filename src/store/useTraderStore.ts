@@ -545,9 +545,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   magnetStrength: loadSavedMagnetStrength(),
   selected: null,
   lineDraft: { color: '#e0e0e0', dash: 'solid', width: 2 },
-  rectDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 }, // パレットにある青（#42a5f5）
-  trendLineDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
-  brushDraft: { color: LINE_COLORS[3], width: 2 },
+  rectDraft: { color: LINE_COLORS[4], dash: 'solid', width: 2 }, // パレットにある青（#42a5f5）
+  trendLineDraft: { color: LINE_COLORS[4], dash: 'solid', width: 2 },
+  brushDraft: { color: LINE_COLORS[4], width: 2 },
   textDraft: { color: '#e0e0e0', fontSize: 18, border: 'solid' },
   paletteMode: false,
   paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2, fontSize: 18, border: 'solid' },

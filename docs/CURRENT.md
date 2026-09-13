@@ -36,6 +36,7 @@
 - ジャンプモード（4画面専用、`isJumpSync`）: 描画ツールバー最下部の的アイコン。ONで足をクリックすると、クリックしたパネル以外の3枠だけその時刻へ移動。使用後は自動OFF。移動先は各パネル自身の`displayCandlesRef`に対する二分探索で算出
 - パレットモード（`paletteMode`、デフォルトOFF）: 図形を選択すると自動ON、選択解除で自動OFF。選択中図形の色・線種・太さをその場で変更可能。変更値は対応する各種Draft（`lineDraft`等）にも同期し次の新規配置のデフォルトになる。図形未選択でもツール起動中（配置前）ならパレットを表示しDraftへ直接反映する
 - 水平線・垂直線描画: クリック配置、ドラッグ移動。配置直後自動選択。選択中にDelete/Backspaceで削除、Cmd/Ctrl+C→Vで右下にずらして複製
+- パレットの色順は`LINE_COLORS`（`types.ts`）で固定: 赤→オレンジ→黄→ティール→青→紫→グレー→白。四角形/トレンドライン/ブラシのデフォルト色は`LINE_COLORS[4]`（青）参照——並び順を変える時はこのインデックスも合わせて直すこと
 - 四角形描画: ドラッグで対角に描画。色/線種/太さは共通パレット（`LINE_COLORS`8色）。4隅/4辺ドラッグでリサイズ、枠線ドラッグ（`findRectBorderNear`）で平行移動。平行移動は秒数でなく足インデックス差分で計算（週末の足抜け対策）。ヒット許容半径は`RECT_HANDLE_HIT_PX=12`。枠線本体は専用canvas（`rectCanvasRef`、トレンドライン等と同じDOMオーバーレイ方式）に自前描画（グリッド線・標準の価格ラインより上に出したいためSeries Primitivesは使わない——詳細は不変条件/地雷を参照）。**縦線（左右）のみ**、描いた直後にその時点の全ロウソク足（実体＋ヒゲ、高値〜安値をbarSpacing幅で）を`globalCompositeOperation:'destination-out'`で塗って重なった部分だけ透明に抜く（TradingView同様、ローソク足と重なった部分はローソク足が優先表示される）。**横線（上下）は透明抜きの対象外**——価格ラインとしての用途を優先し常に不透明のまま最前面に出す（縦線の透明抜き処理の後に描画することで実現）。選択中のリサイズハンドルのみ別レイヤーのDOM（`rectHandleOverlayRef`）
 - トレンドライン描画: ドラッグで2点の線分。専用`<canvas>`（`trendCanvasRef`）に描画。端点ドラッグでリサイズ、本体ドラッグで平行移動（足インデックス基準）
 - ブラシ描画（フリーハンド）: ドラッグ軌跡を点列（`DrawnBrush.points`）として記録、専用`<canvas>`（`brushCanvasRef`）に2次ベジェで平滑化描画。ピクセル距離基準（`BRUSH_MIN_PX=2px`）で間引いて記録。座標変換は足の内側でも連続値を返す`pixelToContinuousTime`を使用。描画直前にボックスフィルタ8パスで手ブレ補正。移動は素の時間差分（足インデックス基準ではない）
@@ -134,10 +135,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 
 ## 不変条件 / 地雷
 
-- DOMオーバーレイ（雲・トレンドライン・ブラシ・垂直線・テキスト等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）。Series Primitive（四角形・週区切り線）はpaneの描画範囲自体が軸を含まないためこの配慮は不要
-- 同じzOrderのSeries Primitiveは後からattachした方が上に描かれる（実機で確認済み）。週区切り線→四角形の順でattachすることで「四角形が週区切り線より上」を実現している（`CandleChart.tsx`のチャート初期化箇所）
-- lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）はSeries Primitivesの対象外で、zOrderによる重なり順の制御ができない。四角形・週区切り線より必ず前面に出る（既知の制約、回避するには標準機能を使わず自前描画に置き換える必要がある＝大掛かりなので現状維持）
-- lightweight-charts標準のグリッド線（`layout.grid`）も同じくSeries Primitivesの対象外で、`zOrder:'bottom'`のprimitiveより必ず前面に描画される。四角形の境界線と交差する箇所でグリッド線が上に出てしまう既知の制約があるが回避策が無く、グリッド線自体は表示のまま残している（一度`visible:false`で非表示にしたが、見た目が変わりすぎるとの指摘で戻した）
+- DOMオーバーレイ（雲・トレンドライン・ブラシ・垂直線・テキスト・四角形・週区切り線等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）
+- lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）とグリッド線（`layout.grid`）はSeries Primitivesの対象外でzOrder制御ができず、常に他の描画物より前面に出る。四角形・週区切り線がPrimitivesではなくDOM/canvasオーバーレイなのはこの制約を回避するため（詳細は主要機能の四角形描画の項）
 - `showFullHistory`は廃止済み。全期間スクラバーの「全体」は常に`cursor+1`、`candles.length`（未来含む全データ）は使わない
 - `setVisibleLogicalRange`へ渡す`from`/`to`は`LogicalRange`型変数に一度代入すると型エラーになる。その場のオブジェクトリテラルで直接渡すこと
 - `resetTimeScale()`直後に`getVisibleLogicalRange()`を読んでも古い値が返る（非同期）。`requestAnimationFrame`を挟んでから読むこと
@@ -157,7 +156,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 水平線・垂直線・TP/SL・draft価格は丸めない（表示側のみ`toFixed`）
 - `onMouseDown`ヒット判定順序は「四角形→トレンドライン→ブラシ→テキスト→水平線」（水平線は全幅ヒットするため最後）
 - DOMオーバーレイのz-indexは10〜13、雲の`<canvas>`はz-index:5
-- ローソク足・背景・グリッドはlightweight-charts内部で同じ1枚のcanvasに一括描画される。DOM要素のz-indexでは「ローソク足の下・背景の上」という中間の重なり順を作れない（負のz-indexにすると背景ごと隠れて何も見えなくなる）。Series Primitives（`zOrder:'bottom'`）ならこの中間の重なり順を作れるが、グリッド線・標準の価格ラインはPrimitivesの対象外で常にその上に出てしまう（回避策なし、グリッド線との交差点で描画が削れて見える）。四角形・週区切り線ともこの理由でPrimitivesは使わずDOM/canvasオーバーレイに統一している。四角形は描いた後`destination-out`でロウソク足と重なった部分だけ透明に抜く（`syncRects`、`CandleChart.tsx`）
+- ローソク足・背景・グリッドはlightweight-charts内部で同じ1枚のcanvasに一括描画される。DOM要素の負のz-indexで「ローソク足の下」に見せようとすると背景ごと隠れて何も見えなくなる（試すだけ無駄）
 - 雲の塗りつぶしは`candles[0].time`より左側には描画しないようガードすること（範囲外の外挿防止）
 - `jumpToTime`は過去日付ジャンプで`cursor`を戻さないこと（`Math.max(idx, oldCursor)`）
 - `centerOnTime`は時刻ベースでなく足インデックス（logical range）で計算すること（`getVisibleRange`/`setVisibleRange`は表示幅が狭い時に破綻する）
