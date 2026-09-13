@@ -29,7 +29,7 @@
 - 書き込み（水平線・垂直線・四角形・トレンドライン・ブラシ・テキスト）の保存/読込: 単一ファイル読込時のみ「💾 vtd保存」ボタンが現れ、CSV＋描画データJSONを`.vtd`1ファイルに保存（`src/lib/vtd.ts`）。元がvtdバンドルだった場合のみ「上書き保存」でそのファイルへ直接書込み、素のCSVを開いた場合は常に新規ダウンロード。複数ファイル同時読込時は保存機能自体使えない。ズーム位置・トレード状態は保存対象外
 
 ### チャート表示・描画
-- インジケーター: 200EMA（増分計算、デフォルトOFF）、SMA14（増分計算、デフォルトOFF）、ボリンジャーバンド（期間20、増分計算、デフォルトON）、一目均衡表の雲（先行スパンA/Bのみ、26本先行、デフォルトON）、区間区切り線（15m/1Hは日替わり・4Hは週替わり・1D/1Wは月替わり・MNは年替わり、デフォルトON）。全て4画面時のミニパネルにも連動（`src/lib/indicators.ts`・`src/lib/weekLines.ts`共有）。区切り線本体はSeries Primitive（`src/lib/weekLinesPrimitive.ts`、ローソク足の下・四角形の下に描画）
+- インジケーター: 200EMA（増分計算、デフォルトOFF）、SMA14（増分計算、デフォルトOFF）、ボリンジャーバンド（期間20、増分計算、デフォルトON）、一目均衡表の雲（先行スパンA/Bのみ、26本先行、デフォルトON）、区間区切り線（15m/1Hは日替わり・4Hは週替わり・1D/1Wは月替わり・MNは年替わり、デフォルトON）。全て4画面時のミニパネルにも連動（`src/lib/indicators.ts`・`src/lib/weekLines.ts`共有）。区切り線本体はDOMオーバーレイ（`weekOverlayRef`、zIndex:8、四角形のcanvas zIndex:9より下）
 - 描画ツール起動: アイコンパネル（水平線・垂直線・ものさし・四角形・トレンドライン・ブラシ・テキスト、`src/components/DrawToolbar.tsx`）をワンクリックで有効化しチャート上のクリック/ドラッグで配置（配置後自動解除）。「連続描画」（鍵アイコン、`continuousDrawing`）ONで同じツールを解除せず連続配置可能。配置直後は必ず選択状態に入りパレットでその場編集できる。テキストのみ編集セッション継続のため次を置くには一旦クリックアウトしてから再クリックが必要。表示位置はチャート領域左の専用列（`App.tsx`）
 - 水平線・垂直線のラベル表示ON/OFF（`showHLinePriceLabel`/`showVLineDateLabel`、`vt:lineLabels`保存）: 個別でなく全水平線/全垂直線一括の設定。垂直線ラベルは日付軸欄にDOM表示（`yy M/D hh:mm`形式）。デフォルト両方ON
 - マグネット（`magnetMode`、デフォルトON）: 弱＝カーソルがOHLCの12px以内で吸着、強＝常に直下の足の最寄りOHLCへ吸着。ON/OFF自体は永続化せず毎起動ON、強さのみ`vt:magnetStrength`に保存。対象は水平線の配置/移動、四角形の描画/リサイズ（垂直線・ものさし・TP/SL編集は対象外）
@@ -115,7 +115,6 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/chartViewState.ts` — ズーム/スケールを時間軸ごとにlocalStorage保存/復元（絶対時刻でなく相対位置）
 - `src/lib/indicators.ts` — EMA/SMA/BB/雲の全体再計算版（CandleChartは別途増分計算の最適化版を持つ）。雲のずらし先時刻`cloudDisplacedTime`のみCandleChart共通利用
 - `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`、MN=年区切り、1D/1W=月区切り、4H=週区切り、15m/1H=日区切り）
-- `src/lib/weekLinesPrimitive.ts` — 区間区切り線の描画（Series Primitive、zOrder:'bottom'）
 - `src/lib/pips.ts` — 価格帯からpip単位・表示精度を推定
 - `src/lib/crosshairSync.ts` — 4画面十字カーソル同期用（`priceAtTime`、範囲外はnull）
 - `src/lib/openHistory.ts` — File System Access APIでフォルダを開いた履歴の保存/復元（IndexedDB）
@@ -158,7 +157,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 水平線・垂直線・TP/SL・draft価格は丸めない（表示側のみ`toFixed`）
 - `onMouseDown`ヒット判定順序は「四角形→トレンドライン→ブラシ→テキスト→水平線」（水平線は全幅ヒットするため最後）
 - DOMオーバーレイのz-indexは10〜13、雲の`<canvas>`はz-index:5
-- ローソク足・背景・グリッドはlightweight-charts内部で同じ1枚のcanvasに一括描画される。DOM要素のz-indexでは「ローソク足の下・背景の上」という中間の重なり順を作れない（負のz-indexにすると背景ごと隠れて何も見えなくなる）。Series Primitives（`zOrder:'bottom'`）ならこの中間の重なり順を作れるが、グリッド線・標準の価格ラインはPrimitivesの対象外で常にその上に出てしまう（回避策なし）。四角形はこの理由でPrimitivesをやめ、DOM canvasに描いた後`destination-out`でロウソク足と重なった部分だけ透明に抜く方式にした（`syncRects`、`CandleChart.tsx`）。週区切り線は「ローソク足の下」だけで十分なためPrimitivesのまま（`src/lib/weekLinesPrimitive.ts`）
+- ローソク足・背景・グリッドはlightweight-charts内部で同じ1枚のcanvasに一括描画される。DOM要素のz-indexでは「ローソク足の下・背景の上」という中間の重なり順を作れない（負のz-indexにすると背景ごと隠れて何も見えなくなる）。Series Primitives（`zOrder:'bottom'`）ならこの中間の重なり順を作れるが、グリッド線・標準の価格ラインはPrimitivesの対象外で常にその上に出てしまう（回避策なし、グリッド線との交差点で描画が削れて見える）。四角形・週区切り線ともこの理由でPrimitivesは使わずDOM/canvasオーバーレイに統一している。四角形は描いた後`destination-out`でロウソク足と重なった部分だけ透明に抜く（`syncRects`、`CandleChart.tsx`）
 - 雲の塗りつぶしは`candles[0].time`より左側には描画しないようガードすること（範囲外の外挿防止）
 - `jumpToTime`は過去日付ジャンプで`cursor`を戻さないこと（`Math.max(idx, oldCursor)`）
 - `centerOnTime`は時刻ベースでなく足インデックス（logical range）で計算すること（`getVisibleRange`/`setVisibleRange`は表示幅が狭い時に破綻する）
