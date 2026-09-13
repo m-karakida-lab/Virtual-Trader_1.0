@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import type { MagnetMode } from '../types';
+import type { LineSelection, MagnetMode } from '../types';
+import { pricePrecision } from '../lib/pips';
+import { fmtVTime } from './Controls';
 
 // TradingView風のアイコンツールバー。クリックした瞬間にそのツールが有効化され、
 // 続けてチャート上をクリック/ドラッグするだけで配置できる（配置後は自動的に解除される）。
 // 色・線種・太さの編集は右上のPalettePanel（パレットモード）が一手に担う。
-// 実際の配置・既存図形の一覧/削除は Controls.tsx の「描画」メニュー側が担う。
+// 既存図形（水平線/垂直線/四角形/トレンドライン/ブラシ/テキスト）の一覧・選択・削除は
+// このツールバー下部の「一覧」ポップアップが担う（以前はControls.tsxの「描画」メニュー側に
+// あったが、図形数が増えると下部バーのインジケータ項目を押し出してしまうため移設した）。
 // 4画面時も1画面時と同じく、常に操作可能なメインパネル（CandleChart）に対して働く。
 // 自身は絶対配置を持たず、App.tsx側でチャート領域の左に確保した専用列に配置される
 // （以前はチャート上への絶対配置オーバーレイでローソク足と重なっていた）
@@ -80,6 +84,17 @@ const ICONS: Record<string, JSX.Element> = {
       <path d="M2 12s3.5-7 10-7 10 7 10 7-3.5 7-10 7-10-7-10-7z" />
       <circle cx="12" cy="12" r="3" />
       <line x1="3" y1="21" x2="21" y2="3" />
+    </svg>
+  ),
+  // 描画管理（既存図形の一覧）。箇条書きリストで表す
+  list: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <circle cx="4" cy="6" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="12" r="1.3" fill="currentColor" stroke="none" />
+      <circle cx="4" cy="18" r="1.3" fill="currentColor" stroke="none" />
+      <line x1="9" y1="6" x2="21" y2="6" strokeLinecap="round" />
+      <line x1="9" y1="12" x2="21" y2="12" strokeLinecap="round" />
+      <line x1="9" y1="18" x2="21" y2="18" strokeLinecap="round" />
     </svg>
   ),
   // 他時間足へのジャンプ同期。狙いを定める的（クロスヘア）で「この足を指す」を表す
@@ -212,6 +227,163 @@ function LabelTogglePopup({ title, subject, show, onToggle, disabled }: { title:
   );
 }
 
+const chipStyle = (isSel: boolean): React.CSSProperties => ({
+  display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
+  backgroundColor: isSel ? '#222' : '#161616',
+  border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
+  borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
+  fontVariantNumeric: 'tabular-nums',
+});
+
+const chipDotStyle = (color: string, round: boolean): React.CSSProperties => ({
+  width: '8px', height: '8px', borderRadius: round ? '50%' : 0, backgroundColor: color, flexShrink: 0,
+});
+
+const chipRemoveStyle: React.CSSProperties = {
+  background: 'none', border: 'none', color: '#555',
+  cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
+};
+
+// 既存の描画物（水平線/垂直線/四角形/トレンドライン/ブラシ/テキスト）を種類ごとに縦並びで
+// 一覧表示し、クリックで選択・×ボタンで削除できるポップアップ。件数が多くても
+// maxHeight+overflowYでスクロールに収める（下部バーの項目を押し出さないための移設なので、
+// ここでも横に溢れさせず縦スクロールにする）
+function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  const lines = useTraderStore(s => s.lines);
+  const vlines = useTraderStore(s => s.vlines);
+  const rects = useTraderStore(s => s.rects);
+  const trendLines = useTraderStore(s => s.trendLines);
+  const brushes = useTraderStore(s => s.brushes);
+  const texts = useTraderStore(s => s.texts);
+  const selected = useTraderStore(s => s.selected);
+  const selectLine = useTraderStore(s => s.selectLine);
+  const removeLine = useTraderStore(s => s.removeLine);
+  const removeVLine = useTraderStore(s => s.removeVLine);
+  const removeRect = useTraderStore(s => s.removeRect);
+  const removeTrendLine = useTraderStore(s => s.removeTrendLine);
+  const removeBrush = useTraderStore(s => s.removeBrush);
+  const removeText = useTraderStore(s => s.removeText);
+  const centerOnTime = useTraderStore(s => s.centerOnTime);
+
+  useEffect(() => {
+    if (!open) return;
+    const onClick = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [open]);
+
+  const isEmpty = lines.length === 0 && vlines.length === 0 && rects.length === 0
+    && trendLines.length === 0 && brushes.length === 0 && texts.length === 0;
+
+  return (
+    <div ref={ref} style={{ position: 'relative' }}>
+      <button
+        onClick={() => setOpen(o => !o)}
+        disabled={disabled}
+        title="描画の管理（一覧・選択・削除）"
+        style={{
+          width: '40px', height: '40px',
+          display: 'flex', alignItems: 'center', justifyContent: 'center',
+          backgroundColor: disabled ? 'transparent' : open ? '#2a2a2a' : 'transparent',
+          color: disabled ? '#333' : open ? '#42a5f5' : '#888',
+          border: 'none', borderRadius: '4px',
+          cursor: disabled ? 'not-allowed' : 'pointer', padding: 0,
+        }}
+      >
+        {ICONS.list}
+      </button>
+      {open && (
+        <div style={{
+          position: 'absolute', left: 'calc(100% + 6px)', top: 0,
+          backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
+          padding: '10px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 60,
+          display: 'flex', flexDirection: 'column', gap: '6px', minWidth: '200px',
+          maxHeight: '70vh', overflowY: 'auto',
+        }}>
+          {isEmpty && <span style={{ color: '#555', fontSize: '14px', padding: '4px 0' }}>描画物はありません</span>}
+
+          {lines.map(line => {
+            const isSel = selected?.kind === 'h' && selected.id === line.id;
+            const sel: LineSelection = { kind: 'h', id: line.id };
+            return (
+              <span key={`h${line.id}`} onClick={() => selectLine(isSel ? null : sel)} style={chipStyle(isSel)}>
+                <span style={chipDotStyle(line.color, true)} />
+                {line.price.toFixed(pricePrecision(line.price))}
+                <button onClick={e => { e.stopPropagation(); removeLine(line.id); }} style={chipRemoveStyle}>×</button>
+              </span>
+            );
+          })}
+
+          {vlines.map(v => {
+            const isSel = selected?.kind === 'v' && selected.id === v.id;
+            const sel: LineSelection = { kind: 'v', id: v.id };
+            return (
+              <span key={`v${v.id}`} onClick={() => { selectLine(isSel ? null : sel); centerOnTime(v.time); }} style={chipStyle(isSel)}>
+                <span style={chipDotStyle(v.color, false)} />
+                {fmtVTime(v.time)}
+                <button onClick={e => { e.stopPropagation(); removeVLine(v.id); }} style={chipRemoveStyle}>×</button>
+              </span>
+            );
+          })}
+
+          {rects.map((r, i) => {
+            const isSel = selected?.kind === 'rect' && selected.id === r.id;
+            const sel: LineSelection = { kind: 'rect', id: r.id };
+            return (
+              <span key={`r${r.id}`} onClick={() => selectLine(isSel ? null : sel)} style={chipStyle(isSel)}>
+                <span style={chipDotStyle(r.color, false)} />
+                四角{i + 1}
+                <button onClick={e => { e.stopPropagation(); removeRect(r.id); }} style={chipRemoveStyle}>×</button>
+              </span>
+            );
+          })}
+
+          {trendLines.map((tl, i) => {
+            const isSel = selected?.kind === 'trend' && selected.id === tl.id;
+            const sel: LineSelection = { kind: 'trend', id: tl.id };
+            return (
+              <span key={`tl${tl.id}`} onClick={() => selectLine(isSel ? null : sel)} style={chipStyle(isSel)}>
+                <span style={chipDotStyle(tl.color, true)} />
+                トレンド{i + 1}
+                <button onClick={e => { e.stopPropagation(); removeTrendLine(tl.id); }} style={chipRemoveStyle}>×</button>
+              </span>
+            );
+          })}
+
+          {brushes.map((b, i) => {
+            const isSel = selected?.kind === 'brush' && selected.id === b.id;
+            const sel: LineSelection = { kind: 'brush', id: b.id };
+            return (
+              <span key={`b${b.id}`} onClick={() => selectLine(isSel ? null : sel)} style={chipStyle(isSel)}>
+                <span style={chipDotStyle(b.color, true)} />
+                ブラシ{i + 1}
+                <button onClick={e => { e.stopPropagation(); removeBrush(b.id); }} style={chipRemoveStyle}>×</button>
+              </span>
+            );
+          })}
+
+          {texts.map(t => {
+            const isSel = selected?.kind === 'text' && selected.id === t.id;
+            const sel: LineSelection = { kind: 'text', id: t.id };
+            return (
+              <span key={`t${t.id}`} onClick={() => selectLine(isSel ? null : sel)} style={{ ...chipStyle(isSel), maxWidth: '220px' }}>
+                <span style={chipDotStyle(t.color, true)} />
+                <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.text}</span>
+                <button onClick={e => { e.stopPropagation(); removeText(t.id); }} style={chipRemoveStyle}>×</button>
+              </span>
+            );
+          })}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function DrawToolbar() {
   const isLoaded = useTraderStore(s => s.isLoaded);
   const isDrawingLine  = useTraderStore(s => s.isDrawingLine);
@@ -257,6 +429,8 @@ export function DrawToolbar() {
       <ToolButton icon="trend" title="トレンドライン" active={isDrawingTrendLine} disabled={!isLoaded} onClick={toggleDrawTrendLine} />
       <ToolButton icon="brush" title="ブラシ" active={isDrawingBrush} disabled={!isLoaded} onClick={toggleDrawBrush} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
+      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
+      <DrawnObjectsPopup disabled={!isLoaded} />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <ToolButton
         icon="jumpSync"

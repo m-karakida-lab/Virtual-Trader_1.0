@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
-import { TIMEFRAMES, type Position, type PendingOrder, type LineSelection, type OrderType } from '../types';
+import { TIMEFRAMES, type Position, type PendingOrder, type OrderType } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { captureChartArea } from '../lib/screenshot';
@@ -22,8 +22,8 @@ function toDateUTC(sec: number): string {
   return `${y}-${mo}-${day}`;
 }
 
-// Unix秒 → "M/D HH:mm"（UTC基準、垂直線チップ表示用）
-function fmtVTime(sec: number): string {
+// Unix秒 → "M/D HH:mm"（UTC基準、垂直線チップ表示用）。DrawToolbarの描画管理ポップアップからも使う
+export function fmtVTime(sec: number): string {
   const d = new Date(sec * 1000);
   const M = d.getUTCMonth() + 1;
   const D = d.getUTCDate();
@@ -169,7 +169,6 @@ export function Controls() {
   const jumpToTime    = useTraderStore(s => s.jumpToTime);
   const fitToScreen   = useTraderStore(s => s.fitToScreen);
   const scrollToLatest = useTraderStore(s => s.scrollToLatest);
-  const centerOnTime  = useTraderStore(s => s.centerOnTime);
   const submitOrder   = useTraderStore(s => s.submitOrder);
   const closePosition = useTraderStore(s => s.closePosition);
   const closeAll      = useTraderStore(s => s.closeAll);
@@ -188,13 +187,6 @@ export function Controls() {
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const symbol        = useTraderStore(s => s.symbol);
   const setChartLayout = useTraderStore(s => s.setChartLayout);
-  const removeLine    = useTraderStore(s => s.removeLine);
-  const removeVLine   = useTraderStore(s => s.removeVLine);
-  const removeRect    = useTraderStore(s => s.removeRect);
-  const removeTrendLine = useTraderStore(s => s.removeTrendLine);
-  const removeBrush   = useTraderStore(s => s.removeBrush);
-  const removeText    = useTraderStore(s => s.removeText);
-  const selectLine    = useTraderStore(s => s.selectLine);
   const toggleEMA     = useTraderStore(s => s.toggleEMA);
   const toggleSMA     = useTraderStore(s => s.toggleSMA);
   const toggleBB      = useTraderStore(s => s.toggleBB);
@@ -203,12 +195,6 @@ export function Controls() {
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
   const advanceToEnd = useTraderStore(s => s.advanceToEnd);
-  const lines          = useTraderStore(s => s.lines);
-  const vlines          = useTraderStore(s => s.vlines);
-  const rects          = useTraderStore(s => s.rects);
-  const trendLines     = useTraderStore(s => s.trendLines);
-  const brushes        = useTraderStore(s => s.brushes);
-  const texts          = useTraderStore(s => s.texts);
   const isDrawingLine = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring = useTraderStore(s => s.isMeasuring);
@@ -216,7 +202,6 @@ export function Controls() {
   const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
   const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText = useTraderStore(s => s.isDrawingText);
-  const selected        = useTraderStore(s => s.selected);
   const showEMA       = useTraderStore(s => s.showEMA);
   const showSMA       = useTraderStore(s => s.showSMA);
   const showBB        = useTraderStore(s => s.showBB);
@@ -572,206 +557,31 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 描画ツール（メニュー） */}
+        {/* インジケータ（メニュー）。描画物の一覧/削除はDrawToolbar（画面左のパネル）側が担う */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton
-            label="描画"
-            active={isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingBrush || isDrawingText}
+            label="インジケータ"
+            active={showEMA || showSMA || showBB || showCloud || showWeekLines}
             disabled={!isLoaded}
           >
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '340px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
-                <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
-                <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
-                <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
-                <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
-                {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingBrush || isDrawingText) && (
-                  <span style={{ color: '#42a5f5', fontSize: '14px' }}>
-                    {isDrawingLine && 'クリックで配置...'}
-                    {isDrawingVLine && 'クリックで配置...'}
-                    {isMeasuring && 'ドラッグで計測...'}
-                    {isDrawingRect && 'ドラッグで描画...'}
-                    {isDrawingTrendLine && 'ドラッグで描画...'}
-                    {isDrawingBrush && 'ドラッグで描画...'}
-                    {isDrawingText && 'クリックで配置...'}
-                    （左のアイコンで再度クリックすると解除）
-                  </span>
-                )}
-              </div>
-
-              {(lines.length > 0 || vlines.length > 0 || rects.length > 0 || trendLines.length > 0 || brushes.length > 0 || texts.length > 0) && (
-                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
-                  {lines.map(line => {
-                    const isSel = selected?.kind === 'h' && selected.id === line.id;
-                    const sel: LineSelection = { kind: 'h', id: line.id };
-                    return (
-                      <span
-                        key={`h${line.id}`}
-                        onClick={() => selectLine(isSel ? null : sel)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                          backgroundColor: isSel ? '#222' : '#161616',
-                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
-                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: line.color, flexShrink: 0 }} />
-                        {line.price.toFixed(pricePrecision(line.price))}
-                        <button
-                          onClick={e => { e.stopPropagation(); removeLine(line.id); }}
-                          style={{
-                            background: 'none', border: 'none', color: '#555',
-                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
-                          }}
-                        >×</button>
-                      </span>
-                    );
-                  })}
-
-                  {vlines.map(v => {
-                    const isSel = selected?.kind === 'v' && selected.id === v.id;
-                    const sel: LineSelection = { kind: 'v', id: v.id };
-                    return (
-                      <span
-                        key={`v${v.id}`}
-                        onClick={() => { selectLine(isSel ? null : sel); centerOnTime(v.time); }}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                          backgroundColor: isSel ? '#222' : '#161616',
-                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
-                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        <span style={{ width: '8px', height: '8px', backgroundColor: v.color, flexShrink: 0 }} />
-                        {fmtVTime(v.time)}
-                        <button
-                          onClick={e => { e.stopPropagation(); removeVLine(v.id); }}
-                          style={{
-                            background: 'none', border: 'none', color: '#555',
-                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
-                          }}
-                        >×</button>
-                      </span>
-                    );
-                  })}
-
-                  {rects.map((r, i) => {
-                    const isSel = selected?.kind === 'rect' && selected.id === r.id;
-                    const sel: LineSelection = { kind: 'rect', id: r.id };
-                    return (
-                      <span
-                        key={`r${r.id}`}
-                        onClick={() => selectLine(isSel ? null : sel)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                          backgroundColor: isSel ? '#222' : '#161616',
-                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
-                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        <span style={{ width: '8px', height: '8px', backgroundColor: r.color, flexShrink: 0 }} />
-                        四角{i + 1}
-                        <button
-                          onClick={e => { e.stopPropagation(); removeRect(r.id); }}
-                          style={{
-                            background: 'none', border: 'none', color: '#555',
-                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
-                          }}
-                        >×</button>
-                      </span>
-                    );
-                  })}
-
-                  {trendLines.map((tl, i) => {
-                    const isSel = selected?.kind === 'trend' && selected.id === tl.id;
-                    const sel: LineSelection = { kind: 'trend', id: tl.id };
-                    return (
-                      <span
-                        key={`tl${tl.id}`}
-                        onClick={() => selectLine(isSel ? null : sel)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                          backgroundColor: isSel ? '#222' : '#161616',
-                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
-                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: tl.color, flexShrink: 0 }} />
-                        トレンド{i + 1}
-                        <button
-                          onClick={e => { e.stopPropagation(); removeTrendLine(tl.id); }}
-                          style={{
-                            background: 'none', border: 'none', color: '#555',
-                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
-                          }}
-                        >×</button>
-                      </span>
-                    );
-                  })}
-
-                  {brushes.map((b, i) => {
-                    const isSel = selected?.kind === 'brush' && selected.id === b.id;
-                    const sel: LineSelection = { kind: 'brush', id: b.id };
-                    return (
-                      <span
-                        key={`b${b.id}`}
-                        onClick={() => selectLine(isSel ? null : sel)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                          backgroundColor: isSel ? '#222' : '#161616',
-                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
-                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
-                          fontVariantNumeric: 'tabular-nums',
-                        }}
-                      >
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: b.color, flexShrink: 0 }} />
-                        ブラシ{i + 1}
-                        <button
-                          onClick={e => { e.stopPropagation(); removeBrush(b.id); }}
-                          style={{
-                            background: 'none', border: 'none', color: '#555',
-                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
-                          }}
-                        >×</button>
-                      </span>
-                    );
-                  })}
-
-                  {texts.map(t => {
-                    const isSel = selected?.kind === 'text' && selected.id === t.id;
-                    const sel: LineSelection = { kind: 'text', id: t.id };
-                    return (
-                      <span
-                        key={`t${t.id}`}
-                        onClick={() => selectLine(isSel ? null : sel)}
-                        style={{
-                          display: 'flex', alignItems: 'center', gap: '6px', cursor: 'pointer',
-                          backgroundColor: isSel ? '#222' : '#161616',
-                          border: isSel ? '1px solid #444' : '1px solid #2a2a2a',
-                          borderRadius: '3px', padding: '3px 4px 3px 8px', fontSize: '15px', color: '#888',
-                          maxWidth: '160px',
-                        }}
-                      >
-                        <span style={{ width: '8px', height: '8px', borderRadius: '50%', backgroundColor: t.color, flexShrink: 0 }} />
-                        <span style={{ overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{t.text}</span>
-                        <button
-                          onClick={e => { e.stopPropagation(); removeText(t.id); }}
-                          style={{
-                            background: 'none', border: 'none', color: '#555',
-                            cursor: 'pointer', fontSize: '16px', padding: '0 4px', lineHeight: 1,
-                          }}
-                        >×</button>
-                      </span>
-                    );
-                  })}
-                </div>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: '340px' }}>
+              <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
+              <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
+              <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
+              <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
+              <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
+              {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingBrush || isDrawingText) && (
+                <span style={{ color: '#42a5f5', fontSize: '14px' }}>
+                  {isDrawingLine && 'クリックで配置...'}
+                  {isDrawingVLine && 'クリックで配置...'}
+                  {isMeasuring && 'ドラッグで計測...'}
+                  {isDrawingRect && 'ドラッグで描画...'}
+                  {isDrawingTrendLine && 'ドラッグで描画...'}
+                  {isDrawingBrush && 'ドラッグで描画...'}
+                  {isDrawingText && 'クリックで配置...'}
+                  （左のアイコンで再度クリックすると解除）
+                </span>
               )}
-
             </div>
           </MenuButton>
         </div>
