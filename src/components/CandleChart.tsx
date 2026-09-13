@@ -18,6 +18,7 @@ import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud } f
 import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
 import { RectanglesPrimitive, type RectPrimitiveItem } from '../lib/rectPrimitive';
+import { WeekLinesPrimitive } from '../lib/weekLinesPrimitive';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
@@ -199,7 +200,6 @@ export function CandleChart({
 }: { slot?: number; isMain?: boolean; timeframeSec?: TimeframeSec } = {}) {
   const containerRef = useRef<HTMLDivElement>(null);
   const overlayRef = useRef<HTMLDivElement>(null);
-  const weekOverlayRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Candlestick'> | null>(null);
   const emaSeriesRef = useRef<ISeriesApi<'Line'> | null>(null);
@@ -240,9 +240,9 @@ export function CandleChart({
   const textOverlayRef = useRef<HTMLDivElement>(null);
   const textElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
   const syncTextsRef = useRef<() => void>(() => {});
-  const weekLineElsRef = useRef<HTMLDivElement[]>([]);
   const weekBoundariesRef = useRef<number[]>([]);
   const syncWeekLinesRef = useRef<() => void>(() => {});
+  const weekLinesPrimitiveRef = useRef<WeekLinesPrimitive | null>(null);
   const measureOverlayRef = useRef<HTMLDivElement>(null);
   const measureBoxRef = useRef<HTMLDivElement>(null);
   const measureMidLineRef = useRef<HTMLDivElement>(null);
@@ -519,11 +519,17 @@ export function CandleChart({
     const senkouASeries = chart.addLineSeries({ ...cloudLineOptions, color: CLOUD_A_COLOR });
     const senkouBSeries = chart.addLineSeries({ ...cloudLineOptions, color: CLOUD_B_COLOR });
 
-    // 四角形の枠線は、ローソク足と重なった部分でローソク足を上に見せたい（TradingView同様）
-    // という要望を受け、DOMオーバーレイではなくSeries Primitives（zOrder:'bottom'＝背景の
-    // 上・ローソク足はじめ他の全ての下に描く公式API）で描画する。DOM要素のz-index調整では
-    // 実現できない——ローソク足・背景・グリッドは同じ1枚のcanvasに一括描画されており、
-    // 外側のDOM要素はそのcanvas全体の下（背景ごと隠れて見えなくなる）か上かの二択しかない
+    // 四角形の枠線・週区切り線は、ローソク足と重なった部分でローソク足を上に見せたい
+    // （TradingView同様）という要望を受け、DOMオーバーレイではなくSeries Primitives
+    // （zOrder:'bottom'＝背景の上・ローソク足はじめ他の全ての下に描く公式API）で描画する。
+    // DOM要素のz-index調整では実現できない——ローソク足・背景・グリッドは同じ1枚のcanvasに
+    // 一括描画されており、外側のDOM要素はそのcanvas全体の下（背景ごと隠れて見えなくなる）か
+    // 上かの二択しかない。週区切り線を先にattachすることで、同じzOrder:'bottom'同士では
+    // 後からattachした方が上に描かれる（実機で確認済み）ため、四角形が週区切り線の上に来る
+    const weekLinesPrimitive = new WeekLinesPrimitive();
+    series.attachPrimitive(weekLinesPrimitive);
+    weekLinesPrimitiveRef.current = weekLinesPrimitive;
+
     const rectPrimitive = new RectanglesPrimitive();
     series.attachPrimitive(rectPrimitive);
     rectPrimitiveRef.current = rectPrimitive;
@@ -1199,43 +1205,27 @@ export function CandleChart({
       beginEditExistingText(newId);
     };
 
-    // ── 週区切り線の位置を再計算して DOM に反映（控えめなドット線、固定スタイル） ──
+    // ── 週区切り線（控えめな破線、固定スタイル）。枠線本体はWeekLinesPrimitiveが描く。
+    // ここでは表示するx座標（ピクセル）一覧を計算してprimitiveに渡すだけ ──
     const syncWeekLines = () => {
-      if (!chartRef.current || !weekOverlayRef.current) return;
-      const { showWeekLines: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
-      const overlay = weekOverlayRef.current;
-      overlay.style.display = show ? 'block' : 'none';
-      if (!show) return;
-
-      const boundaries = weekBoundariesRef.current;
-      const els = weekLineElsRef.current;
-
-      while (els.length < boundaries.length) {
-        const el = document.createElement('div');
-        el.style.position = 'absolute';
-        el.style.top = '0';
-        el.style.width = '0px';
-        el.style.borderLeft = '1px dashed #4a4a4a';
-        el.style.pointerEvents = 'none';
-        overlay.appendChild(el);
-        els.push(el);
+      if (!chartRef.current || !weekLinesPrimitiveRef.current) return;
+      const { showWeekLines: show } = useTraderStore.getState();
+      if (!show) {
+        weekLinesPrimitiveRef.current.getXs = () => [];
+        weekLinesPrimitiveRef.current.requestUpdate();
+        return;
       }
-      while (els.length > boundaries.length) {
-        els.pop()?.remove();
-      }
-
-      boundaries.forEach((t, i) => {
-        const x = chartRef.current!.timeScale().timeToCoordinate(t as Time);
-        const el = els[i];
-        // 垂直線と同じ理由で、日付軸欄（chartBottomMargin分の帯）には侵入させない
-        el.style.height = `calc(100% - ${bottomMargin}px)`;
-        if (x === null) {
-          el.style.display = 'none';
-        } else {
-          el.style.display = 'block';
-          el.style.left = `${x}px`;
-        }
-      });
+      // Primitiveのdraw()はchartの再描画のたびに呼ばれるため、xsは毎回その場で
+      // timeToCoordinateし直す関数として渡す（他のprimitiveと同じpull方式）
+      weekLinesPrimitiveRef.current.getXs = () => {
+        if (!chartRef.current) return [];
+        const ts = chartRef.current.timeScale();
+        return weekBoundariesRef.current
+          .map(t => ts.timeToCoordinate(t as Time))
+          .filter((x): x is NonNullable<typeof x> => x !== null)
+          .map(x => x as number);
+      };
+      weekLinesPrimitiveRef.current.requestUpdate();
     };
     syncWeekLinesRef.current = syncWeekLines;
     syncWeekLines();
@@ -3083,10 +3073,10 @@ export function CandleChart({
       rectHandleElsRef.current = [];
       textElsRef.current.forEach(el => el.remove());
       textElsRef.current.clear();
-      weekLineElsRef.current.forEach(el => el.remove());
-      weekLineElsRef.current = [];
       series.detachPrimitive(rectPrimitive);
       rectPrimitiveRef.current = null;
+      series.detachPrimitive(weekLinesPrimitive);
+      weekLinesPrimitiveRef.current = null;
       chart.remove();
       // chart.remove() で価格ラインも破棄されるため、次のマウント（StrictModeの
       // 二重実行や、4画面でのメインパネル切替による再マウント）で古い IPriceLine を
@@ -4130,7 +4120,6 @@ export function CandleChart({
       <canvas ref={trendCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <canvas ref={brushCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={textOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
-      <div ref={weekOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 10 }} />
       <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={measureOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 12, display: 'none' }}>
         <div ref={measureBoxRef} style={{ position: 'absolute' }} />
