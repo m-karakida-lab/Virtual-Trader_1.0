@@ -561,7 +561,6 @@ export function Controls() {
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton
             label="インジケータ"
-            active={showEMA || showSMA || showBB || showCloud || showWeekLines}
             disabled={!isLoaded}
           >
             <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: '340px' }}>
