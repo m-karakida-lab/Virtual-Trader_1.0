@@ -23,13 +23,13 @@
 - ドラッグ&ドロップ読み込み対応（`App.tsx`の`loadFiles`）。この経路はフォルダ履歴には残らない
 - フォルダを開いた履歴（Chrome/Edgeのみ、File System Access API、最大12件、`src/lib/openHistory.ts`、IndexedDB保存）。「ファイル選択▾」から直接ファイル選択／フォルダ選択／履歴選択ができる。非対応ブラウザは`<input type=file>`にフォールバックし履歴機能自体出ない
 - 読込完了時「✓ N本 読み込み完了」を5秒間表示
-- 1分足→任意時間軸への自動集計（DuckDB SQL）。15m/1H/4H/1D/1W/MN切替可。週足・月足はカレンダー基準`date_trunc`集計、それ以外は`floor(ts/sec)`固定長バケット集計
+- 1分足→任意時間軸への自動集計（DuckDB SQL）。5m/15m/1H/4H/1D/1W/MN切替可。週足・月足はカレンダー基準`date_trunc`集計、それ以外は`floor(ts/sec)`固定長バケット集計
 - 表示は日本時間(JST)に変換済み。CSV（ブローカーサーバー時間）はEU夏時間ルール（GMT+2冬/+3夏）前提で自動変換。チャート・日付ジャンプ・取引履歴すべてJST基準
 - 通貨記号はファイル名（例`EURUSD_2025_all.csv`）から自動検出。実際の円換算はしない
 - 書き込み（水平線・垂直線・四角形・トレンドライン・ブラシ・テキスト）の保存/読込: 単一ファイル読込時のみ「💾 vtd保存」ボタンが現れ、CSV＋描画データJSONを`.vtd`1ファイルに保存（`src/lib/vtd.ts`）。元がvtdバンドルだった場合のみ「上書き保存」でそのファイルへ直接書込み、素のCSVを開いた場合は常に新規ダウンロード。複数ファイル同時読込時は保存機能自体使えない。ズーム位置・トレード状態は保存対象外
 
 ### チャート表示・描画
-- インジケーター: 200EMA（増分計算、デフォルトOFF）、SMA14（増分計算、デフォルトOFF）、ボリンジャーバンド（期間20、増分計算、デフォルトON）、一目均衡表の雲（先行スパンA/Bのみ、26本先行、デフォルトON）、区間区切り線（15m/1Hは日替わり・4Hは週替わり・1D/1Wは月替わり・MNは年替わり、デフォルトON）。全て4画面時のミニパネルにも連動（`src/lib/indicators.ts`・`src/lib/weekLines.ts`共有）。区切り線本体はDOMオーバーレイ（`weekOverlayRef`、zIndex:8、四角形のcanvas zIndex:9より下）
+- インジケーター: 200EMA（増分計算、デフォルトOFF）、SMA14（増分計算、デフォルトOFF）、ボリンジャーバンド（期間20、増分計算、デフォルトON）、一目均衡表の雲（先行スパンA/Bのみ、26本先行、デフォルトON）、区間区切り線（5m/15m/1Hは日替わり・4Hは週替わり・1D/1Wは月替わり・MNは年替わり、デフォルトON）。全て4画面時のミニパネルにも連動（`src/lib/indicators.ts`・`src/lib/weekLines.ts`共有）。区切り線本体はDOMオーバーレイ（`weekOverlayRef`、zIndex:8、四角形のcanvas zIndex:9より下）
 - 描画ツール起動: アイコンパネル（水平線・垂直線・ものさし・四角形・トレンドライン・ブラシ・テキスト、`src/components/DrawToolbar.tsx`）をワンクリックで有効化しチャート上のクリック/ドラッグで配置（配置後自動解除）。「連続描画」（鍵アイコン、`continuousDrawing`）ONで同じツールを解除せず連続配置可能。配置直後は必ず選択状態に入りパレットでその場編集できる。テキストのみ編集セッション継続のため次を置くには一旦クリックアウトしてから再クリックが必要。表示位置はチャート領域左の専用列（`App.tsx`）
 - 水平線・垂直線のラベル表示ON/OFF（`showHLinePriceLabel`/`showVLineDateLabel`、`vt:lineLabels`保存）: 個別でなく全水平線/全垂直線一括の設定。垂直線ラベルは日付軸欄にDOM表示（`yy M/D hh:mm`形式）。デフォルト両方ON
 - マグネット（`magnetMode`、デフォルトON）: 弱＝カーソルがOHLCの12px以内で吸着、強＝常に直下の足の最寄りOHLCへ吸着。ON/OFF自体は永続化せず毎起動ON、強さのみ`vt:magnetStrength`に保存。対象は水平線の配置/移動、四角形の描画/リサイズ（垂直線・ものさし・TP/SL編集は対象外）
@@ -92,7 +92,7 @@ DrawnTrendLine { id, time1, price1, time2, price2, color, dash, width }  // 構�
 DrawnBrush   { id, points: {time,price}[], color, width: 1|2|3|4 }  // ドラッグの軌跡そのままの点列。線種は無い（フリーハンドに馴染まないため）
 DrawnText    { id, time, price, text, color, fontSize: 14|18|24|32, border: LineDash|'none' }  // アンカー1点＋自由文字列。線種・太さの代わりに文字サイズ4段階（デフォルト18px）・枠線（枠なし可）を持つ
 LineSelection: { kind: 'h'|'v'|'rect'|'trend'|'brush'|'text', id: number } | null
-TIMEFRAMES: [{sec:900,label:'15m'}, {sec:3600,label:'1H'}, {sec:14400,label:'4H'}, {sec:86400,label:'1D'}, {sec:604800,label:'1W'}, {sec:2629746,label:'MN'}]
+TIMEFRAMES: [{sec:300,label:'5m'}, {sec:900,label:'15m'}, {sec:3600,label:'1H'}, {sec:14400,label:'4H'}, {sec:86400,label:'1D'}, {sec:604800,label:'1W'}, {sec:2629746,label:'MN'}]
 // MNのsecは平均月長（秒）で近似値。DB集計は実際の暦月でdate_trunc、この値はcursorEnd等の「おおよその足の長さ」計算にのみ使う
 ```
 
@@ -115,7 +115,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/chartTheme.ts` — TradingView風チャート共通スタイル定数（フォント・軸文字色/サイズ）
 - `src/lib/chartViewState.ts` — ズーム/スケールを時間軸ごとにlocalStorage保存/復元（絶対時刻でなく相対位置）
 - `src/lib/indicators.ts` — EMA/SMA/BB/雲の全体再計算版（CandleChartは別途増分計算の最適化版を持つ）。雲のずらし先時刻`cloudDisplacedTime`のみCandleChart共通利用
-- `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`、MN=年区切り、1D/1W=月区切り、4H=週区切り、15m/1H=日区切り）
+- `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`、MN=年区切り、1D/1W=月区切り、4H=週区切り、5m/15m/1H=日区切り）
 - `src/lib/pips.ts` — 価格帯からpip単位・表示精度を推定
 - `src/lib/crosshairSync.ts` — 4画面十字カーソル同期用（`priceAtTime`、範囲外はnull）
 - `src/lib/openHistory.ts` — File System Access APIでフォルダを開いた履歴の保存/復元（IndexedDB）

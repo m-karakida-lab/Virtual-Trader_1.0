@@ -49,6 +49,7 @@ export const WEEK_SEC = 604800;
 export const MONTH_SEC = 2629746;
 
 export const TIMEFRAMES = [
+  { sec: 300,       label: '5m' },
   { sec: 900,       label: '15m' },
   { sec: 3600,      label: '1H' },
   { sec: 14400,     label: '4H' },
