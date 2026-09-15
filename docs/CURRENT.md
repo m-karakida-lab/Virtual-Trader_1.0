@@ -48,7 +48,7 @@
 - チャート全表示: `cursor`を最後の足まで進める（`advanceToEnd`、通過範囲の注文約定・TP/SL判定も一括処理）。末尾にいる間は発注パネル・速度スライダーを無効化
 - 表示をリセット: 時間軸ズームを`resetTimeScale()`でデフォルトに戻し価格軸を`autoScale:true`に戻す。画面中心の足の位置は変えない
 - 最新足に固定（`followLatest`）: 各パネルの縮尺を維持したまま最新足を右オフセット位置に表示し続ける。組み込み`scrollToRealTime()`は使わず`setVisibleLogicalRange`で自前計算。頭打ち基準はCSV全期間本数（`candles.length`/`nonMainCandles.length`）。メインパネルの最新本数基準は`Math.min(cursor, candles.length-1)`。1枠で手動パン/ズームするとそのパネルの`followAnchorRef`だけ更新され他パネルは影響を受けない。ボタン押下時は全パネルの`followAnchorRef`をリセット
-- 日付ジャンプ（📅ボタン）: 日付のみ指定、常にその日00:00へジャンプ。縮尺維持で中心移動。過去日付は`cursor`を戻さず表示位置のみ移動、未来日付は`cursor`も進め通過範囲の約定判定を行う
+- 日付ジャンプ（📅ボタン）: 日付のみ指定、常にその日00:00へジャンプ。縮尺維持で中心移動。「移動」は過去日付でも`cursor`を戻さず表示位置のみ移動、未来日付は`cursor`も進め通過範囲の約定判定を行う。「巻き戻し」は指定日付を新しい最新足にする（`cursor`をそのまま指定日付へ戻し、それより先の足を隠す。約定済みの注文・決済は取り消さない）
 - 画面キャプチャ: 「📷 キャプチャ」ボタンでチャート領域（`#vt-chart-capture-area`）をJPEGダウンロード（`src/lib/screenshot.ts`、`html-to-image`の`toJpeg`、`pixelRatio:1`/`quality:0.5`）。フローティング操作パネルは`EXCLUDED_IDS`で除外
 - 全期間スクラバー: チャート下端の細いシークバー（メインパネルのみ）。つまみドラッグで平行移動、余白クリックでその位置へジャンプ。`setVisibleLogicalRange`を直接呼びstore/cursorには触れない
 - 1画面/4画面レイアウト切替: 選択状態は`vt:chartLayout`に記憶。4画面時は枠位置固定（デフォルト左上15m・左下1H・右上4H・右下1D）、メイン枠のみ青枠で強調。4枠は常に同じ`CandleChart`をマウントし続けCSSで表示/非表示を切替（remountせずズーム/スクロール位置を保持）。パネルの実サイズが変わる際は`handleResize`がスケール（barSpacing）維持のまま表示本数を調整し中心の足を保つ。パネルヘッダーのドロップダウンで時間軸切替可能、切替時は直前の実時間範囲を保持（`pendingTimeframeSwitchRangeRef`）。パネル本体クリックでそのパネルをメインへ昇格（`promoteSlotToMain`、自前集計済みデータを再利用しDuckDB再クエリを省略）。非メインパネルは自分の足が完全に閉じてから表示（先出し防止）。各枠の時間軸組み合わせ・メイン枠位置・メイン時間軸は`vt:quad`に保存。描画の新規/選択/移動/削除・Delete/Undo/コピペは全パネルで動作するが、キーボードショートカットは直近マウス操作したパネル（`activePanelSlot`）にのみ効く
@@ -159,7 +159,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - DOMオーバーレイのz-indexは10〜13、雲の`<canvas>`はz-index:5
 - ローソク足・背景・グリッドはlightweight-charts内部で同じ1枚のcanvasに一括描画される。DOM要素の負のz-indexで「ローソク足の下」に見せようとすると背景ごと隠れて何も見えなくなる（試すだけ無駄）
 - 雲の塗りつぶしは`candles[0].time`より左側には描画しないようガードすること（範囲外の外挿防止）
-- `jumpToTime`は過去日付ジャンプで`cursor`を戻さないこと（`Math.max(idx, oldCursor)`）
+- `jumpToTime`は通常モードだと過去日付ジャンプで`cursor`を戻さない（`Math.max(idx, oldCursor)`）。`{rewind:true}`指定時のみ`cursor`をそのまま`idx`にする（「巻き戻し」機能、約定済みの注文・決済は取り消さない）
 - `centerOnTime`は時刻ベースでなく足インデックス（logical range）で計算すること（`getVisibleRange`/`setVisibleRange`は表示幅が狭い時に破綻する）
 - `setVisibleRange()`（時刻ベース）は内部のtime→logical変換に失敗してクラッシュすることがある。全期間表示は`{from:0, to:candles.length}`のindexベースで直接指定すること
 - `processOrderRange`は1本ずつ順に処理、同一バーでTP/SL両方ヒット時はSL優先。`jumpToTime()`は前進時のみ通過範囲を判定（後退は判定しない）

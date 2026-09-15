@@ -265,6 +265,12 @@ export function Controls() {
     const sec = parseDateAsUTC(jumpDate);
     if (sec !== null) jumpToTime(sec);
   };
+  // 「移動」は表示位置だけ動かす（最新足＝リプレイの開示境界はそのまま）。
+  // 「巻き戻し」は指定日付を新しい最新足にする（それより先の足を隠す）
+  const handleRewind = () => {
+    const sec = parseDateAsUTC(jumpDate);
+    if (sec !== null) jumpToTime(sec, { rewind: true });
+  };
   const minDate = candles.length > 0 ? toDateUTC(candles[0].time) : undefined;
   const maxDate = candles.length > 0 ? toDateUTC(candles[candles.length - 1].time) : undefined;
 
@@ -619,6 +625,12 @@ export function Controls() {
                 disabled={!isLoaded || !jumpDate}
                 style={tfBtn(false, !isLoaded || !jumpDate)}
               >移動</button>
+              <button
+                onClick={handleRewind}
+                disabled={!isLoaded || !jumpDate}
+                title="指定日付を最新足にする（それより先の足を隠す）"
+                style={tfBtn(false, !isLoaded || !jumpDate)}
+              >巻き戻し</button>
             </div>
           </MenuButton>
         </div>

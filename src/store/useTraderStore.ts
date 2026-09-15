@@ -270,7 +270,7 @@ interface TraderState {
   setTimeframe: (sec: TimeframeSec, preloadedCandles?: Candle[]) => Promise<void>;
   advance: () => boolean;
   stepBack: () => boolean;
-  jumpToTime: (targetSec: number) => void;
+  jumpToTime: (targetSec: number, opts?: { rewind?: boolean }) => void;
   fitToScreen: () => void;
   scrollToLatest: () => void;
   setFollowLatest: (v: boolean) => void;
@@ -758,7 +758,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     return true;
   },
 
-  jumpToTime: (targetSec: number) => {
+  jumpToTime: (targetSec: number, opts) => {
     const { candles, cursor: oldCursor, positions, pendingOrders, closedTrades, balance, nextId } = get();
     if (candles.length === 0) return;
     // 二分探索: targetSec 以下の最後の足を探す
@@ -774,14 +774,18 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       ? processOrderRange(candles, oldCursor, idx, positions, pendingOrders, closedTrades, balance, nextId)
       : null;
 
-    // 過去日付へのジャンプは cursor を戻さない（表示位置を動かすだけ）。
-    // cursor はリプレイの進行位置＝データの開示境界そのものなので、ここを巻き戻すと
+    // 通常の「日付移動」は過去日付へジャンプしても cursor を戻さない（表示位置を動かす
+    // だけ）。cursor はリプレイの進行位置＝データの開示境界そのものなので、ここを巻き戻すと
     // 「6/1へジャンプしたら7/1まで見えていた足が6/1以降ごと隠れて、6/1が最新足になる」
     // という直感に反する挙動になる。未来日付へのジャンプは従来どおり cursor を進め、
     // 通過した範囲の注文約定・TP/SL判定も行う（バックテストとして時間を進める意味がある）
+    // 「巻き戻し」（opts.rewind）は逆に cursor をそのまま idx へ合わせ、指定日付を新しい
+    // 最新足にする。stepBack同様、約定済みの注文・決済は取り消さない（表示位置＝開示境界
+    // だけを戻す）
     // 垂直線チップ移動と同じ「縮尺維持で中心移動」を使う
+    const newCursor = opts?.rewind ? idx : Math.max(idx, oldCursor);
     set(s => ({
-      cursor: Math.max(idx, oldCursor), isPlaying: false, centerTarget: targetSec, centerSignal: s.centerSignal + 1,
+      cursor: newCursor, isPlaying: false, centerTarget: targetSec, centerSignal: s.centerSignal + 1,
       followLatest: false,
       ...(result?.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,
