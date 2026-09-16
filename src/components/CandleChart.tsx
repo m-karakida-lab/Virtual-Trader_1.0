@@ -1267,6 +1267,8 @@ export function CandleChart({
           el.style.fontFamily = CHART_FONT_FAMILY;
           el.style.padding = '2px 4px';
           el.style.borderRadius = '2px';
+          el.className = 'vt-text-editable';
+          el.setAttribute('data-placeholder', '文字を入力');
           overlay.appendChild(el);
           existing.set(t.id, el);
         }
@@ -1329,6 +1331,15 @@ export function CandleChart({
       }
     };
 
+    // 全部消してちょうど空になった時、ブラウザによっては`<br>`等の空ノードが1つ
+    // 残ってDOM上は完全な空（:empty）にならないことがある（プレースホルダーの
+    // CSS `:empty::before`が働かず「文字を入力」が出てこなくなる）。inputのたびに
+    // textContentが空文字ならinnerHTMLごと空にして、常にDOM上も完全に空にしておく
+    const onTextEditInput = (e: Event) => {
+      const el = e.currentTarget as HTMLDivElement;
+      if (el.textContent === '') el.innerHTML = '';
+    };
+
     const finishTextEdit = () => {
       const id = editingTextId;
       const el = editingTextEl;
@@ -1336,6 +1347,7 @@ export function CandleChart({
       editingTextId = null;
       editingTextEl = null;
       el.removeEventListener('keydown', onTextEditKeyDown);
+      el.removeEventListener('input', onTextEditInput);
       el.removeEventListener('blur', finishTextEdit);
       el.contentEditable = 'false';
       el.style.pointerEvents = 'none';
@@ -1351,6 +1363,7 @@ export function CandleChart({
       editingTextId = null;
       editingTextEl = null;
       el.removeEventListener('keydown', onTextEditKeyDown);
+      el.removeEventListener('input', onTextEditInput);
       el.removeEventListener('blur', finishTextEdit);
       el.contentEditable = 'false';
       el.style.pointerEvents = 'none';
@@ -1367,6 +1380,7 @@ export function CandleChart({
       el.contentEditable = 'true';
       el.style.outline = 'none';
       el.addEventListener('keydown', onTextEditKeyDown);
+      el.addEventListener('input', onTextEditInput);
       el.addEventListener('blur', finishTextEdit);
       el.focus();
       // カーソルは末尾に置く（全選択のままだと最初のキー入力で全部消えてしまう）

@@ -28,3 +28,12 @@ body {
 .vt-dark-scroll::-webkit-scrollbar-thumb:hover {
   background-color: #4a4a4a;
 }
+
+/* テキストボックス（contentEditable）の空欄プレースホルダー。TradingView同様、
+   中身が空の間だけ薄い文字で「文字を入力」等のヒントを出し、入力し始めると
+   （子ノードができて:emptyに合致しなくなるので）自動的に消える */
+.vt-text-editable:empty::before {
+  content: attr(data-placeholder);
+  color: #666;
+  pointer-events: none;
+}
