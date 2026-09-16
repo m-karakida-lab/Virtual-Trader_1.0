@@ -4195,24 +4195,6 @@ export function CandleChart({
     };
   }, [fitSignal]);
 
-  // 4画面時、他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）。
-  // パネル切替の瞬間にチャートが破棄されかけている可能性があるため try/catch で保護し、
-  // 万一失敗しても画面全体をクラッシュさせない（失敗はerrorLogに記録）
-  useEffect(() => {
-    if (!chartRef.current || !seriesRef.current || crosshairSourceId === mySourceId) return;
-    try {
-      if (crosshairTime === null) {
-        chartRef.current.clearCrosshairPosition();
-        return;
-      }
-      const hit = priceAtTime(displayCandles, crosshairTime, timeframeSec);
-      if (hit === null) { chartRef.current.clearCrosshairPosition(); return; }
-      chartRef.current.setCrosshairPosition(hit.price, hit.time as Time, seriesRef.current);
-    } catch (e) {
-      logError('CandleChart:crosshairSync', e);
-    }
-  }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId]);
-
   // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット分の位置に来るよう追従。
   // 組み込みのscrollToRealTime()は使わない——内部で即座に確定するのではなく既定400msの
   // アニメーション（lightweight-charts自身の内部更新キュー駆動）でスクロールする仕様で、
@@ -4499,6 +4481,31 @@ export function CandleChart({
     });
     return () => cancelAnimationFrame(raf);
   }, [isMain, nonMainVisible, nonMainCandles, timeframeSec]);
+
+  // 4画面時、他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）。
+  // 上のメイン/非メインどちらのsetData effectよりも後ろで宣言すること——Reactは同一
+  // コミット内のeffectを宣言順に実行するため、これより前に置くと「displayCandlesは
+  // 新しい値に更新済みだが、series.setData()自体はまだ実行されていない（seriesRef.current
+  // の実データが古いまま）」瞬間に当たってしまうことがある。その状態でhit.timeを渡しても
+  // seriesにはまだ存在しない時刻のため、setCrosshairPositionの内部座標解決がnullになり
+  // 例外を投げる（"Value is null" at ensureNotNull として実際に踏んだ——リプレイ再生中に
+  // 他パネルをホバーすると再現しやすい、足が更新されるのと同じコミットでズレるため）。
+  // パネル切替の瞬間にチャートが破棄されかけている可能性もあるため try/catch でも保護し、
+  // 万一失敗しても画面全体をクラッシュさせない（失敗はerrorLogに記録）
+  useEffect(() => {
+    if (!chartRef.current || !seriesRef.current || crosshairSourceId === mySourceId) return;
+    try {
+      if (crosshairTime === null) {
+        chartRef.current.clearCrosshairPosition();
+        return;
+      }
+      const hit = priceAtTime(displayCandles, crosshairTime, timeframeSec);
+      if (hit === null) { chartRef.current.clearCrosshairPosition(); return; }
+      chartRef.current.setCrosshairPosition(hit.price, hit.time as Time, seriesRef.current);
+    } catch (e) {
+      logError('CandleChart:crosshairSync', e);
+    }
+  }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId]);
 
   // 時間軸の切替・新規CSV読み込み時の表示位置決定。
   // ユーザーがヘッダーのドロップダウンで時間足を切り替えた直後は、pendingTimeframeSwitchRangeRef
