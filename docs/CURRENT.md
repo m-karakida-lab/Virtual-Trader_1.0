@@ -136,7 +136,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/components/HistoryPanel.tsx` — エクイティカーブ＋取引履歴テーブル（オーバーレイパネル）
 - `src/components/FileLoader.tsx` — 「ファイル選択▾」ドロップダウン（開く履歴）＋「💾 vtd保存」ボタン
 - `src/components/ErrorBoundary.tsx` — レンダー/エフェクト中の例外を捕捉し黒画面の代わりにエラー内容を表示（`main.tsx`でApp全体を包む）
-- `src/lib/errorLog.ts` — 例外をlocalStorage（`vt:errorLog`、直近20件）に記録。`window.onerror`/`unhandledrejection`とErrorBoundary両方から書き込む
+- `src/lib/errorLog.ts` — 例外をlocalStorage（`vt:errorLog`、直近20件）に記録。`window.onerror`/`unhandledrejection`とErrorBoundary両方から書き込む。加えて`errorLogFile.ts`経由で実ファイルへも追記を試みる（ベストエフォート）
+- `src/lib/errorLogFile.ts` — エラーログの実ファイル追記（Chrome/Edge限定、File System Access API）。選んだファイルハンドルは専用DB（`virtual-trader-errorlog`、openHistory.tsのDBとは分離）にIndexedDB保存。2MB超で末尾半分だけ残して自動切り詰め（古いログの自動削除）。UIはControls.tsxの「🪲 ログ」メニュー（保存先選択/解除、非対応ブラウザ・未設定時用にlocalStorageリングバッファのダウンロードも常設）
 
 ## 不変条件 / 地雷
 

@@ -4,6 +4,11 @@ import { TIMEFRAMES, type Position, type PendingOrder, type OrderType } from '..
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { captureChartArea } from '../lib/screenshot';
+import { readErrorLog } from '../lib/errorLog';
+import {
+  isFileSystemAccessSupported as isErrorLogFileSupported,
+  pickErrorLogFile, forgetErrorLogFile, getErrorLogFileName,
+} from '../lib/errorLogFile';
 
 // "YYYY-MM-DD" + "HH:mm" を UTC 前提で Unix秒に変換
 function parseDateAsUTC(dateStr: string): number | null {
@@ -160,6 +165,78 @@ function MenuButton({
         </div>
       )}
     </div>
+  );
+}
+
+// ── エラーログの保存先設定（メニュー） ──────────────────────────────────────
+// 問題が起きた時に後から調査できるよう、エラーログ（errorLog.ts）を実ファイルへも
+// 追記できるようにする設定。File System Access API対応ブラウザ（Chrome/Edge）限定。
+// 非対応ブラウザ・未設定時でも、localStorageのリングバッファをその場でダウンロードする
+// フォールバックは常に使える
+function ErrorLogMenu() {
+  const [fileName, setFileName] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const supported = isErrorLogFileSupported();
+
+  useEffect(() => {
+    if (!supported) return;
+    getErrorLogFileName().then(setFileName);
+  }, [supported]);
+
+  const handlePick = async () => {
+    setBusy(true);
+    const handle = await pickErrorLogFile();
+    setBusy(false);
+    if (handle) setFileName(handle.name);
+  };
+
+  const handleForget = async () => {
+    await forgetErrorLogFile();
+    setFileName(null);
+  };
+
+  const handleDownload = () => {
+    const entries = readErrorLog();
+    const text = entries
+      .map(e => `[${e.time}] [${e.source}] ${e.message}${e.stack ? '\n' + e.stack : ''}`)
+      .join('\n\n');
+    const blob = new Blob([text || '（記録なし）'], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `virtual-trader-error-log_${new Date().toISOString().slice(0, 10)}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+  };
+
+  return (
+    <MenuButton label="🪲 ログ">
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '280px' }}>
+        {supported ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+            <span style={{ fontSize: '13px', color: '#888' }}>
+              自動追記の保存先: {fileName ? <span style={{ color: '#e0e0e0' }}>{fileName}</span> : '未設定'}
+            </span>
+            <div style={{ display: 'flex', gap: '6px' }}>
+              <button onClick={handlePick} disabled={busy} style={tfBtn(false, busy)}>
+                {fileName ? '保存先を変更...' : '保存先を選ぶ...'}
+              </button>
+              {fileName && (
+                <button onClick={handleForget} style={tfBtn(false, false)}>解除</button>
+              )}
+            </div>
+          </div>
+        ) : (
+          <span style={{ fontSize: '13px', color: '#888' }}>
+            このブラウザはファイルへの自動追記に非対応です（Chrome/Edgeのみ）。下のダウンロードのみ使えます
+          </span>
+        )}
+        <span style={{ height: '1px', backgroundColor: '#2a2a2a' }} />
+        <div>
+          <button onClick={handleDownload} style={tfBtn(false, false)}>直近のログをダウンロード</button>
+        </div>
+      </div>
+    </MenuButton>
   );
 }
 
@@ -637,6 +714,10 @@ export function Controls() {
           </MenuButton>
         </div>
 
+        {/* エラーログの保存先（メニュー）。isLoadedに関わらず常に使える設定なのでdisabled指定なし */}
+        <div style={{ padding: '0 8px', flexShrink: 0 }}>
+          <ErrorLogMenu />
+        </div>
 
         {/* 速度（再生・1コマ送り/戻りはチャート上のフロートボタンへ） */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px', gap: '4px', flexShrink: 0 }}>
