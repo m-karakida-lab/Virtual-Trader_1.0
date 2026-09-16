@@ -1305,6 +1305,11 @@ export function CandleChart({
     // 素の'\n'がそのまま改行として表示される）
     const onTextEditKeyDown = (e: KeyboardEvent) => {
       e.stopPropagation();
+      // IME変換中のEnter（変換確定）はkey==='Enter'として届くが、これは改行ではなく
+      // 「変換を確定させたい」だけの入力なので、素通しして確定処理をブラウザ/IMEに
+      // 任せる（isComposingまたはkeyCode===229で判定。preventDefaultすると変換中の
+      // 文字列が確定されず、代わりに改行が挿入されてしまう不具合を実際に踏んだ）
+      if (e.key === 'Enter' && (e.isComposing || e.keyCode === 229)) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         const sel = window.getSelection();
