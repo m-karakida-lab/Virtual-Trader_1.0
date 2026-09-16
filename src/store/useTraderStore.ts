@@ -324,7 +324,7 @@ interface TraderState {
   duplicateTrendLine: (id: number, time1: number, price1: number, time2: number, price2: number) => void;
   toggleDrawTrendLine: () => void;
   setTrendLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
-  addBrush: (points: { time: number; price: number }[]) => void;
+  addBrush: (points: { time: number; price: number }[], opts?: { straight?: boolean }) => void;
   updateBrush: (id: number, patch: Partial<Omit<DrawnBrush, 'id'>>) => void;
   removeBrush: (id: number) => void;
   duplicateBrush: (id: number, points: { time: number; price: number }[]) => void;
@@ -1132,11 +1132,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   }),
   setTrendLineDraft: patch => set(s => ({ trendLineDraft: { ...s.trendLineDraft, ...patch } })),
 
-  addBrush: (points: { time: number; price: number }[]) => {
+  addBrush: (points: { time: number; price: number }[], opts?: { straight?: boolean }) => {
     pushDrawHistory(get, set);
     const { brushes, nextBrushId, brushDraft, continuousDrawing } = get();
     set({
-      brushes: [...brushes, { id: nextBrushId, points, ...brushDraft }],
+      brushes: [...brushes, { id: nextBrushId, points, ...brushDraft, ...(opts?.straight ? { straight: true } : {}) }],
       nextBrushId: nextBrushId + 1,
       isDrawingBrush: continuousDrawing,
     });

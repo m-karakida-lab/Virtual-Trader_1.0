@@ -13,6 +13,7 @@ import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
+import { recognizeShape } from '../lib/shapeRecognition';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud } from '../lib/indicators';
 import { priceAtTime } from '../lib/crosshairSync';
@@ -1000,7 +1001,7 @@ export function CandleChart({
 
     const drawBrushStroke = (
       points: { time: number; price: number }[],
-      color: string, width: number, selected: boolean,
+      color: string, width: number, selected: boolean, straight?: boolean,
     ) => {
       if (!seriesRef.current || points.length < 2) return;
       const canvas = brushCanvasRef.current;
@@ -1014,24 +1015,31 @@ export function CandleChart({
         pixelPoints.push({ x, y });
       }
       if (pixelPoints.length < 2) return;
-      const smoothed = smoothPixelPoints(pixelPoints);
       ctx.save();
       ctx.strokeStyle = color;
       ctx.lineWidth = width;
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.moveTo(smoothed[0].x, smoothed[0].y);
-      // 隣接点同士をただの直線（lineTo）で繋ぐと、点の間隔が粗い時にカクカクした
-      // 多角形に見えてしまう。各点をコントロールポイントに、次の点との中点までを
-      // 2次ベジェで繋ぐ定番の手書き線平滑化（各セグメントの継ぎ目で接線が連続になる）
-      for (let i = 1; i < smoothed.length - 1; i++) {
-        const midX = (smoothed[i].x + smoothed[i + 1].x) / 2;
-        const midY = (smoothed[i].y + smoothed[i + 1].y) / 2;
-        ctx.quadraticCurveTo(smoothed[i].x, smoothed[i].y, midX, midY);
+      if (straight) {
+        // 図形認識（三角形）でスナップされた頂点列: 手ブレ補正や曲線化はせず、
+        // 頂点同士をそのまま直線で結ぶ（角を丸めると「綺麗な三角形」に見えなくなる）
+        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
+        for (let i = 1; i < pixelPoints.length; i++) ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
+      } else {
+        const smoothed = smoothPixelPoints(pixelPoints);
+        ctx.moveTo(smoothed[0].x, smoothed[0].y);
+        // 隣接点同士をただの直線（lineTo）で繋ぐと、点の間隔が粗い時にカクカクした
+        // 多角形に見えてしまう。各点をコントロールポイントに、次の点との中点までを
+        // 2次ベジェで繋ぐ定番の手書き線平滑化（各セグメントの継ぎ目で接線が連続になる）
+        for (let i = 1; i < smoothed.length - 1; i++) {
+          const midX = (smoothed[i].x + smoothed[i + 1].x) / 2;
+          const midY = (smoothed[i].y + smoothed[i + 1].y) / 2;
+          ctx.quadraticCurveTo(smoothed[i].x, smoothed[i].y, midX, midY);
+        }
+        const last = smoothed[smoothed.length - 1];
+        ctx.lineTo(last.x, last.y);
       }
-      const last = smoothed[smoothed.length - 1];
-      ctx.lineTo(last.x, last.y);
       ctx.stroke();
       if (selected) {
         // 選択リング: 始点・終点に小さな円（フリーハンドは端点が無数にあるため、
@@ -1076,7 +1084,7 @@ export function CandleChart({
 
       for (const b of currentBrushes) {
         const live = brushDragPreview && brushDragPreview.id === b.id ? brushDragPreview.points : b.points;
-        drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId);
+        drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId, b.straight);
       }
 
       if (newBrushDraft) {
@@ -1594,6 +1602,10 @@ export function CandleChart({
     let brushDrawing = false;
     let brushPoints: { time: number; price: number }[] = [];
     let lastBrushPx: { x: number; y: number } | null = null;
+    // brushPointsと1対1で並走するピクセル座標版。図形認識（三角形/円のスナップ）は
+    // 時間軸と価格軸でスケールが全く異なる time/price 空間では「見た目のバランス」を
+    // 判定できないため、ストローク確定時にこちらを使って判定する
+    let brushPxPoints: { x: number; y: number }[] = [];
 
     // ── ものさし（ドラッグで価格差・本数・期間を計測） ──────────────
     let measuringDrag = false;
@@ -2160,6 +2172,7 @@ export function CandleChart({
         if (price === null || time === null) return;
         brushDrawing = true;
         brushPoints = [{ time, price }];
+        brushPxPoints = [{ x, y }];
         lastBrushPx = { x, y };
         chart.applyOptions({ handleScroll: false, handleScale: false });
         newBrushDraft = brushPoints;
@@ -2360,6 +2373,7 @@ export function CandleChart({
         const time = pixelToContinuousTime(x);
         if (price === null || time === null) return;
         brushPoints = [...brushPoints, { time, price }];
+        brushPxPoints = [...brushPxPoints, { x, y }];
         lastBrushPx = { x, y };
         newBrushDraft = brushPoints;
         // 重いのはcanvas再描画の方なので、そちらだけrAFで間引く
@@ -2720,10 +2734,29 @@ export function CandleChart({
         chart.applyOptions({ handleScroll: true, handleScale: true });
         newBrushDraft = null;
         if (brushPoints.length >= 2) {
-          useTraderStore.getState().addBrush(brushPoints);
+          // 図形認識: 閉じた三角形/円っぽいストロークなら綺麗な図形にスナップする
+          // （iPad等のペン機能と同種の処理。判定はピクセル座標で行う——time/priceの
+          // スケールは無関係なので、そのまま使うと見た目の「バランス」を判定できない）
+          const recognized = seriesRef.current ? recognizeShape(brushPxPoints) : null;
+          const converted = recognized && seriesRef.current
+            ? recognized.points.map(pt => ({
+                time: pixelToContinuousTime(pt.x),
+                price: seriesRef.current!.coordinateToPrice(pt.y),
+              }))
+            : null;
+          const allValid = converted !== null && converted.every(p => p.time !== null && p.price !== null);
+          if (recognized && allValid) {
+            useTraderStore.getState().addBrush(
+              converted!.map(p => ({ time: p.time as number, price: p.price as number })),
+              recognized.type === 'triangle' ? { straight: true } : undefined,
+            );
+          } else {
+            useTraderStore.getState().addBrush(brushPoints);
+          }
         }
         syncBrushes(); // ドラフトのクリア
         brushPoints = [];
+        brushPxPoints = [];
         lastBrushPx = null;
         return;
       }
