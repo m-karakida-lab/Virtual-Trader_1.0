@@ -21,7 +21,7 @@
 ### データ読み込み
 - Axiory MT4形式 1分足CSVの読み込み（複数ファイル対応、ファイル名昇順で結合）
 - ドラッグ&ドロップ読み込み対応（`App.tsx`の`loadFiles`）。この経路はフォルダ履歴には残らない
-- フォルダを開いた履歴（Chrome/Edgeのみ、File System Access API、最大12件、`src/lib/openHistory.ts`、IndexedDB保存）。「ファイル選択▾」から直接ファイル選択／フォルダ選択／履歴選択ができる。非対応ブラウザは`<input type=file>`にフォールバックし履歴機能自体出ない
+- フォルダを開いた履歴（Chrome/Edgeのみ、File System Access API、最大12件、`src/lib/openHistory.ts`、IndexedDB保存）。「ファイル選択▾」から直接ファイル選択／フォルダ選択／履歴選択ができる。各履歴行の右端の×で個別に削除可能（`removeFromHistory`）。非対応ブラウザは`<input type=file>`にフォールバックし履歴機能自体出ない
 - 読込完了時「✓ N本 読み込み完了」を5秒間表示
 - 1分足→任意時間軸への自動集計（DuckDB SQL）。5m/15m/1H/4H/1D/1W/MN切替可。週足・月足はカレンダー基準`date_trunc`集計、それ以外は`floor(ts/sec)`固定長バケット集計
 - 表示は日本時間(JST)に変換済み。CSV（ブローカーサーバー時間）はEU夏時間ルール（GMT+2冬/+3夏）前提で自動変換。チャート・日付ジャンプ・取引履歴すべてJST基準

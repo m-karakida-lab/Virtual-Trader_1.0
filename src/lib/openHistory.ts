@@ -72,6 +72,18 @@ export async function addToHistory(handle: FileSystemDirectoryHandle): Promise<O
   return next;
 }
 
+// 履歴から特定の1件だけを手動で消す（×ボタン用。addToHistoryの重複排除と同じ
+// isSameEntryで対象を特定する）
+export async function removeFromHistory(handle: FileSystemDirectoryHandle): Promise<OpenHistoryEntry[]> {
+  const existing = await loadOpenHistory();
+  const next: OpenHistoryEntry[] = [];
+  for (const e of existing) {
+    if (!(await (e.handle as ComparableHandle).isSameEntry(handle))) next.push(e);
+  }
+  await saveOpenHistory(next);
+  return next;
+}
+
 const CSV_PICKER_TYPES = [{ description: 'CSV / VTD', accept: { 'text/csv': ['.csv', '.vtd'] } }];
 
 // フォルダを選ぶダイアログ。キャンセル（AbortError）時はnull

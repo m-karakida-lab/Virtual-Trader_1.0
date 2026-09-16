@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
 import {
-  isFileSystemAccessSupported, loadOpenHistory, addToHistory, pickFolder, pickFiles, type OpenHistoryEntry,
+  isFileSystemAccessSupported, loadOpenHistory, addToHistory, removeFromHistory, pickFolder, pickFiles, type OpenHistoryEntry,
 } from '../lib/openHistory';
 
 // クリックで開閉するドロップダウン（下方向に開く。Controls.tsxのMenuButtonと似ているが
@@ -96,6 +96,14 @@ export function FileLoader() {
     setHistory(next);
   };
 
+  // 履歴の1件だけを手動で消す（×ボタン）。行本体のonClick（そのフォルダを開く）や
+  // メニュー全体を閉じるouterのonClickへクリックが伝播しないようstopPropagationする
+  const deleteHistoryEntry = async (e: React.MouseEvent, handle: FileSystemDirectoryHandle) => {
+    e.stopPropagation();
+    const next = await removeFromHistory(handle);
+    setHistory(next);
+  };
+
   return (
     <div style={{
       padding: '8px 12px',
@@ -127,10 +135,22 @@ export function FileLoader() {
               onClick={() => openViaFolder(entry.handle)}
               title={entry.label}
               style={{
-                padding: '8px 14px', fontSize: '13px', color: '#aaa', cursor: 'pointer',
-                whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+                display: 'flex', alignItems: 'center', gap: '8px',
+                padding: '8px 8px 8px 14px', fontSize: '13px', color: '#aaa', cursor: 'pointer',
               }}
-            >📁 {entry.label}</div>
+            >
+              <span style={{
+                flex: 1, minWidth: 0, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis',
+              }}>📁 {entry.label}</span>
+              <button
+                onClick={e => deleteHistoryEntry(e, entry.handle)}
+                title="この履歴を削除"
+                style={{
+                  flexShrink: 0, background: 'none', border: 'none', color: '#555',
+                  cursor: 'pointer', fontSize: '15px', padding: '0 6px', lineHeight: 1,
+                }}
+              >×</button>
+            </div>
           ))}
         </OpenMenuButton>
       ) : (
