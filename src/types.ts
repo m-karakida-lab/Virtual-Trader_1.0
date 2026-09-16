@@ -114,6 +114,19 @@ export interface DrawnTrendLine {
   width: LineWidth;
 }
 
+// ── 矢印 ─────────────────────────────────────────────────────────────────
+
+// トレンドラインと同じ2点（始点・終点）だが、終点（矢先）に矢印ヘッドを描く。
+// 特定のロウソク足を指し示す用途を想定し、終点をそのロウソク足に合わせて使う
+export interface DrawnArrow {
+  id: number;
+  time1: number; price1: number; // 始点（矢尻）
+  time2: number; price2: number; // 終点（矢先。ここが指し示す足）
+  color: string;
+  dash: LineDash;
+  width: LineWidth;
+}
+
 // ── ブラシ（フリーハンド） ───────────────────────────────────────────────
 
 // TradingViewの「ブラシ」相当。ドラッグの軌跡をそのまま点列として持つ
@@ -151,4 +164,4 @@ export interface DrawnText {
 }
 
 // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストを問わず「選択中の1つ」を表す
-export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'brush' | 'text'; id: number };
+export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'arrow' | 'brush' | 'text'; id: number };

@@ -39,6 +39,7 @@
 - パレットの色順は`LINE_COLORS`（`types.ts`）で固定: 赤→黄→ティール→青→紫→ピンク→グレー→白。四角形/トレンドライン/ブラシのデフォルト色は`LINE_COLORS[3]`（青）参照——並び順を変える時はこのインデックスも合わせて直すこと
 - 四角形描画: ドラッグで対角に描画。色/線種/太さは共通パレット（`LINE_COLORS`8色）。4隅/4辺ドラッグでリサイズ、枠線ドラッグ（`findRectBorderNear`）で平行移動。平行移動は秒数でなく足インデックス差分で計算（週末の足抜け対策）。ヒット許容半径は`RECT_HANDLE_HIT_PX=12`。枠線本体は専用canvas（`rectCanvasRef`、トレンドライン等と同じDOMオーバーレイ方式）に自前描画（グリッド線・標準の価格ラインより上に出したいためSeries Primitivesは使わない——詳細は不変条件/地雷を参照）。**縦線（左右）のみ**、描いた直後にその時点の全ロウソク足（実体＋ヒゲ、高値〜安値をbarSpacing幅で）を`globalCompositeOperation:'destination-out'`で塗って重なった部分だけ透明に抜く（TradingView同様、ローソク足と重なった部分はローソク足が優先表示される）。**横線（上下）は透明抜きの対象外**——価格ラインとしての用途を優先し常に不透明のまま最前面に出す（縦線の透明抜き処理の後に描画することで実現）。選択中のリサイズハンドルのみ別レイヤーのDOM（`rectHandleOverlayRef`）
 - トレンドライン描画: ドラッグで2点の線分。専用`<canvas>`（`trendCanvasRef`）に描画。端点ドラッグでリサイズ、本体ドラッグで平行移動（足インデックス基準）
+- 矢印描画: トレンドラインと全く同じ2点構造・操作性（専用`<canvas>`＝`arrowCanvasRef`、端点リサイズ/本体移動とも同じ実装）。終点（矢先）に三角形の矢印ヘッドを描き、特定の足を指し示す用途
 - ブラシ描画（フリーハンド）: ドラッグ軌跡を点列（`DrawnBrush.points`）として記録、専用`<canvas>`（`brushCanvasRef`）に2次ベジェで平滑化描画。ピクセル距離基準（`BRUSH_MIN_PX=2px`）で間引いて記録。座標変換は足の内側でも連続値を返す`pixelToContinuousTime`を使用。描画直前にボックスフィルタ12パスで手ブレ補正。移動は素の時間差分（足インデックス基準ではない）
 - ブラシの図形認識（`src/lib/shapeRecognition.ts`）: ストローク確定時、閉じている（始点-終点が近い）かをまず判定し、Douglas-Peuckerで単純化した頂点数が3なら三角形（`DrawnBrush.straight:true`、直線で描画・平滑化なし）、単純化してもなお頂点数が多く半径のばらつきが小さければ円（バウンディング楕円の点列に置き換え、既存の点列描画パイプラインをそのまま使う）にスナップする。判定はピクセル座標で行う（time/price空間はスケールが違うため）。どちらにも該当しなければ通常のフリーハンドのまま
 - テキストボックス描画: クリック配置と同時に編集モード。`contentEditable`直接編集（`window.prompt`不使用）、Enterは改行（`document.createTextNode('\n')`挿入）。空文字のまま確定/Escapeすると削除扱い。文字サイズ4段階（14/18/24/32px）・枠線スタイルはパレットで変更可
@@ -137,7 +138,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 
 ## 不変条件 / 地雷
 
-- DOMオーバーレイ（雲・トレンドライン・ブラシ・垂直線・テキスト・四角形・週区切り線等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）
+- DOMオーバーレイ（雲・トレンドライン・矢印・ブラシ・垂直線・テキスト・四角形・週区切り線等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）
+- 描画要素の種類を増やす時は`useTraderStore.ts`の`pushDrawHistory`/`undo`/`DrawSnapshot`/`loadFiles`/`saveChartFile`/`vtd.ts`の6箇所に配列とnextIdを必ず追加すること（`undo`だけ追加し忘れ、矢印を消してもUndoで戻らない不具合を実際に踏んだ）
 - `App.tsx`のツールバー列を囲むフレックス行が`overflow:hidden`のため、`DrawToolbar.tsx`のポップアップは`position:absolute`だと画面下寄りで開いた時にmaxHeight+overflowYより先に祖先でクリップされ、スクロールバーごと消える。`position:fixed`＋`getBoundingClientRect`基準の座標計算で回避する
 - lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）とグリッド線（`layout.grid`）はSeries Primitivesの対象外でzOrder制御ができず、常に他の描画物より前面に出る。四角形・週区切り線がPrimitivesではなくDOM/canvasオーバーレイなのはこの制約を回避するため（詳細は主要機能の四角形描画の項）
 - `showFullHistory`は廃止済み。全期間スクラバーの「全体」は常に`cursor+1`、`candles.length`（未来含む全データ）は使わない

@@ -7,7 +7,7 @@ import { fmtVTime } from './Controls';
 // TradingView風のアイコンツールバー。クリックした瞬間にそのツールが有効化され、
 // 続けてチャート上をクリック/ドラッグするだけで配置できる（配置後は自動的に解除される）。
 // 色・線種・太さの編集は右上のPalettePanel（パレットモード）が一手に担う。
-// 既存図形（水平線/垂直線/四角形/トレンドライン/ブラシ/テキスト）の一覧・選択・削除は
+// 既存図形（水平線/垂直線/四角形/トレンドライン/矢印/ブラシ/テキスト）の一覧・選択・削除は
 // このツールバー下部の「一覧」ポップアップが担う（以前はControls.tsxの「描画」メニュー側に
 // あったが、図形数が増えると下部バーのインジケータ項目を押し出してしまうため移設した）。
 // 4画面時も1画面時と同じく、常に操作可能なメインパネル（CandleChart）に対して働く。
@@ -46,6 +46,12 @@ const ICONS: Record<string, JSX.Element> = {
       <line x1="4" y1="19" x2="20" y2="6" />
       <circle cx="4" cy="19" r="2" fill="currentColor" stroke="none" />
       <circle cx="20" cy="6" r="2" fill="currentColor" stroke="none" />
+    </svg>
+  ),
+  arrow: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="4" y1="19" x2="19" y2="5" />
+      <polygon points="19,12 19,5 12,5" fill="currentColor" stroke="none" />
     </svg>
   ),
   brush: (
@@ -262,6 +268,7 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   const vlines = useTraderStore(s => s.vlines);
   const rects = useTraderStore(s => s.rects);
   const trendLines = useTraderStore(s => s.trendLines);
+  const arrows = useTraderStore(s => s.arrows);
   const brushes = useTraderStore(s => s.brushes);
   const texts = useTraderStore(s => s.texts);
   const selected = useTraderStore(s => s.selected);
@@ -270,6 +277,7 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   const removeVLine = useTraderStore(s => s.removeVLine);
   const removeRect = useTraderStore(s => s.removeRect);
   const removeTrendLine = useTraderStore(s => s.removeTrendLine);
+  const removeArrow = useTraderStore(s => s.removeArrow);
   const removeBrush = useTraderStore(s => s.removeBrush);
   const removeText = useTraderStore(s => s.removeText);
   const centerOnTime = useTraderStore(s => s.centerOnTime);
@@ -284,7 +292,7 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   }, [open]);
 
   const isEmpty = lines.length === 0 && vlines.length === 0 && rects.length === 0
-    && trendLines.length === 0 && brushes.length === 0 && texts.length === 0;
+    && trendLines.length === 0 && arrows.length === 0 && brushes.length === 0 && texts.length === 0;
 
   const openPopup = () => {
     const rect = btnRef.current?.getBoundingClientRect();
@@ -371,6 +379,18 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
             );
           })}
 
+          {arrows.map((ar, i) => {
+            const isSel = selected?.kind === 'arrow' && selected.id === ar.id;
+            const sel: LineSelection = { kind: 'arrow', id: ar.id };
+            return (
+              <span key={`ar${ar.id}`} onClick={() => selectLine(isSel ? null : sel)} style={chipStyle(isSel)}>
+                <span style={chipDotStyle(ar.color, true)} />
+                矢印{i + 1}
+                <button onClick={e => { e.stopPropagation(); removeArrow(ar.id); }} style={chipRemoveStyle}>×</button>
+              </span>
+            );
+          })}
+
           {brushes.map((b, i) => {
             const isSel = selected?.kind === 'brush' && selected.id === b.id;
             const sel: LineSelection = { kind: 'brush', id: b.id };
@@ -407,6 +427,7 @@ export function DrawToolbar() {
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
   const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
+  const isDrawingArrow = useTraderStore(s => s.isDrawingArrow);
   const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText  = useTraderStore(s => s.isDrawingText);
   const toggleDrawLine  = useTraderStore(s => s.toggleDrawLine);
@@ -414,6 +435,7 @@ export function DrawToolbar() {
   const toggleMeasure   = useTraderStore(s => s.toggleMeasure);
   const toggleDrawRect  = useTraderStore(s => s.toggleDrawRect);
   const toggleDrawTrendLine = useTraderStore(s => s.toggleDrawTrendLine);
+  const toggleDrawArrow = useTraderStore(s => s.toggleDrawArrow);
   const toggleDrawBrush = useTraderStore(s => s.toggleDrawBrush);
   const toggleDrawText  = useTraderStore(s => s.toggleDrawText);
   const magnetMode      = useTraderStore(s => s.magnetMode);
@@ -443,6 +465,7 @@ export function DrawToolbar() {
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />
       <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
       <ToolButton icon="trend" title="トレンドライン" active={isDrawingTrendLine} disabled={!isLoaded} onClick={toggleDrawTrendLine} />
+      <ToolButton icon="arrow" title="矢印（特定の足を指し示す）" active={isDrawingArrow} disabled={!isLoaded} onClick={toggleDrawArrow} />
       <ToolButton icon="brush" title="ブラシ" active={isDrawingBrush} disabled={!isLoaded} onClick={toggleDrawBrush} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
       <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />

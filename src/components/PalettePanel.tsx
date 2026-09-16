@@ -23,16 +23,19 @@ export function PalettePanel() {
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isDrawingRect = useTraderStore(s => s.isDrawingRect);
   const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
+  const isDrawingArrow = useTraderStore(s => s.isDrawingArrow);
   const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText = useTraderStore(s => s.isDrawingText);
   const lineDraft = useTraderStore(s => s.lineDraft);
   const rectDraft = useTraderStore(s => s.rectDraft);
   const trendLineDraft = useTraderStore(s => s.trendLineDraft);
+  const arrowDraft = useTraderStore(s => s.arrowDraft);
   const brushDraft = useTraderStore(s => s.brushDraft);
   const textDraft = useTraderStore(s => s.textDraft);
   const setLineDraft = useTraderStore(s => s.setLineDraft);
   const setRectDraft = useTraderStore(s => s.setRectDraft);
   const setTrendLineDraft = useTraderStore(s => s.setTrendLineDraft);
+  const setArrowDraft = useTraderStore(s => s.setArrowDraft);
   const setBrushDraft = useTraderStore(s => s.setBrushDraft);
   const setTextDraft = useTraderStore(s => s.setTextDraft);
 
@@ -45,6 +48,7 @@ export function PalettePanel() {
     : isDrawingVLine ? 'v' as const
     : isDrawingRect ? 'rect' as const
     : isDrawingTrendLine ? 'trend' as const
+    : isDrawingArrow ? 'arrow' as const
     : isDrawingBrush ? 'brush' as const
     : isDrawingText ? 'text' as const
     : null;
@@ -56,6 +60,7 @@ export function PalettePanel() {
     : armedKind === 'brush' ? brushDraft
     : armedKind === 'rect' ? rectDraft
     : armedKind === 'trend' ? trendLineDraft
+    : armedKind === 'arrow' ? arrowDraft
     : armedKind === 'h' || armedKind === 'v' ? lineDraft
     : null;
   const activeColor = armedDraft ? armedDraft.color : paletteStyle.color;
@@ -71,6 +76,7 @@ export function PalettePanel() {
     else if (armedKind === 'brush') setBrushDraft(patch);
     else if (armedKind === 'rect') setRectDraft(patch);
     else if (armedKind === 'trend') setTrendLineDraft(patch);
+    else if (armedKind === 'arrow') setArrowDraft(patch);
     else setLineDraft(patch);
   };
   const setColor = (color: string) => setStyle({ color });

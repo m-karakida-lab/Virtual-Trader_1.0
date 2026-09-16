@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnBrush, DrawnText, LineDash, LineWidth, LineSelection, MagnetMode, TextFontSize, TextBorderStyle } from '../types';
+import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnArrow, DrawnBrush, DrawnText, LineDash, LineWidth, LineSelection, MagnetMode, TextFontSize, TextBorderStyle } from '../types';
 import { LINE_COLORS, TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
@@ -16,12 +16,14 @@ interface DrawSnapshot {
   vlines: DrawnVLine[];
   rects: DrawnRect[];
   trendLines: DrawnTrendLine[];
+  arrows: DrawnArrow[];
   brushes: DrawnBrush[];
   texts: DrawnText[];
   nextLineId: number;
   nextVLineId: number;
   nextRectId: number;
   nextTrendLineId: number;
+  nextArrowId: number;
   nextBrushId: number;
   nextTextId: number;
 }
@@ -211,6 +213,9 @@ interface TraderState {
   trendLines: DrawnTrendLine[];
   nextTrendLineId: number;
   isDrawingTrendLine: boolean;
+  arrows: DrawnArrow[];
+  nextArrowId: number;
+  isDrawingArrow: boolean;
   brushes: DrawnBrush[];
   nextBrushId: number;
   isDrawingBrush: boolean;
@@ -228,6 +233,7 @@ interface TraderState {
   lineDraft: { color: string; dash: LineDash; width: LineWidth };
   rectDraft: { color: string; dash: LineDash; width: LineWidth };
   trendLineDraft: { color: string; dash: LineDash; width: LineWidth };
+  arrowDraft: { color: string; dash: LineDash; width: LineWidth };
   brushDraft: { color: string; width: LineWidth };
   textDraft: { color: string; fontSize: TextFontSize; border: TextBorderStyle };
   // パレットモード: ONの間、水平線・垂直線・四角形・トレンドライン・ブラシ・テキストをクリックして
@@ -324,6 +330,12 @@ interface TraderState {
   duplicateTrendLine: (id: number, time1: number, price1: number, time2: number, price2: number) => void;
   toggleDrawTrendLine: () => void;
   setTrendLineDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
+  addArrow: (time1: number, price1: number, time2: number, price2: number) => void;
+  updateArrow: (id: number, patch: Partial<Omit<DrawnArrow, 'id'>>) => void;
+  removeArrow: (id: number) => void;
+  duplicateArrow: (id: number, time1: number, price1: number, time2: number, price2: number) => void;
+  toggleDrawArrow: () => void;
+  setArrowDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
   addBrush: (points: { time: number; price: number }[], opts?: { straight?: boolean }) => void;
   updateBrush: (id: number, patch: Partial<Omit<DrawnBrush, 'id'>>) => void;
   removeBrush: (id: number) => void;
@@ -337,7 +349,7 @@ interface TraderState {
   toggleDrawText: () => void;
   setTextDraft: (patch: Partial<{ color: string; fontSize: TextFontSize; border: TextBorderStyle }>) => void;
   toggleContinuousDrawing: () => void;
-  undo: () => void; // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストの直前の変更を1つ戻す
+  undo: () => void; // 水平線・垂直線・四角形・トレンドライン・矢印・ブラシ・テキストの直前の変更を1つ戻す
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
   selectLine: (target: LineSelection | null) => void;
@@ -431,8 +443,8 @@ function processOrderRange(
 // 必ず呼ぶ。変更前の状態をUndoスタックに積む（ドラッグ中の逐次プレビューはstoreを経由
 // せずチャート側で直接動かしているため、ここではmouseup等の1コミット＝1手にしかならない）
 function pushDrawHistory(get: () => TraderState, set: (fn: (s: TraderState) => Partial<TraderState>) => void): void {
-  const { lines, vlines, rects, trendLines, brushes, texts, nextLineId, nextVLineId, nextRectId, nextTrendLineId, nextBrushId, nextTextId, drawHistory } = get();
-  const snapshot: DrawSnapshot = { lines, vlines, rects, trendLines, brushes, texts, nextLineId, nextVLineId, nextRectId, nextTrendLineId, nextBrushId, nextTextId };
+  const { lines, vlines, rects, trendLines, arrows, brushes, texts, nextLineId, nextVLineId, nextRectId, nextTrendLineId, nextArrowId, nextBrushId, nextTextId, drawHistory } = get();
+  const snapshot: DrawSnapshot = { lines, vlines, rects, trendLines, arrows, brushes, texts, nextLineId, nextVLineId, nextRectId, nextTrendLineId, nextArrowId, nextBrushId, nextTextId };
   set(() => ({ drawHistory: [...drawHistory, snapshot].slice(-MAX_DRAW_UNDO) }));
 }
 
@@ -453,6 +465,7 @@ function applyPaletteStyleTo(get: () => TraderState, target: LineSelection): voi
   else if (target.kind === 'v') get().updateVLine(target.id, paletteStyle);
   else if (target.kind === 'rect') get().updateRect(target.id, paletteStyle);
   else if (target.kind === 'trend') get().updateTrendLine(target.id, paletteStyle);
+  else if (target.kind === 'arrow') get().updateArrow(target.id, paletteStyle);
   else if (target.kind === 'brush') get().updateBrush(target.id, { color: paletteStyle.color, width: paletteStyle.width });
   else get().updateText(target.id, { color: paletteStyle.color, fontSize: paletteStyle.fontSize, border: paletteStyle.border });
 }
@@ -475,6 +488,9 @@ function syncPaletteStyleFrom(set: (fn: (s: TraderState) => Partial<TraderState>
   } else if (target.kind === 'trend') {
     const tl = s.trendLines.find(tt => tt.id === target.id);
     if (tl) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: tl.color, dash: tl.dash, width: tl.width } }));
+  } else if (target.kind === 'arrow') {
+    const ar = s.arrows.find(aa => aa.id === target.id);
+    if (ar) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: ar.color, dash: ar.dash, width: ar.width } }));
   } else if (target.kind === 'brush') {
     const b = s.brushes.find(bb => bb.id === target.id);
     if (b) set(prev => ({ paletteStyle: { ...prev.paletteStyle, color: b.color, width: b.width } }));
@@ -533,6 +549,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   trendLines: [],
   nextTrendLineId: 1,
   isDrawingTrendLine: false,
+  arrows: [],
+  nextArrowId: 1,
+  isDrawingArrow: false,
   brushes: [],
   nextBrushId: 1,
   isDrawingBrush: false,
@@ -547,6 +566,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   lineDraft: { color: '#e0e0e0', dash: 'solid', width: 2 },
   rectDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 }, // パレットにある青（#42a5f5）
   trendLineDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
+  arrowDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
   brushDraft: { color: LINE_COLORS[3], width: 2 },
   textDraft: { color: '#e0e0e0', fontSize: 18, border: 'solid' },
   paletteMode: false,
@@ -621,6 +641,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         vlines: drawings?.vlines ?? [], nextVLineId: nextIdOf(drawings?.vlines ?? []),
         rects: drawings?.rects ?? [], nextRectId: nextIdOf(drawings?.rects ?? []),
         trendLines: drawings?.trendLines ?? [], nextTrendLineId: nextIdOf(drawings?.trendLines ?? []),
+        arrows: drawings?.arrows ?? [], nextArrowId: nextIdOf(drawings?.arrows ?? []),
         brushes: drawings?.brushes ?? [], nextBrushId: nextIdOf(drawings?.brushes ?? []),
         texts, nextTextId: nextIdOf(texts),
         selected: null, drawHistory: [],
@@ -655,9 +676,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // 中身だけvtdになり、しかも表示は「.vtdに保存しました」で紛らわしかった）。
   // 素のCSVの初回保存は必ずダウンロード（新しい.vtdファイルとして書き出す）に倒す
   saveChartFile: async () => {
-    const { rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects, trendLines, brushes, texts } = get();
+    const { rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects, trendLines, arrows, brushes, texts } = get();
     if (rawCsvText === null) return;
-    const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects, trendLines, brushes, texts });
+    const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects, trendLines, arrows, brushes, texts });
 
     if (rawFileHandle !== null && rawFileIsBundle) {
       try {
@@ -817,7 +838,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   togglePickTarget: (t: 'price' | 'tp' | 'sl') => {
     set(s => ({
       pickTarget: s.pickTarget === t ? null : t,
-      isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, isJumpSync: false,
+      isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, isJumpSync: false,
     }));
   },
   pickPrice: (price: number) => {
@@ -829,7 +850,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   toggleJumpSync: () => set(s => ({
     isJumpSync: !s.isJumpSync,
-    isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null,
+    isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null,
   })),
   // 足をクリックした瞬間に呼ばれる。1回使ったらツールは自動的にOFFへ戻す（連続描画のような
   // 「置き続ける」概念が無いため、他の描画ツールと違いcontinuousDrawingの対象外）
@@ -1003,7 +1024,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawLine: () => set(s => {
     const next = !s.isDrawingLine;
-    return { isDrawingLine: next, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
+    return { isDrawingLine: next, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   // 水平線・垂直線は同じlineDraftを共有する（addLine/addVLineとも参照している通り）
   setLineDraft: patch => set(s => ({ lineDraft: { ...s.lineDraft, ...patch } })),
@@ -1042,9 +1063,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawVLine: () => set(s => {
     const next = !s.isDrawingVLine;
-    return { isDrawingVLine: next, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
+    return { isDrawingVLine: next, isDrawingLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
-  toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false })),
+  toggleMeasure: () => set(s => ({ isMeasuring: !s.isMeasuring, isDrawingLine: false, isDrawingVLine: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false })),
   toggleHLinePriceLabel: () => set(s => {
     const next = !s.showHLinePriceLabel;
     saveLineLabels(next, s.showVLineDateLabel);
@@ -1090,7 +1111,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawRect: () => set(s => {
     const next = !s.isDrawingRect;
-    return { isDrawingRect: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
+    return { isDrawingRect: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingTrendLine: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   setRectDraft: patch => set(s => ({ rectDraft: { ...s.rectDraft, ...patch } })),
 
@@ -1128,9 +1149,47 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawTrendLine: () => set(s => {
     const next = !s.isDrawingTrendLine;
-    return { isDrawingTrendLine: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
+    return { isDrawingTrendLine: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   setTrendLineDraft: patch => set(s => ({ trendLineDraft: { ...s.trendLineDraft, ...patch } })),
+
+  addArrow: (time1: number, price1: number, time2: number, price2: number) => {
+    pushDrawHistory(get, set);
+    const { arrows, nextArrowId, arrowDraft, continuousDrawing } = get();
+    set({
+      arrows: [...arrows, { id: nextArrowId, time1, price1, time2, price2, ...arrowDraft }],
+      nextArrowId: nextArrowId + 1,
+      isDrawingArrow: continuousDrawing,
+    });
+    get().selectLine({ kind: 'arrow', id: nextArrowId });
+  },
+  updateArrow: (id: number, patch: Partial<Omit<DrawnArrow, 'id'>>) => {
+    pushDrawHistory(get, set);
+    set(s => ({ arrows: s.arrows.map(a => a.id === id ? { ...a, ...patch } : a) }));
+  },
+  removeArrow: (id: number) => {
+    pushDrawHistory(get, set);
+    set(s => {
+      const wasSelected = s.selected?.kind === 'arrow' && s.selected.id === id;
+      return {
+        arrows: s.arrows.filter(a => a.id !== id),
+        selected: wasSelected ? null : s.selected,
+        paletteMode: wasSelected ? false : s.paletteMode,
+      };
+    });
+  },
+  duplicateArrow: (id: number, time1: number, price1: number, time2: number, price2: number) => {
+    const { arrows, nextArrowId } = get();
+    const src = arrows.find(a => a.id === id);
+    if (!src) return;
+    pushDrawHistory(get, set);
+    set({ arrows: [...arrows, { ...src, id: nextArrowId, time1, price1, time2, price2 }], nextArrowId: nextArrowId + 1 });
+  },
+  toggleDrawArrow: () => set(s => {
+    const next = !s.isDrawingArrow;
+    return { isDrawingArrow: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
+  }),
+  setArrowDraft: patch => set(s => ({ arrowDraft: { ...s.arrowDraft, ...patch } })),
 
   addBrush: (points: { time: number; price: number }[], opts?: { straight?: boolean }) => {
     pushDrawHistory(get, set);
@@ -1166,7 +1225,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawBrush: () => set(s => {
     const next = !s.isDrawingBrush;
-    return { isDrawingBrush: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
+    return { isDrawingBrush: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingArrow: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   setBrushDraft: patch => set(s => ({ brushDraft: { ...s.brushDraft, ...patch } })),
 
@@ -1210,7 +1269,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
   toggleDrawText: () => set(s => {
     const next = !s.isDrawingText;
-    return { isDrawingText: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingBrush: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
+    return { isDrawingText: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingArrow: false, isDrawingBrush: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   setTextDraft: patch => set(s => ({ textDraft: { ...s.textDraft, ...patch } })),
   // 描画ツールの切替（toggleDrawLine等）では触らない独立したロック的トグル
@@ -1221,8 +1280,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     if (drawHistory.length === 0) return;
     const prev = drawHistory[drawHistory.length - 1];
     set({
-      lines: prev.lines, vlines: prev.vlines, rects: prev.rects, trendLines: prev.trendLines, brushes: prev.brushes, texts: prev.texts,
-      nextLineId: prev.nextLineId, nextVLineId: prev.nextVLineId, nextRectId: prev.nextRectId, nextTrendLineId: prev.nextTrendLineId, nextBrushId: prev.nextBrushId, nextTextId: prev.nextTextId,
+      lines: prev.lines, vlines: prev.vlines, rects: prev.rects, trendLines: prev.trendLines, arrows: prev.arrows, brushes: prev.brushes, texts: prev.texts,
+      nextLineId: prev.nextLineId, nextVLineId: prev.nextVLineId, nextRectId: prev.nextRectId, nextTrendLineId: prev.nextTrendLineId, nextArrowId: prev.nextArrowId, nextBrushId: prev.nextBrushId, nextTextId: prev.nextTextId,
       drawHistory: drawHistory.slice(0, -1),
       selected: null, paletteMode: false,
     });
@@ -1259,6 +1318,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     if (selected.kind === 'h' || selected.kind === 'v') get().setLineDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
     else if (selected.kind === 'rect') get().setRectDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
     else if (selected.kind === 'trend') get().setTrendLineDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
+    else if (selected.kind === 'arrow') get().setArrowDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
     else if (selected.kind === 'brush') get().setBrushDraft({ color: paletteStyle.color, width: paletteStyle.width });
     else get().setTextDraft({ color: paletteStyle.color, fontSize: paletteStyle.fontSize, border: paletteStyle.border });
   },

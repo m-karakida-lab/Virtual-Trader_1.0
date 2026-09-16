@@ -200,6 +200,7 @@ export function Controls() {
   const isMeasuring = useTraderStore(s => s.isMeasuring);
   const isDrawingRect = useTraderStore(s => s.isDrawingRect);
   const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
+  const isDrawingArrow = useTraderStore(s => s.isDrawingArrow);
   const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText = useTraderStore(s => s.isDrawingText);
   const showEMA       = useTraderStore(s => s.showEMA);
@@ -575,13 +576,14 @@ export function Controls() {
               <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
               <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
               <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
-              {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingBrush || isDrawingText) && (
+              {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingArrow || isDrawingBrush || isDrawingText) && (
                 <span style={{ color: '#42a5f5', fontSize: '14px' }}>
                   {isDrawingLine && 'クリックで配置...'}
                   {isDrawingVLine && 'クリックで配置...'}
                   {isMeasuring && 'ドラッグで計測...'}
                   {isDrawingRect && 'ドラッグで描画...'}
                   {isDrawingTrendLine && 'ドラッグで描画...'}
+                  {isDrawingArrow && 'ドラッグで描画...'}
                   {isDrawingBrush && 'ドラッグで描画...'}
                   {isDrawingText && 'クリックで配置...'}
                   （左のアイコンで再度クリックすると解除）
