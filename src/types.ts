@@ -124,8 +124,9 @@ export interface DrawnBrush {
   points: { time: number; price: number }[];
   color: string;
   width: LineWidth;
-  // 図形認識（三角形）で生成された場合true。直線＋平滑化なしで描画する
-  // （円は既存の点列描画パイプラインをそのまま使うため専用フラグ不要）
+  // 図形認識（三角形/円）で生成された場合true。直線＋平滑化なしで描画する
+  // （円も、手ブレ補正の平滑化パイプラインに通すと閉じた輪の継ぎ目だけ丸められず
+  // 角が残るため、点数の多い直線つなぎで代用する）
   straight?: boolean;
 }
 

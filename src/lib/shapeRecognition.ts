@@ -23,7 +23,7 @@ const CORNER_MERGE_RATIO = 0.12; // 単純化後、隣り合う頂点がこの�
 const MIN_CIRCLE_CORNERS = 6; // 単純化後の頂点数がこれ未満（四角形等、直線的な多角形）なら円と誤認しない
 const MIN_POINTS = 8; // これ未満の点数は判定材料が少なすぎるため対象外
 const MIN_SIZE_PX = 16; // バウンディングボックスがこれより小さければ誤操作防止のため対象外
-const CIRCLE_STEPS = 48; // 生成する楕円の分割数
+const CIRCLE_STEPS = 64; // 生成する楕円の分割数（straight:trueで直線つなぎ描画するため、滑らかに見える程度に細かくする）
 
 function pathLength(pts: Pt[]): number {
   let len = 0;

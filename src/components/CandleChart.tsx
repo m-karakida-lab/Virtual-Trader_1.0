@@ -2746,9 +2746,13 @@ export function CandleChart({
             : null;
           const allValid = converted !== null && converted.every(p => p.time !== null && p.price !== null);
           if (recognized && allValid) {
+            // 円もstraight:true（平滑化なしの直線つなぎ）で描画する。円は点数が多く
+            // 直線でつないでも見た目には滑らかだが、平滑化パイプライン（手ブレ補正の
+            // ボックスフィルタ）は両端点を固定したまま処理するため、始点=終点の閉じた
+            // 輪にそのまま通すと継ぎ目だけ丸められず角が残ってしまう（実際に指摘を受けた）
             useTraderStore.getState().addBrush(
               converted!.map(p => ({ time: p.time as number, price: p.price as number })),
-              recognized.type === 'triangle' ? { straight: true } : undefined,
+              { straight: true },
             );
           } else {
             useTraderStore.getState().addBrush(brushPoints);
