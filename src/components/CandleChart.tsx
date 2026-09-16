@@ -978,12 +978,13 @@ export function CandleChart({
 
     // マウスの生の点列をそのまま繋ぐと手ブレがそのまま線に出る。TradingView等は
     // 描画前に点を平滑化（移動平均）してからなめらかな曲線を引いている模様なので、
-    // ここでも描画直前（記録データ自体はいじらない）にボックスフィルタを2パスかける。
+    // ここでも描画直前（記録データ自体はいじらない）にボックスフィルタを12パスかける
+    // （手ブレ補正をもう一段強く、という要望を受けて8→12に増やした）。
     // 両端は動かさない（ストロークの始点・終点がズレると選択リング等とズレて見える）
     const smoothPixelPoints = (pts: { x: number; y: number }[]): { x: number; y: number }[] => {
       if (pts.length < 3) return pts;
       let cur = pts;
-      for (let pass = 0; pass < 8; pass++) {
+      for (let pass = 0; pass < 12; pass++) {
         const next: { x: number; y: number }[] = [cur[0]];
         for (let i = 1; i < cur.length - 1; i++) {
           next.push({
