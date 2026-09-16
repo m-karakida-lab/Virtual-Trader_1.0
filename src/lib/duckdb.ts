@@ -24,6 +24,22 @@ export async function initDuckDB(): Promise<duckdb.AsyncDuckDB> {
   return db;
 }
 
+// 一部の証券会社のCSVエクスポートは末尾にDOS由来のEOFマーカー（0x1A = Ctrl-Z）が
+// 付いていることがある。DuckDBのCSVパーサーはこれを含むと「state machine reached an
+// invalid state」で読み込み全体が失敗する（ignore_errors=trueを指定していても、これは
+// 行単位のエラー耐性であってこの手の壊れたバイト列までは救えない——実際に踏んだ不具合）。
+// 末尾の制御文字・空行はCSVの意味上不要なので、安全に取り除いておく
+function stripTrailingGarbageBytes(buffer: ArrayBuffer): Uint8Array {
+  const bytes = new Uint8Array(buffer);
+  let end = bytes.length;
+  while (end > 0) {
+    const b = bytes[end - 1];
+    if (b === 0x1a || b === 0x00 || b === 0x0a || b === 0x0d) end--;
+    else break;
+  }
+  return end === bytes.length ? bytes : bytes.subarray(0, end);
+}
+
 // Axiory MT4形式: 2024.01.02,00:01,Open,High,Low,Close,Volume
 // 複数ファイルをファイル名順に1本ずつ INSERT（全ファイルを同時にメモリに乗せない）
 export async function loadCSVFiles(
@@ -60,7 +76,7 @@ export async function loadCSVFiles(
         nextBuf = sorted[i + 1].arrayBuffer();
       }
 
-      await instance.registerFileBuffer('_current.csv', new Uint8Array(buffer));
+      await instance.registerFileBuffer('_current.csv', stripTrailingGarbageBytes(buffer));
       await conn.query(`
         INSERT INTO candles_1m
         SELECT
