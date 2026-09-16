@@ -58,6 +58,20 @@ interface ArrowEndpoint {
   priceField: 'price1' | 'price2';
 }
 
+// 図形認識で作った三角形ブラシのドラッグ中の頂点（points配列内のインデックス0〜2。
+// 3番目=points[3]はループを閉じるための始点の複製なので、頂点としては編集対象にしない）
+interface BrushVertex {
+  brushId: number;
+  vertexIndex: 0 | 1 | 2;
+}
+
+// 図形認識で作った円ブラシのドラッグ中のバウンディングボックス角。掴んで拡縮すると
+// 点列（楕円の外周）を新しいボックスに合わせて再生成する
+interface BrushCircleCorner {
+  brushId: number;
+  corner: 'tl' | 'tr' | 'bl' | 'br';
+}
+
 const EMA_PERIOD = 200;
 const SMA_PERIOD = 14;
 const BB_PERIOD = 20;
@@ -1093,9 +1107,11 @@ export function CandleChart({
       return cur;
     };
 
+    const BRUSH_HANDLE_R = 5;
+
     const drawBrushStroke = (
       points: { time: number; price: number }[],
-      color: string, width: number, selected: boolean, straight?: boolean,
+      color: string, width: number, selected: boolean, shape?: 'triangle' | 'circle',
     ) => {
       if (!seriesRef.current || points.length < 2) return;
       const canvas = brushCanvasRef.current;
@@ -1115,9 +1131,10 @@ export function CandleChart({
       ctx.lineCap = 'round';
       ctx.lineJoin = 'round';
       ctx.beginPath();
-      if (straight) {
-        // 図形認識（三角形）でスナップされた頂点列: 手ブレ補正や曲線化はせず、
-        // 頂点同士をそのまま直線で結ぶ（角を丸めると「綺麗な三角形」に見えなくなる）
+      if (shape) {
+        // 図形認識（三角形/円）でスナップされた点列: 手ブレ補正や曲線化はせず、
+        // 点同士をそのまま直線で結ぶ（角を丸めると「綺麗な図形」に見えなくなる。
+        // 円は点数が多いため直線つなぎでも見た目には滑らか）
         ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
         for (let i = 1; i < pixelPoints.length; i++) ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
       } else {
@@ -1136,16 +1153,36 @@ export function CandleChart({
       }
       ctx.stroke();
       if (selected) {
-        // 選択リング: 始点・終点に小さな円（フリーハンドは端点が無数にあるため、
-        // トレンドラインの端点ハンドルのような編集用ハンドルではなく単なる選択の目印）
         ctx.fillStyle = '#42a5f5';
         ctx.strokeStyle = '#fff';
         ctx.lineWidth = 1;
-        for (const p of [pixelPoints[0], pixelPoints[pixelPoints.length - 1]]) {
-          ctx.beginPath();
-          ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
+        // 図形認識で作った三角形/円は専用の編集ハンドルを出す（掴んで再編集できる）。
+        // それ以外の普通のフリーハンドは端点が無数にあるので、始点・終点に単なる
+        // 選択の目印（ハンドルではない）を出すだけに留める
+        if (shape === 'triangle') {
+          for (const p of [pixelPoints[0], pixelPoints[1], pixelPoints[2]]) {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, BRUSH_HANDLE_R, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        } else if (shape === 'circle') {
+          const xs = pixelPoints.map(p => p.x), ys = pixelPoints.map(p => p.y);
+          const minX = Math.min(...xs), maxX = Math.max(...xs);
+          const minY = Math.min(...ys), maxY = Math.max(...ys);
+          for (const p of [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: minX, y: maxY }, { x: maxX, y: maxY }]) {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, BRUSH_HANDLE_R, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
+        } else {
+          for (const p of [pixelPoints[0], pixelPoints[pixelPoints.length - 1]]) {
+            ctx.beginPath();
+            ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.stroke();
+          }
         }
       }
       ctx.restore();
@@ -1178,7 +1215,7 @@ export function CandleChart({
 
       for (const b of currentBrushes) {
         const live = brushDragPreview && brushDragPreview.id === b.id ? brushDragPreview.points : b.points;
-        drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId, b.straight);
+        drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId, b.shape);
       }
 
       if (newBrushDraft) {
@@ -1824,13 +1861,23 @@ export function CandleChart({
     let arrowMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
     let pendingArrowMoveDelta: { idx: number; dp: number } | null = null;
     // ── ブラシの平行移動ドラッグ ─────────────────────────────────────
-    // フリーハンドは点ごとに個別の意味を持たないため、リサイズ（個々の点の編集）は
+    // 普通のフリーハンドは点ごとに個別の意味を持たないため、リサイズ（個々の点の編集）は
     // 提供せず、掴んだ点全体を平行移動するだけ。四角形/トレンドラインと違い、
     // 「幅を保つ」ような不変条件も無いので、足のインデックスではなく素の時間差分で
-    // 全ての点をまとめてずらす（実装が単純になる。週末等の足抜けを気にする必要が無い）
+    // 全ての点をまとめてずらす（実装が単純になる。週末等の足抜けを気にする必要が無い）。
+    // ただし図形認識で作った三角形/円（b.shapeあり）だけは例外で、下の専用ハンドルで
+    // 個別に編集できる
     let draggingBrushMoveId: number | null = null;
     let brushMoveStart: { points: { time: number; price: number }[]; startTime: number; startPrice: number } | null = null;
     let pendingBrushMoveDelta: { dt: number; dp: number } | null = null;
+    // ── 図形認識ブラシ（三角形/円）の頂点・角ドラッグ ───────────────
+    let draggingBrushVertex: BrushVertex | null = null;
+    let pendingBrushVertexPos: { time: number; price: number } | null = null;
+    let draggingBrushCircleCorner: BrushCircleCorner | null = null;
+    // 円のリサイズは掴んだ角の対角（固定される側）をピクセル座標で保持し、ドラッグ中の
+    // 角の新しい位置と合わせてバウンディングボックスを再計算、楕円の点列を作り直す
+    let brushCircleFixedCornerPx: { x: number; y: number } | null = null;
+    let pendingBrushCircleCornerPx: { x: number; y: number } | null = null;
     // ── テキストボックスの移動ドラッグ ─────────────────────────────
     // 掴んだ位置とテキスト要素の左上とのピクセルオフセットを保持し、ドラッグ中は
     // そのオフセット分だけずらした位置に要素を追従させる（垂直線ドラッグと同じ考え方）
@@ -2112,6 +2159,70 @@ export function CandleChart({
         if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return ar.id;
       }
       return null;
+    };
+
+    // 図形認識で作った三角形ブラシの頂点近傍判定（選択中の三角形のみ対象、トレンドラインの
+    // 端点判定と同じ考え方）
+    const findBrushVertexNear = (x: number, y: number): BrushVertex | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { brushes: currentBrushes, selected } = useTraderStore.getState();
+      for (const b of currentBrushes.filter(bb => bb.shape === 'triangle' && selected?.kind === 'brush' && selected.id === bb.id)) {
+        for (let i = 0; i < 3; i++) {
+          const px = timeToX(b.points[i].time);
+          const py = seriesRef.current.priceToCoordinate(b.points[i].price);
+          if (px === null || py === null) continue;
+          if (Math.hypot(px - x, py - y) <= RECT_HANDLE_HIT_PX) return { brushId: b.id, vertexIndex: i as 0 | 1 | 2 };
+        }
+      }
+      return null;
+    };
+
+    // 図形認識で作った円ブラシのバウンディングボックス角の近傍判定（選択中の円のみ対象）
+    const findBrushCircleCornerNear = (x: number, y: number): BrushCircleCorner | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { brushes: currentBrushes, selected } = useTraderStore.getState();
+      for (const b of currentBrushes.filter(bb => bb.shape === 'circle' && selected?.kind === 'brush' && selected.id === bb.id)) {
+        const pxPts: { x: number; y: number }[] = [];
+        for (const p of b.points) {
+          const px = timeToX(p.time), py = seriesRef.current.priceToCoordinate(p.price);
+          if (px !== null && py !== null) pxPts.push({ x: px, y: py });
+        }
+        if (pxPts.length === 0) continue;
+        const minX = Math.min(...pxPts.map(p => p.x)), maxX = Math.max(...pxPts.map(p => p.x));
+        const minY = Math.min(...pxPts.map(p => p.y)), maxY = Math.max(...pxPts.map(p => p.y));
+        const corners: { corner: BrushCircleCorner['corner']; x: number; y: number }[] = [
+          { corner: 'tl', x: minX, y: minY }, { corner: 'tr', x: maxX, y: minY },
+          { corner: 'bl', x: minX, y: maxY }, { corner: 'br', x: maxX, y: maxY },
+        ];
+        for (const c of corners) {
+          if (Math.hypot(c.x - x, c.y - y) <= RECT_HANDLE_HIT_PX) return { brushId: b.id, corner: c.corner };
+        }
+      }
+      return null;
+    };
+
+    // 円ブラシ用: ピクセル空間のバウンディングボックス（2点）から楕円の外周点列を
+    // 生成し、time/priceへ変換する（図形認識の円生成と同じ分割数・同じ考え方）
+    const CIRCLE_RESIZE_STEPS = 64;
+    const regenerateCirclePointsFromPxBox = (
+      x1: number, y1: number, x2: number, y2: number,
+    ): { time: number; price: number }[] | null => {
+      if (!seriesRef.current) return null;
+      const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+      const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
+      const rx = (maxX - minX) / 2, ry = (maxY - minY) / 2;
+      if (rx <= 0 || ry <= 0) return null;
+      const cx = minX + rx, cy = minY + ry;
+      const out: { time: number; price: number }[] = [];
+      for (let i = 0; i <= CIRCLE_RESIZE_STEPS; i++) {
+        const a = (i / CIRCLE_RESIZE_STEPS) * Math.PI * 2;
+        const px = cx + rx * Math.cos(a), py = cy + ry * Math.sin(a);
+        const time = pixelToContinuousTime(px);
+        const price = seriesRef.current.coordinateToPrice(py);
+        if (time === null || price === null) return null;
+        out.push({ time, price });
+      }
+      return out;
     };
 
     // ブラシ（フリーハンド）の近傍判定。点列を線分の連なりとみなし、隣接する各線分との
@@ -2463,6 +2574,41 @@ export function CandleChart({
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'move';
         useTraderStore.getState().selectLine({ kind: 'arrow', id: arrowId });
+        return;
+      }
+
+      const brushVertex = findBrushVertexNear(x, y);
+      if (brushVertex !== null) {
+        draggingBrushVertex = brushVertex;
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'nwse-resize';
+        useTraderStore.getState().selectLine({ kind: 'brush', id: brushVertex.brushId });
+        return;
+      }
+
+      const brushCorner = findBrushCircleCornerNear(x, y);
+      if (brushCorner !== null) {
+        if (!seriesRef.current) return;
+        const { brushes: brushesAtDown } = useTraderStore.getState();
+        const src = brushesAtDown.find(b => b.id === brushCorner.brushId);
+        if (!src) return;
+        const pxPts: { x: number; y: number }[] = [];
+        for (const p of src.points) {
+          const px = timeToX(p.time), py = seriesRef.current.priceToCoordinate(p.price);
+          if (px !== null && py !== null) pxPts.push({ x: px, y: py });
+        }
+        if (pxPts.length === 0) return;
+        const minX = Math.min(...pxPts.map(p => p.x)), maxX = Math.max(...pxPts.map(p => p.x));
+        const minY = Math.min(...pxPts.map(p => p.y)), maxY = Math.max(...pxPts.map(p => p.y));
+        // ドラッグ中に固定する対角の角の座標を控えておく
+        brushCircleFixedCornerPx = {
+          x: brushCorner.corner === 'tl' || brushCorner.corner === 'bl' ? maxX : minX,
+          y: brushCorner.corner === 'tl' || brushCorner.corner === 'tr' ? maxY : minY,
+        };
+        draggingBrushCircleCorner = brushCorner;
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'nwse-resize';
+        useTraderStore.getState().selectLine({ kind: 'brush', id: brushCorner.brushId });
         return;
       }
 
@@ -2868,6 +3014,53 @@ export function CandleChart({
         return;
       }
 
+      if (draggingBrushVertex !== null) {
+        if (!seriesRef.current) return;
+        const snap = magnetSnap(x, y);
+        const time = pixelToContinuousTime(x);
+        if (snap === null || time === null) return;
+        pendingBrushVertexPos = { time, price: snap.price };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingBrushVertex === null || pendingBrushVertexPos === null) return;
+            const { brushes: currentBrushes } = useTraderStore.getState();
+            const b = currentBrushes.find(bb => bb.id === draggingBrushVertex!.brushId);
+            if (!b) return;
+            const newPoints = b.points.map((pt, i) => {
+              // points[3]は輪を閉じるための始点(points[0])の複製なので、頂点0を動かす時は一緒に動かす
+              if (i === draggingBrushVertex!.vertexIndex || (draggingBrushVertex!.vertexIndex === 0 && i === 3)) {
+                return pendingBrushVertexPos!;
+              }
+              return pt;
+            });
+            brushDragPreview = { id: b.id, points: newPoints };
+            syncBrushes();
+          });
+        }
+        return;
+      }
+
+      if (draggingBrushCircleCorner !== null && brushCircleFixedCornerPx) {
+        pendingBrushCircleCornerPx = { x, y };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingBrushCircleCorner === null || pendingBrushCircleCornerPx === null || brushCircleFixedCornerPx === null) return;
+            const newPoints = regenerateCirclePointsFromPxBox(
+              brushCircleFixedCornerPx.x, brushCircleFixedCornerPx.y,
+              pendingBrushCircleCornerPx.x, pendingBrushCircleCornerPx.y,
+            );
+            if (!newPoints) return;
+            brushDragPreview = { id: draggingBrushCircleCorner.brushId, points: newPoints };
+            syncBrushes();
+          });
+        }
+        return;
+      }
+
       if (draggingTextId !== null) {
         pendingTextXY = { x: x - textGrabDX, y: y - textGrabDY };
         if (!rafScheduled) {
@@ -2926,6 +3119,10 @@ export function CandleChart({
         if (arrowEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const arrowHoverId = findArrowNear(x, y);
         if (arrowHoverId !== null) { container.style.cursor = 'move'; return; }
+        const brushVertexHover = findBrushVertexNear(x, y);
+        if (brushVertexHover !== null) { container.style.cursor = 'nwse-resize'; return; }
+        const brushCornerHover = findBrushCircleCornerNear(x, y);
+        if (brushCornerHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const brushHoverId = findBrushNear(x, y);
         if (brushHoverId !== null) { container.style.cursor = 'move'; return; }
         const textId = findTextNear(x, y);
@@ -3009,13 +3206,15 @@ export function CandleChart({
             : null;
           const allValid = converted !== null && converted.every(p => p.time !== null && p.price !== null);
           if (recognized && allValid) {
-            // 円もstraight:true（平滑化なしの直線つなぎ）で描画する。円は点数が多く
+            // 円もshape付き（平滑化なしの直線つなぎ）で描画する。円は点数が多く
             // 直線でつないでも見た目には滑らかだが、平滑化パイプライン（手ブレ補正の
             // ボックスフィルタ）は両端点を固定したまま処理するため、始点=終点の閉じた
-            // 輪にそのまま通すと継ぎ目だけ丸められず角が残ってしまう（実際に指摘を受けた）
+            // 輪にそのまま通すと継ぎ目だけ丸められず角が残ってしまう（実際に指摘を受けた）。
+            // shapeを付けておくことで選択中に専用の編集ハンドル（三角形=各頂点、
+            // 円=バウンディングボックスの角）も出せるようにする
             useTraderStore.getState().addBrush(
               converted!.map(p => ({ time: p.time as number, price: p.price as number })),
-              { straight: true },
+              { shape: recognized.type },
             );
           } else {
             useTraderStore.getState().addBrush(brushPoints);
@@ -3191,6 +3390,43 @@ export function CandleChart({
         draggingBrushMoveId = null;
         brushMoveStart = null;
         pendingBrushMoveDelta = null;
+        brushDragPreview = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
+      }
+      if (draggingBrushVertex !== null) {
+        if (pendingBrushVertexPos !== null) {
+          const { brushes: currentBrushes } = useTraderStore.getState();
+          const b = currentBrushes.find(bb => bb.id === draggingBrushVertex!.brushId);
+          if (b) {
+            const newPoints = b.points.map((pt, i) => {
+              if (i === draggingBrushVertex!.vertexIndex || (draggingBrushVertex!.vertexIndex === 0 && i === 3)) {
+                return pendingBrushVertexPos!;
+              }
+              return pt;
+            });
+            useTraderStore.getState().updateBrush(draggingBrushVertex.brushId, { points: newPoints });
+          }
+        }
+        draggingBrushVertex = null;
+        pendingBrushVertexPos = null;
+        brushDragPreview = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
+      }
+      if (draggingBrushCircleCorner !== null) {
+        if (pendingBrushCircleCornerPx !== null && brushCircleFixedCornerPx !== null) {
+          const newPoints = regenerateCirclePointsFromPxBox(
+            brushCircleFixedCornerPx.x, brushCircleFixedCornerPx.y,
+            pendingBrushCircleCornerPx.x, pendingBrushCircleCornerPx.y,
+          );
+          if (newPoints) {
+            useTraderStore.getState().updateBrush(draggingBrushCircleCorner.brushId, { points: newPoints });
+          }
+        }
+        draggingBrushCircleCorner = null;
+        brushCircleFixedCornerPx = null;
+        pendingBrushCircleCornerPx = null;
         brushDragPreview = null;
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';

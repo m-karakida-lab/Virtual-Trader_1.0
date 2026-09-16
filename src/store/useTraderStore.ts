@@ -336,7 +336,7 @@ interface TraderState {
   duplicateArrow: (id: number, time1: number, price1: number, time2: number, price2: number) => void;
   toggleDrawArrow: () => void;
   setArrowDraft: (patch: Partial<{ color: string; dash: LineDash; width: LineWidth }>) => void;
-  addBrush: (points: { time: number; price: number }[], opts?: { straight?: boolean }) => void;
+  addBrush: (points: { time: number; price: number }[], opts?: { shape?: 'triangle' | 'circle' }) => void;
   updateBrush: (id: number, patch: Partial<Omit<DrawnBrush, 'id'>>) => void;
   removeBrush: (id: number) => void;
   duplicateBrush: (id: number, points: { time: number; price: number }[]) => void;
@@ -1191,11 +1191,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   }),
   setArrowDraft: patch => set(s => ({ arrowDraft: { ...s.arrowDraft, ...patch } })),
 
-  addBrush: (points: { time: number; price: number }[], opts?: { straight?: boolean }) => {
+  addBrush: (points: { time: number; price: number }[], opts?: { shape?: 'triangle' | 'circle' }) => {
     pushDrawHistory(get, set);
     const { brushes, nextBrushId, brushDraft, continuousDrawing } = get();
     set({
-      brushes: [...brushes, { id: nextBrushId, points, ...brushDraft, ...(opts?.straight ? { straight: true } : {}) }],
+      brushes: [...brushes, { id: nextBrushId, points, ...brushDraft, ...(opts?.shape ? { shape: opts.shape } : {}) }],
       nextBrushId: nextBrushId + 1,
       isDrawingBrush: continuousDrawing,
     });
