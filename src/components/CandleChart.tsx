@@ -1305,30 +1305,45 @@ export function CandleChart({
     // 改行だけ跡形もなく消える不具合を実際に踏んだ。Selection/RangeでDOM文字ノードとして
     // 直接'\n'を挿入すれば実装依存を避けられる（white-space:preで描画しているため、
     // 素の'\n'がそのまま改行として表示される）
+    const insertNewlineAtSelection = () => {
+      const sel = window.getSelection();
+      if (!sel || sel.rangeCount === 0) return;
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      const nl = document.createTextNode('\n');
+      range.insertNode(nl);
+      range.setStartAfter(nl);
+      range.setEndAfter(nl);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    };
+
+    // IME変換確定のEnterで改行まで一度に行いたい（変換確定→改行を2回のEnterに分けたく
+    // ない）という要望のためのフラグ。変換確定中のEnterをここで直接改行扱いにすると、
+    // IME自身が変換文字列をDOMへ書き込んでいる最中にこちらもRange操作で割り込むことになり
+    // 変換結果が壊れる不具合を踏んだため、いったんフラグだけ立てて手出しはせず、直後の
+    // compositionend（IMEが変換文字列を確定し終えた後）で改めて改行を挿入する
+    let enterPressedDuringComposition = false;
+
     const onTextEditKeyDown = (e: KeyboardEvent) => {
       e.stopPropagation();
-      // IME変換中のEnter（変換確定）はkey==='Enter'として届くが、これは改行ではなく
-      // 「変換を確定させたい」だけの入力なので、素通しして確定処理をブラウザ/IMEに
-      // 任せる（isComposingまたはkeyCode===229で判定。preventDefaultすると変換中の
-      // 文字列が確定されず、代わりに改行が挿入されてしまう不具合を実際に踏んだ）
-      if (e.key === 'Enter' && (e.isComposing || e.keyCode === 229)) return;
+      if (e.key === 'Enter' && (e.isComposing || e.keyCode === 229)) {
+        enterPressedDuringComposition = true;
+        return;
+      }
       if (e.key === 'Enter') {
         e.preventDefault();
-        const sel = window.getSelection();
-        if (sel && sel.rangeCount > 0) {
-          const range = sel.getRangeAt(0);
-          range.deleteContents();
-          const nl = document.createTextNode('\n');
-          range.insertNode(nl);
-          range.setStartAfter(nl);
-          range.setEndAfter(nl);
-          sel.removeAllRanges();
-          sel.addRange(range);
-        }
+        insertNewlineAtSelection();
       } else if (e.key === 'Escape') {
         e.preventDefault();
         cancelTextEdit();
       }
+    };
+
+    const onTextEditCompositionEnd = () => {
+      if (!enterPressedDuringComposition) return;
+      enterPressedDuringComposition = false;
+      insertNewlineAtSelection();
     };
 
     // 全部消してちょうど空になった時、ブラウザによっては`<br>`等の空ノードが1つ
@@ -1348,6 +1363,7 @@ export function CandleChart({
       editingTextEl = null;
       el.removeEventListener('keydown', onTextEditKeyDown);
       el.removeEventListener('input', onTextEditInput);
+      el.removeEventListener('compositionend', onTextEditCompositionEnd);
       el.removeEventListener('blur', finishTextEdit);
       el.contentEditable = 'false';
       el.style.pointerEvents = 'none';
@@ -1364,6 +1380,7 @@ export function CandleChart({
       editingTextEl = null;
       el.removeEventListener('keydown', onTextEditKeyDown);
       el.removeEventListener('input', onTextEditInput);
+      el.removeEventListener('compositionend', onTextEditCompositionEnd);
       el.removeEventListener('blur', finishTextEdit);
       el.contentEditable = 'false';
       el.style.pointerEvents = 'none';
@@ -1381,6 +1398,7 @@ export function CandleChart({
       el.style.outline = 'none';
       el.addEventListener('keydown', onTextEditKeyDown);
       el.addEventListener('input', onTextEditInput);
+      el.addEventListener('compositionend', onTextEditCompositionEnd);
       el.addEventListener('blur', finishTextEdit);
       el.focus();
       // カーソルは末尾に置く（全選択のままだと最初のキー入力で全部消えてしまう）

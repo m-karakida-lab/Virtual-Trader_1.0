@@ -43,7 +43,7 @@
 - ブラシ描画（フリーハンド）: ドラッグ軌跡を点列（`DrawnBrush.points`）として記録、専用`<canvas>`（`brushCanvasRef`）に2次ベジェで平滑化描画。ピクセル距離基準（`BRUSH_MIN_PX=2px`）で間引いて記録。座標変換は足の内側でも連続値を返す`pixelToContinuousTime`を使用。描画直前にボックスフィルタ12パスで手ブレ補正。移動は素の時間差分（足インデックス基準ではない）
 - ブラシの図形認識（`src/lib/shapeRecognition.ts`）: ストローク確定時、閉じている（始点-終点が近い）かをまず判定し、Douglas-Peuckerで単純化した頂点数が3なら三角形（`DrawnBrush.shape:'triangle'`、直線で描画・平滑化なし）、単純化してもなお頂点数が多く半径のばらつきが小さければ円（`shape:'circle'`、バウンディング楕円の点列に置き換え）にスナップする。判定はピクセル座標で行う（time/price空間はスケールが違うため）。どちらにも該当しなければ通常のフリーハンドのまま
 - 図形認識で作った三角形/円は選択中に専用ハンドルで再編集できる: 三角形は各頂点（`points[0..2]`、`points[3]`は始点の複製として追従）、円はバウンディングボックスの4角（ドラッグで対角を固定し楕円の点列を再生成）。普通のフリーハンド（`shape`なし）は従来通り全体移動のみ
-- テキストボックス描画: クリック配置と同時に編集モード。`contentEditable`直接編集（`window.prompt`不使用）、Enterは改行（`document.createTextNode('\n')`挿入）。ただしIME変換確定のEnter（`e.isComposing`または`keyCode===229`）は素通しし改行にしない。空文字のまま確定/Escapeすると削除扱い。文字サイズ4段階（14/18/24/32px）・枠線スタイルはパレットで変更可
+- テキストボックス描画: クリック配置と同時に編集モード。`contentEditable`直接編集（`window.prompt`不使用）、Enterは改行（`document.createTextNode('\n')`挿入）。IME変換確定のEnter（`e.isComposing`または`keyCode===229`）はそのkeydown時点では手を出さず、直後の`compositionend`で改行を挿入する（変換確定と改行を1回のEnterで両方行うため。変換中のDOMをRange操作で直接いじると変換結果が壊れるため、確定後まで遅延させている）。空文字のまま確定/Escapeすると削除扱い。文字サイズ4段階（14/18/24/32px）・枠線スタイルはパレットで変更可
 - テキストボックスが空の間は「文字を入力」というプレースホルダーを薄い文字（#666）で表示する（CSS `.vt-text-editable:empty::before`、`index.css`）。全消去時に`<br>`等の残骸が残ると`:empty`に合致しなくなるため、input時にtextContentが空ならinnerHTMLごと空にして常に完全な空にしておく
 - Undo（Cmd/Ctrl+Z）: 全描画要素の追加・移動・リサイズ・削除・複製・スタイル変更を1手ずつ戻せる（`drawHistory`、最大50件）。Redoは未実装。CSV再読込でリセット
 - 価格軸ドラッグへの追従: 縦スケール変更時、垂直線・四角形・トレンドライン・ブラシ・テキスト・雲の位置が追従（window mousemoveのフォールバック同期）
