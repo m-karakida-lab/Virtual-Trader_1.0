@@ -3,3 +3,7 @@ dist/
 .DS_Store
 *.local
 .claude/
+
+# 「🪲 ログ」メニューで選んだエラーログの自動追記先（保存場所はユーザーが選ぶため
+# プロジェクト直下に置かれることもある。実行時の記録であってソースではない）
+virtual-trader-error-log*.txt

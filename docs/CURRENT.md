@@ -122,7 +122,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`、MN=年区切り、1D/1W=月区切り、4H=週区切り、5m/15m/1H=日区切り）
 - `src/lib/shapeRecognition.ts` — ブラシの図形認識（`recognizeShape`）。AI不使用、Douglas-Peucker単純化＋半径のばらつきによる古典的幾何判定のみ
 - `src/lib/pips.ts` — 価格帯からpip単位・表示精度を推定
-- `src/lib/crosshairSync.ts` — 4画面十字カーソル同期用（`priceAtTime`、範囲外はnull）
+- `src/lib/crosshairSync.ts` — 4画面十字カーソル同期用（`priceAtTime`、範囲外はnull）。戻り値の`time`は発信元パネルの時刻ではなく実際にマッチしたこのパネル自身の足の時刻（`setCrosshairPosition`には自パネルの足の時刻を渡すこと。発信元の時刻をそのまま渡すと時間軸が違うパネル間で内部の座標解決に失敗し例外を投げる不具合を実際に踏んだ）
 - `src/lib/openHistory.ts` — File System Access APIでフォルダを開いた履歴の保存/復元（IndexedDB）
 - `src/lib/screenshot.ts` — チャート領域（`#vt-chart-capture-area`）をJPEG保存（`html-to-image`のラッパー）
 - `src/store/useTraderStore.ts` — 全アプリ状態＋アクション。注文約定・TP/SL判定は`processOrderRange`（高安レンジ判定、SL優先）。チャート操作はシグナルパターン（`fitSignal`/`centerSignal`/`scrollToLatestSignal`をincrement→CandleChartのuseEffectが検知）

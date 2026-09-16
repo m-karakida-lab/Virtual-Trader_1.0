@@ -4205,9 +4205,9 @@ export function CandleChart({
         chartRef.current.clearCrosshairPosition();
         return;
       }
-      const price = priceAtTime(displayCandles, crosshairTime, timeframeSec);
-      if (price === null) { chartRef.current.clearCrosshairPosition(); return; }
-      chartRef.current.setCrosshairPosition(price, crosshairTime as Time, seriesRef.current);
+      const hit = priceAtTime(displayCandles, crosshairTime, timeframeSec);
+      if (hit === null) { chartRef.current.clearCrosshairPosition(); return; }
+      chartRef.current.setCrosshairPosition(hit.price, hit.time as Time, seriesRef.current);
     } catch (e) {
       logError('CandleChart:crosshairSync', e);
     }

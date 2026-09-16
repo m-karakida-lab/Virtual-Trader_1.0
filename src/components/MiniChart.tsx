@@ -626,9 +626,9 @@ export function MiniChart({ timeframeSec, label, slot }: { timeframeSec: Timefra
         chartRef.current.clearCrosshairPosition();
         return;
       }
-      const price = priceAtTime(visibleDataRef.current, crosshairTime, timeframeSec);
-      if (price === null) { chartRef.current.clearCrosshairPosition(); return; }
-      chartRef.current.setCrosshairPosition(price, crosshairTime as Time, seriesRef.current);
+      const hit = priceAtTime(visibleDataRef.current, crosshairTime, timeframeSec);
+      if (hit === null) { chartRef.current.clearCrosshairPosition(); return; }
+      chartRef.current.setCrosshairPosition(hit.price, hit.time as Time, seriesRef.current);
     } catch (e) {
       logError('MiniChart:crosshairSync', e);
     }
