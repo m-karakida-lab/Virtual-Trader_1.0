@@ -1305,29 +1305,50 @@ export function CandleChart({
     // 改行だけ跡形もなく消える不具合を実際に踏んだ。Selection/RangeでDOM文字ノードとして
     // 直接'\n'を挿入すれば実装依存を避けられる（white-space:preで描画しているため、
     // 素の'\n'がそのまま改行として表示される）
+    // 変換確定直後（compositionend）は、window.getSelection()がまだ有効なRangeを
+    // 指していない・編集中の要素の外を指している瞬間があり得る（実際に「1つ目の変換は
+    // 改行されるが2つ目以降は改行されない」——逆に言うと最初のcompositionend時点だけ
+    // 選択状態が不安定、という不具合として発覚）。有効なRangeが無ければ編集中要素の
+    // 末尾へフォールバックし、確実に改行を挿入できるようにする
     const insertNewlineAtSelection = () => {
+      const el = editingTextEl;
+      if (!el) return;
       const sel = window.getSelection();
-      if (!sel || sel.rangeCount === 0) return;
-      const range = sel.getRangeAt(0);
+      let range: Range;
+      if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer)) {
+        range = sel.getRangeAt(0);
+      } else {
+        range = document.createRange();
+        range.selectNodeContents(el);
+        range.collapse(false);
+      }
       range.deleteContents();
       const nl = document.createTextNode('\n');
       range.insertNode(nl);
       range.setStartAfter(nl);
       range.setEndAfter(nl);
-      sel.removeAllRanges();
-      sel.addRange(range);
+      if (sel) {
+        sel.removeAllRanges();
+        sel.addRange(range);
+      }
     };
 
     // IME変換確定のEnterで改行まで一度に行いたい（変換確定→改行を2回のEnterに分けたく
     // ない）という要望のためのフラグ。変換確定中のEnterをここで直接改行扱いにすると、
     // IME自身が変換文字列をDOMへ書き込んでいる最中にこちらもRange操作で割り込むことになり
     // 変換結果が壊れる不具合を踏んだため、いったんフラグだけ立てて手出しはせず、直後の
-    // compositionend（IMEが変換文字列を確定し終えた後）で改めて改行を挿入する
+    // compositionend（IMEが変換文字列を確定し終えた後）で改めて改行を挿入する。
+    // isComposingNowはcompositionstart/endで自前追跡する状態（keydown側のe.isComposing/
+    // keyCode===229はブラウザによって最初の変換だけ検知が不安定なことがあるため、
+    // 両方を見て条件を緩める）
     let enterPressedDuringComposition = false;
+    let isComposingNow = false;
+
+    const onTextEditCompositionStart = () => { isComposingNow = true; };
 
     const onTextEditKeyDown = (e: KeyboardEvent) => {
       e.stopPropagation();
-      if (e.key === 'Enter' && (e.isComposing || e.keyCode === 229)) {
+      if (e.key === 'Enter' && (e.isComposing || isComposingNow || e.keyCode === 229)) {
         enterPressedDuringComposition = true;
         return;
       }
@@ -1341,6 +1362,7 @@ export function CandleChart({
     };
 
     const onTextEditCompositionEnd = () => {
+      isComposingNow = false;
       if (!enterPressedDuringComposition) return;
       enterPressedDuringComposition = false;
       insertNewlineAtSelection();
@@ -1363,6 +1385,7 @@ export function CandleChart({
       editingTextEl = null;
       el.removeEventListener('keydown', onTextEditKeyDown);
       el.removeEventListener('input', onTextEditInput);
+      el.removeEventListener('compositionstart', onTextEditCompositionStart);
       el.removeEventListener('compositionend', onTextEditCompositionEnd);
       el.removeEventListener('blur', finishTextEdit);
       el.contentEditable = 'false';
@@ -1380,6 +1403,7 @@ export function CandleChart({
       editingTextEl = null;
       el.removeEventListener('keydown', onTextEditKeyDown);
       el.removeEventListener('input', onTextEditInput);
+      el.removeEventListener('compositionstart', onTextEditCompositionStart);
       el.removeEventListener('compositionend', onTextEditCompositionEnd);
       el.removeEventListener('blur', finishTextEdit);
       el.contentEditable = 'false';
@@ -1398,6 +1422,7 @@ export function CandleChart({
       el.style.outline = 'none';
       el.addEventListener('keydown', onTextEditKeyDown);
       el.addEventListener('input', onTextEditInput);
+      el.addEventListener('compositionstart', onTextEditCompositionStart);
       el.addEventListener('compositionend', onTextEditCompositionEnd);
       el.addEventListener('blur', finishTextEdit);
       el.focus();
