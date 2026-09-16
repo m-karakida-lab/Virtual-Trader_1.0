@@ -1305,11 +1305,6 @@ export function CandleChart({
     // 改行だけ跡形もなく消える不具合を実際に踏んだ。Selection/RangeでDOM文字ノードとして
     // 直接'\n'を挿入すれば実装依存を避けられる（white-space:preで描画しているため、
     // 素の'\n'がそのまま改行として表示される）
-    // 変換確定直後（compositionend）は、window.getSelection()がまだ有効なRangeを
-    // 指していない・編集中の要素の外を指している瞬間があり得る（実際に「1つ目の変換は
-    // 改行されるが2つ目以降は改行されない」——逆に言うと最初のcompositionend時点だけ
-    // 選択状態が不安定、という不具合として発覚）。有効なRangeが無ければ編集中要素の
-    // 末尾へフォールバックし、確実に改行を挿入できるようにする
     const insertNewlineAtSelection = () => {
       const el = editingTextEl;
       if (!el) return;
@@ -1333,25 +1328,21 @@ export function CandleChart({
       }
     };
 
-    // IME変換確定のEnterで改行まで一度に行いたい（変換確定→改行を2回のEnterに分けたく
-    // ない）という要望のためのフラグ。変換確定中のEnterをここで直接改行扱いにすると、
-    // IME自身が変換文字列をDOMへ書き込んでいる最中にこちらもRange操作で割り込むことになり
-    // 変換結果が壊れる不具合を踏んだため、いったんフラグだけ立てて手出しはせず、直後の
-    // compositionend（IMEが変換文字列を確定し終えた後）で改めて改行を挿入する。
-    // isComposingNowはcompositionstart/endで自前追跡する状態（keydown側のe.isComposing/
-    // keyCode===229はブラウザによって最初の変換だけ検知が不安定なことがあるため、
-    // 両方を見て条件を緩める）
-    let enterPressedDuringComposition = false;
+    // IME変換確定のEnterはkey==='Enter'として届くが、これは改行ではなく「変換を確定
+    // させたい」だけの入力。確定と改行を1回のEnterに統合しようとしたこともあったが、
+    // 「1回目の変換確定は改行されない（望ましい）のに2回目以降は改行されてしまう」という
+    // 不具合が残り、そもそも変換確定と改行を同じキー入力で兼ねること自体が意図と違う
+    // （変換確定は常に確定のみ、改行が欲しければ別途もう一度Enterを押す）と判明したため、
+    // 常に素通しして確定処理をブラウザ/IMEに任せる方針に戻した。isComposingNowは
+    // compositionstart/endで自前追跡する状態（keydown側のe.isComposingだけだとブラウザに
+    // よって検知が不安定なことがあるため併用する）
     let isComposingNow = false;
-
     const onTextEditCompositionStart = () => { isComposingNow = true; };
+    const onTextEditCompositionEnd = () => { isComposingNow = false; };
 
     const onTextEditKeyDown = (e: KeyboardEvent) => {
       e.stopPropagation();
-      if (e.key === 'Enter' && (e.isComposing || isComposingNow || e.keyCode === 229)) {
-        enterPressedDuringComposition = true;
-        return;
-      }
+      if (e.key === 'Enter' && (e.isComposing || isComposingNow || e.keyCode === 229)) return;
       if (e.key === 'Enter') {
         e.preventDefault();
         insertNewlineAtSelection();
@@ -1359,13 +1350,6 @@ export function CandleChart({
         e.preventDefault();
         cancelTextEdit();
       }
-    };
-
-    const onTextEditCompositionEnd = () => {
-      isComposingNow = false;
-      if (!enterPressedDuringComposition) return;
-      enterPressedDuringComposition = false;
-      insertNewlineAtSelection();
     };
 
     // 全部消してちょうど空になった時、ブラウザによっては`<br>`等の空ノードが1つ
