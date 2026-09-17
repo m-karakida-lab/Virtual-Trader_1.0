@@ -4497,8 +4497,15 @@ export function CandleChart({
   // firstValueキャッシュがまだ未確定（null）なことがあり、そのままensureNotNullに
   // 弾かれてValue is nullを投げる（時刻自体は正しくクリップ済みでも起きた——effect宣言順の
   // 修正だけでは直らなかった実例）。同ファイルの他箇所と同じくrequestAnimationFrameで
-  // 1フレーム後（chart側の内部再計算後）に呼ぶことで回避する
+  // 1フレーム後（chart側の内部再計算後）に呼ぶことで回避する。
+  // 加えて、1画面表示（chartLayout==='1'）中は非メイン3枠がwidth:0/height:0で非表示のまま
+  // マウントされ続けている（App.tsx参照、remount回避のため）。この状態でもメイン枠の
+  // ホバーでcrosshairTimeは更新され続けるため、このeffect自体は動いてしまう——だが
+  // サイズ0のペインは価格スケールのfirstValueが恒久的にnullで、rAFで何回待ってもensureNotNull
+  // が必ず失敗する（データや時刻の問題ではなく描画領域が無いこと自体が原因のため）。
+  // どのみち見えないパネルへの同期は無意味なので、非表示時はそもそも呼ばない
   useEffect(() => {
+    if (chartLayout !== '4' && !isMain) return;
     if (!chartRef.current || !seriesRef.current || crosshairSourceId === mySourceId) return;
     const chart = chartRef.current;
     const series = seriesRef.current;
@@ -4526,7 +4533,7 @@ export function CandleChart({
       }
     });
     return () => cancelAnimationFrame(raf);
-  }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId, isMain, cursor]);
+  }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId, isMain, cursor, chartLayout]);
 
   // 時間軸の切替・新規CSV読み込み時の表示位置決定。
   // ユーザーがヘッダーのドロップダウンで時間足を切り替えた直後は、pendingTimeframeSwitchRangeRef
