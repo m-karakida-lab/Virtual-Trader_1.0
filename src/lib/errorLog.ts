@@ -11,17 +11,24 @@ const STORAGE_KEY = 'vt:errorLog';
 const MAX_ENTRIES = 20;
 
 export interface ErrorLogEntry {
-  time: string; // ISO
+  time: string; // ローカル時刻（ファイルの更新日時と比較しやすいようUTCではなくJST等の実行環境ローカル時刻で記録）
   source: string; // 発生箇所（'window.onerror' / 'unhandledrejection' / ErrorBoundary 等）
   message: string;
   stack?: string;
+}
+
+// YYYY-MM-DD HH:mm:ss.SSS 形式のローカル時刻文字列（toISOString()はUTC固定でファイルの
+// 更新日時（OSがローカル時刻で表示）と見比べにくいため、ローカル時刻のまま出力する）
+function formatLocalTime(d: Date): string {
+  const pad = (n: number, len = 2) => String(n).padStart(len, '0');
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}.${pad(d.getMilliseconds(), 3)}`;
 }
 
 export function logError(source: string, error: unknown): void {
   const message = error instanceof Error ? error.message : String(error);
   const stack = error instanceof Error ? error.stack : undefined;
   console.error(`[vt:error][${source}]`, error);
-  const time = new Date().toISOString();
+  const time = formatLocalTime(new Date());
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     const entries: ErrorLogEntry[] = raw ? JSON.parse(raw) : [];
