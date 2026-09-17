@@ -2512,6 +2512,42 @@ export function CandleChart({
         useTraderStore.getState().selectLine({ kind: 'v', id: vId });
         return;
       }
+
+      // 矢印は他の描画（四角形・トレンドライン・ブラシ）より常に上に見せる/掴めるようにしたい
+      // というわがままな要望のため、当たり判定もここで最優先にチェックする（表示側は
+      // arrowCanvasRefのzIndexを他の描画系より1段高くして揃えてある）
+      const arrowEndpoint = findArrowEndpointNear(x, y);
+      if (arrowEndpoint !== null) {
+        draggingArrowEndpoint = arrowEndpoint;
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'nwse-resize';
+        useTraderStore.getState().selectLine({ kind: 'arrow', id: arrowEndpoint.arrowId });
+        return;
+      }
+
+      const arrowId = findArrowNear(x, y);
+      if (arrowId !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const { arrows: arrowsAtDown } = useTraderStore.getState();
+        const ar = arrowsAtDown.find(a => a.id === arrowId);
+        const visibleAtDown = displayCandlesRef.current;
+        const startTime = pixelToTime(x);
+        const startPrice = seriesRef.current.coordinateToPrice(y);
+        if (!ar || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
+        draggingArrowMoveId = arrowId;
+        arrowMoveStart = {
+          idx1: candleIndexAt(visibleAtDown, ar.time1),
+          idx2: candleIndexAt(visibleAtDown, ar.time2),
+          price1: ar.price1, price2: ar.price2,
+          startIdx: candleIndexAt(visibleAtDown, startTime),
+          startPrice,
+        };
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'move';
+        useTraderStore.getState().selectLine({ kind: 'arrow', id: arrowId });
+        return;
+      }
+
       const corner = findRectCornerNear(x, y);
       if (corner !== null) {
         draggingRectCorner = corner;
@@ -2588,38 +2624,6 @@ export function CandleChart({
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'move';
         useTraderStore.getState().selectLine({ kind: 'trend', id: trendLineId });
-        return;
-      }
-
-      const arrowEndpoint = findArrowEndpointNear(x, y);
-      if (arrowEndpoint !== null) {
-        draggingArrowEndpoint = arrowEndpoint;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'nwse-resize';
-        useTraderStore.getState().selectLine({ kind: 'arrow', id: arrowEndpoint.arrowId });
-        return;
-      }
-
-      const arrowId = findArrowNear(x, y);
-      if (arrowId !== null) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const { arrows: arrowsAtDown } = useTraderStore.getState();
-        const ar = arrowsAtDown.find(a => a.id === arrowId);
-        const visibleAtDown = displayCandlesRef.current;
-        const startTime = pixelToTime(x);
-        const startPrice = seriesRef.current.coordinateToPrice(y);
-        if (!ar || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
-        draggingArrowMoveId = arrowId;
-        arrowMoveStart = {
-          idx1: candleIndexAt(visibleAtDown, ar.time1),
-          idx2: candleIndexAt(visibleAtDown, ar.time2),
-          price1: ar.price1, price2: ar.price2,
-          startIdx: candleIndexAt(visibleAtDown, startTime),
-          startPrice,
-        };
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'move';
-        useTraderStore.getState().selectLine({ kind: 'arrow', id: arrowId });
         return;
       }
 
@@ -4870,8 +4874,11 @@ export function CandleChart({
       {/* トレンドラインは斜めの線分なのでDOMのborderで表現できず、専用canvasに描く
           （雲と同じ方式）。価格軸に被らないよう幅は四角形・テキストのオーバーレイと揃える */}
       <canvas ref={trendCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
-      {/* 矢印はトレンドラインと同じ2点構造なので同じ方式（専用canvas）で描く。終点に矢印ヘッドを足すだけ */}
-      <canvas ref={arrowCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
+      {/* 矢印はトレンドラインと同じ2点構造なので同じ方式（専用canvas）で描く。終点に矢印ヘッドを足すだけ。
+          他の描画（四角形・トレンドライン・ブラシ・テキスト）より常に上に見せたいというわがままな
+          要望のため、zIndexだけ他の描画系（9）より1段高くしてある。当たり判定側の優先順位も
+          同じ理由でonMouseDown内の矢印チェックを他の描画より先に置いている */}
+      <canvas ref={arrowCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 10, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <canvas ref={brushCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={textOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
