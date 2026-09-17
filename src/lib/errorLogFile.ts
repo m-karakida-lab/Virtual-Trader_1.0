@@ -109,6 +109,34 @@ type WritableFileHandle = FileSystemFileHandle & {
   }>;
 };
 
+// 現在選択中のログファイルの中身をそのまま返す（「ログファイルを開く」用）。
+// 未選択/未対応/読み込み失敗時はnull
+export async function readErrorLogFileText(): Promise<string | null> {
+  if (!isFileSystemAccessSupported()) return null;
+  try {
+    const handle = await loadStoredHandle();
+    if (!handle) return null;
+    const file = await handle.getFile();
+    return await file.text();
+  } catch {
+    return null;
+  }
+}
+
+// ログファイルを空に切り詰める（「ログをクリア」用）。書き込み権限が無い場合は諦める
+export async function clearErrorLogFile(): Promise<void> {
+  if (!isFileSystemAccessSupported()) return;
+  try {
+    const handle = await loadStoredHandle();
+    if (!handle) return;
+    if (!(await hasWritePermission(handle))) return;
+    const writable = await (handle as WritableFileHandle).createWritable();
+    await writable.close();
+  } catch {
+    // 無視（appendErrorToLogFileと同じ方針）
+  }
+}
+
 // 1エントリをログファイルへ追記する。毎回ファイル全体を読み直さず、現在サイズを取得して
 // その末尾へ書き足すだけ（File System Access APIに真の追記モードは無いため、位置指定書込みで代用）。
 // 上限を超えていたら先に切り詰めてから追記する。権限が無い・未対応ブラウザ等は静かに諦める

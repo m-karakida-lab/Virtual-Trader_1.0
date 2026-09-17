@@ -4,10 +4,11 @@ import { TIMEFRAMES, type Position, type PendingOrder, type OrderType } from '..
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { captureChartArea } from '../lib/screenshot';
-import { readErrorLog } from '../lib/errorLog';
+import { readErrorLog, clearErrorLog } from '../lib/errorLog';
 import {
   isFileSystemAccessSupported as isErrorLogFileSupported,
   pickErrorLogFile, forgetErrorLogFile, getErrorLogFileName,
+  readErrorLogFileText, clearErrorLogFile,
 } from '../lib/errorLogFile';
 
 // "YYYY-MM-DD" + "HH:mm" を UTC 前提で Unix秒に変換
@@ -195,18 +196,27 @@ function ErrorLogMenu() {
     setFileName(null);
   };
 
-  const handleDownload = () => {
-    const entries = readErrorLog();
-    const text = entries
+  // ファイル保存先が選ばれていればその中身（全履歴）を、無ければlocalStorageの
+  // リングバッファ（直近分のみ）をフォールバックとして、新規タブで開く
+  // （ダウンロードだと毎回ファイルが増えて煩わしいという指摘を受けて変更）。
+  // window.openはawaitの後だとユーザー操作の延長とみなされずポップアップブロックの
+  // 対象になりうるため、先に空タブを同期的に開いてから中身を書き込む
+  const handleOpen = async () => {
+    const win = window.open('', '_blank');
+    const fileText = await readErrorLogFileText();
+    const text = fileText ?? readErrorLog()
       .map(e => `[${e.time}] [${e.source}] ${e.message}${e.stack ? '\n' + e.stack : ''}`)
       .join('\n\n');
-    const blob = new Blob([text || '（記録なし）'], { type: 'text/plain' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `virtual-trader-error-log_${new Date().toISOString().slice(0, 10)}.txt`;
-    a.click();
-    URL.revokeObjectURL(url);
+    if (!win) return; // ポップアップブロック時は諦める（フォールバックのダウンロード導線は持たない）
+    win.document.title = 'エラーログ';
+    win.document.body.style.cssText = 'white-space:pre-wrap;font-family:monospace;font-size:12px;';
+    win.document.body.textContent = text || '（記録なし）';
+  };
+
+  const handleClear = async () => {
+    if (!window.confirm('エラーログを消去します。よろしいですか?')) return;
+    clearErrorLog();
+    await clearErrorLogFile();
   };
 
   return (
@@ -232,8 +242,9 @@ function ErrorLogMenu() {
           </span>
         )}
         <span style={{ height: '1px', backgroundColor: '#2a2a2a' }} />
-        <div>
-          <button onClick={handleDownload} style={tfBtn(false, false)}>直近のログをダウンロード</button>
+        <div style={{ display: 'flex', gap: '6px' }}>
+          <button onClick={handleOpen} style={tfBtn(false, false)}>ログファイルを開く</button>
+          <button onClick={handleClear} style={tfBtn(false, false)}>ログをクリア</button>
         </div>
       </div>
     </MenuButton>
