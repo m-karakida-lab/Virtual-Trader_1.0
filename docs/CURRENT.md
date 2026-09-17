@@ -144,7 +144,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - DOMオーバーレイ（雲・トレンドライン・矢印・ブラシ・垂直線・テキスト・四角形・週区切り線等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）
 - 描画要素の種類を増やす時は`useTraderStore.ts`の`pushDrawHistory`/`undo`/`DrawSnapshot`/`loadFiles`/`saveChartFile`/`vtd.ts`の6箇所に配列とnextIdを必ず追加すること（`undo`だけ追加し忘れ、矢印を消してもUndoで戻らない不具合を実際に踏んだ）
 - 一部の証券会社CSVは末尾にDOSのEOFマーカー（0x1A）が付いており、これを含むとDuckDBのCSVパーサーが「state machine reached an invalid state」で全体読み込みに失敗する（`ignore_errors=true`でも救えない）。`loadCSVFiles`（`duckdb.ts`）で各ファイルの末尾の制御バイトを事前に切り落として回避している
-- 十字カーソル同期effect（`crosshairSourceId`/`crosshairTime`依存）は、メイン/非メインどちらの`series.setData()`effectよりも**後ろ**で宣言すること。Reactは同一コミット内のeffectを宣言順に実行するため、先に置くと「displayCandlesは新しい値に更新済みだがseries.setData()はまだ実行されていない」瞬間に`setCrosshairPosition`を呼んでしまい内部座標解決がnullで例外を投げる（リプレイ再生中に他パネルをホバーすると再現）
+- 十字カーソル同期effect（`crosshairSourceId`/`crosshairTime`依存）は、メイン/非メインどちらの`series.setData()`effectよりも**後ろ**で宣言すること（宣言順だけでは解決しない場合あり、下記参照）
+- `setCrosshairPosition`はsetData直後の同一コミット内で同期呼び出しすると、時刻が正しくても価格スケールの`firstValue`キャッシュが未確定でensureNotNullがnullを投げることがある。`timeToCoordinate`等と同じ既知の癖（非メインsetData effectのrAFコメント参照）。`requestAnimationFrame`で1フレーム後に呼ぶこと。メインパネルはcursorより先の未来足を`effectiveCursorRef`でクリップしてから`priceAtTime`に渡すこと（`candles`はcursor以降も含む全期間配列のため）
 - `App.tsx`のツールバー列を囲むフレックス行が`overflow:hidden`のため、`DrawToolbar.tsx`のポップアップは`position:absolute`だと画面下寄りで開いた時にmaxHeight+overflowYより先に祖先でクリップされ、スクロールバーごと消える。`position:fixed`＋`getBoundingClientRect`基準の座標計算で回避する
 - lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）とグリッド線（`layout.grid`）はSeries Primitivesの対象外でzOrder制御ができず、常に他の描画物より前面に出る。四角形・週区切り線がPrimitivesではなくDOM/canvasオーバーレイなのはこの制約を回避するため（詳細は主要機能の四角形描画の項）
 - `showFullHistory`は廃止済み。全期間スクラバーの「全体」は常に`cursor+1`、`candles.length`（未来含む全データ）は使わない
