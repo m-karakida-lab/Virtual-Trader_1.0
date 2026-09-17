@@ -349,6 +349,12 @@ export function Controls() {
     return `${M}/${D} ${hh}:${mm}`;
   })() : '—';
 
+  // 発注パネルの開閉。他のMenuButton群と違い「画面外クリックで閉じる」を採用しない——
+  // TP/SL/価格の📍ボタンでチャート上をクリックして値を拾う操作自体が「パネルの外側クリック」に
+  // 該当してしまい、値を拾おうとするたびにパネルが閉じてしまうため。発注ボタンの再クリックか
+  // BUY/SELL確定でのみ閉じる（下のuseEffectとsubmitOrder呼び出し側を参照）
+  const [orderPanelOpen, setOrderPanelOpen] = useState(false);
+
   const [jumpDate, setJumpDate] = useState('');
   const handleJump = () => {
     const sec = parseDateAsUTC(jumpDate);
@@ -514,8 +520,8 @@ export function Controls() {
             }}
           >クリア</button>
         )}
-        <button onClick={() => submitOrder('BUY')}  disabled={!isLoaded || atEnd} style={orderBtn('#0d47a1', !isLoaded || atEnd)}>BUY</button>
-        <button onClick={() => submitOrder('SELL')} disabled={!isLoaded || atEnd} style={orderBtn('#b71c1c', !isLoaded || atEnd)}>SELL</button>
+        <button onClick={() => { submitOrder('BUY');  setOrderPanelOpen(false); }}  disabled={!isLoaded || atEnd} style={orderBtn('#0d47a1', !isLoaded || atEnd)}>BUY</button>
+        <button onClick={() => { submitOrder('SELL'); setOrderPanelOpen(false); }} disabled={!isLoaded || atEnd} style={orderBtn('#b71c1c', !isLoaded || atEnd)}>SELL</button>
         {positions.length > 1 && (
           <button onClick={closeAll} style={orderBtn('#333', false)}>全決済</button>
         )}
@@ -639,15 +645,24 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 発注パネル（メニュー） */}
-        <div style={{ padding: '0 8px', flexShrink: 0 }}>
-          <MenuButton
-            label="発注"
-            active={pickTarget !== null}
+        {/* 発注パネル。他のメニューと違い画面外クリックでは閉じない（📍でチャートを
+            クリックする操作を妨げないため。orderPanelOpenのコメント参照） */}
+        <div style={{ position: 'relative', padding: '0 8px', flexShrink: 0 }}>
+          <button
+            onClick={() => setOrderPanelOpen(o => !o)}
             disabled={!isLoaded}
-          >
-            {orderPanel}
-          </MenuButton>
+            style={tfBtn(pickTarget !== null || orderPanelOpen, !isLoaded)}
+          >発注 {orderPanelOpen ? '▴' : '▾'}</button>
+          {orderPanelOpen && (
+            <div style={{
+              position: 'absolute', bottom: 'calc(100% + 6px)', right: 0,
+              backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
+              padding: '12px', boxShadow: '0 -8px 24px rgba(0,0,0,0.5)', zIndex: 60,
+              minWidth: 'max-content', maxWidth: '90vw',
+            }}>
+              {orderPanel}
+            </div>
+          )}
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
