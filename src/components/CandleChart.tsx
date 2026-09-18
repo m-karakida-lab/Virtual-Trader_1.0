@@ -1572,8 +1572,10 @@ export function CandleChart({
       } else {
         marker.style.display = 'block';
         marker.style.left = `${mx - 1}px`;
-        marker.style.bottom = `${rowBottom - 2}px`;
-        marker.style.height = `${SESSION_ROW_HEIGHT + 4}px`;
+        // アクティブな帯の白枠（outline）と同じ位置・同じ白だと埋もれて見えなくなるため、
+        // 帯の上端よりさらに上に離して配置する（帯と重ねない）
+        marker.style.bottom = `${rowBottom + SESSION_ROW_HEIGHT + 3}px`;
+        marker.style.height = '8px';
       }
     };
     syncSessionsRef.current = syncSessions;
