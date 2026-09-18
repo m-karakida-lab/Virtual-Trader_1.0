@@ -1547,9 +1547,8 @@ export function CandleChart({
         el.style.left = `${x0}px`;
         el.style.width = `${x1 - x0}px`;
         el.style.background = SESSIONS.find(s => s.key === band.key)!.color;
-        // 今いるセッションの帯だけ白枠＋発光ではっきり目立たせ、境目でもどちらか一目で分かるようにする
-        el.style.outline = isActive ? '2px solid #fff' : 'none';
-        el.style.boxShadow = isActive ? '0 0 6px rgba(255,255,255,0.8)' : 'none';
+        // 白枠＋発光は撤回。今いるセッションの帯だけ不透明度を上げて色を濃く見せるだけの
+        // 演出にする（他の帯は薄く、境目でもどちらが濃いかで一目で分かる）
         el.style.opacity = isActive || activeIdx === -1 ? '1' : '0.45';
       });
 
