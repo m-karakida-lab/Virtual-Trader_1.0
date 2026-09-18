@@ -29,10 +29,12 @@ function fmtDuration(sec: number): string {
   return parts.slice(0, 2).join(' ');
 }
 
+// ラベルと値の間はspace-betweenで箱の端まで離すと、箱の横幅が広い時に間延びして見づらい
+// という指摘を受け、ラベル側を固定幅にして値をすぐ隣に詰めて置く方式にした
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
-    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '13px', padding: '3px 0' }}>
-      <span style={{ color: '#888' }}>{label}</span>
+    <div style={{ display: 'flex', gap: '10px', fontSize: '13px', padding: '3px 0' }}>
+      <span style={{ color: '#888', width: '168px', flexShrink: 0 }}>{label}</span>
       <span style={{ color: '#ddd', fontVariantNumeric: 'tabular-nums', fontWeight: 600, whiteSpace: 'nowrap' }}>{value}</span>
     </div>
   );
