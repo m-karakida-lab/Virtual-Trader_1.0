@@ -271,7 +271,6 @@ export function CandleChart({
   const sessionElsRef = useRef<HTMLDivElement[]>([]);
   const sessionBandsRef = useRef<SessionBand[]>([]);
   const sessionMarkerElRef = useRef<HTMLDivElement | null>(null);
-  const sessionLabelElRef = useRef<HTMLDivElement | null>(null);
   const syncSessionsRef = useRef<() => void>(() => {});
   const measureOverlayRef = useRef<HTMLDivElement>(null);
   const measureBoxRef = useRef<HTMLDivElement>(null);
@@ -1547,15 +1546,26 @@ export function CandleChart({
         el.style.display = 'block';
         el.style.left = `${x0}px`;
         el.style.width = `${x1 - x0}px`;
-        el.style.backgroundColor = SESSIONS.find(s => s.key === band.key)!.color;
-        // 今いるセッションの帯だけ白枠＋発光ではっきり目立たせ、境目でもどちらか一目で分かるようにする
-        el.style.outline = isActive ? '2px solid #fff' : 'none';
-        el.style.boxShadow = isActive ? '0 0 6px rgba(255,255,255,0.8)' : 'none';
+        el.style.outline = 'none';
+        el.style.boxShadow = 'none';
         el.style.opacity = isActive || activeIdx === -1 ? '1' : '0.45';
+
+        const color = SESSIONS.find(s => s.key === band.key)!.color;
+        if (isActive && currentTime !== undefined) {
+          // 今いるセッションの帯だけ、開始〜現在位置までを白っぽく塗って経過を可視化する
+          // （進捗バーのように「このセッションのどのあたりまで来たか」を一目で分かるようにする。
+          // 白枠だけだと「今このセッションにいる」ことは分かっても、その中のどの位置かまでは
+          // 分からないという指摘を受けての対応）
+          const pct = Math.min(1, Math.max(0, (currentTime - band.start) / (band.end - band.start))) * 100;
+          el.style.background = `linear-gradient(to right, rgba(255,255,255,0.85) 0%, rgba(255,255,255,0.85) ${pct}%, ${color} ${pct}%, ${color} 100%)`;
+          el.style.outline = '2px solid #fff';
+          el.style.boxShadow = '0 0 6px rgba(255,255,255,0.8)';
+        } else {
+          el.style.background = color;
+        }
       });
 
-      // 現在足の位置に白い縦の目印を立てる。加えて目印の真上に現在のセッション名タグを
-      // 表示し、境目付近でも文字で確実に判別できるようにする
+      // 現在足の位置に白い縦の目印を立てる（上の進捗塗りとの境界を実線でくっきりさせる役割）
       if (!sessionMarkerElRef.current) {
         const marker = document.createElement('div');
         marker.style.position = 'absolute';
@@ -1566,42 +1576,16 @@ export function CandleChart({
         overlay.appendChild(marker);
         sessionMarkerElRef.current = marker;
       }
-      if (!sessionLabelElRef.current) {
-        const label = document.createElement('div');
-        label.style.position = 'absolute';
-        label.style.pointerEvents = 'none';
-        label.style.fontSize = '10px';
-        label.style.fontWeight = '700';
-        label.style.color = '#000';
-        label.style.padding = '1px 5px';
-        label.style.borderRadius = '3px';
-        label.style.whiteSpace = 'nowrap';
-        label.style.transform = 'translateX(-50%)';
-        overlay.appendChild(label);
-        sessionLabelElRef.current = label;
-      }
       const marker = sessionMarkerElRef.current;
-      const label = sessionLabelElRef.current;
       const mx = currentTime !== undefined ? timeToX(currentTime) : null;
       const rowBottom = bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP;
       if (mx === null) {
         marker.style.display = 'none';
-        label.style.display = 'none';
       } else {
         marker.style.display = 'block';
         marker.style.left = `${mx - 1}px`;
         marker.style.bottom = `${rowBottom - 2}px`;
         marker.style.height = `${SESSION_ROW_HEIGHT + 4}px`;
-
-        if (activeIdx === -1) {
-          label.style.display = 'none';
-        } else {
-          label.style.display = 'block';
-          label.style.left = `${mx}px`;
-          label.style.bottom = `${rowBottom + SESSION_ROW_HEIGHT + 6}px`;
-          label.style.backgroundColor = SESSIONS.find(s => s.key === bands[activeIdx].key)!.color;
-          label.textContent = SESSIONS.find(s => s.key === bands[activeIdx].key)!.label;
-        }
       }
     };
     syncSessionsRef.current = syncSessions;
