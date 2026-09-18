@@ -406,22 +406,25 @@ export function HistoryPanel() {
 
         <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px 0' }}>
           <div style={{ ...sectionTitle, marginBottom: '10px' }}>■取引内容一覧</div>
-          {/* width:100%で列幅が箱全体に均等に伸びると、中身が短い列ほど余白だらけになって
-              間延びして見えた。tableは中身の幅に合わせて自然に縮めるだけにする */}
-          <table style={{ borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
+          {/* width:100%を素のtable-layout:autoで使うと、中身が短い列ほど余白だらけになって
+              間延びして見えた。table-layout:fixed + 各列を均等割りにすることで、テーブル
+              右端は箱いっぱい（下部バーの発注ボタン付近）まで届きつつ、列同士の間隔は
+              中身の長さに関係なく揃うようにした */}
+          <table style={{
+            width: '100%', tableLayout: 'fixed', borderCollapse: 'collapse',
+            fontSize: '14px', fontVariantNumeric: 'tabular-nums',
+          }}>
             <thead>
               <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
-                <th style={{ padding: '8px 16px' }}>#</th>
-                <th style={{ padding: '8px 16px' }}>方向</th>
-                <th style={{ padding: '8px 16px' }}>ロット</th>
-                <th style={{ padding: '8px 16px' }}>エントリー</th>
-                <th style={{ padding: '8px 16px' }}>決済</th>
-                <th style={{ padding: '8px 16px' }}>開始</th>
-                <th style={{ padding: '8px 16px' }}>終了</th>
-                <th style={{ padding: '8px 16px' }}>保有期間</th>
-                {/* 損益列だけ余裕を持たせて、テーブル右端が下部バーの「発注」ボタン付近まで
-                    届くようにする（他の列まで広げると元の間延びが再発するため損益列だけ） */}
-                <th style={{ padding: '8px 16px', textAlign: 'right', minWidth: '260px' }}>損益</th>
+                <th style={{ padding: '8px 16px', width: '6%' }}>#</th>
+                <th style={{ padding: '8px 16px', width: '10%' }}>方向</th>
+                <th style={{ padding: '8px 16px', width: '11%' }}>ロット</th>
+                <th style={{ padding: '8px 16px', width: '11%' }}>エントリー</th>
+                <th style={{ padding: '8px 16px', width: '11%' }}>決済</th>
+                <th style={{ padding: '8px 16px', width: '13%' }}>開始</th>
+                <th style={{ padding: '8px 16px', width: '13%' }}>終了</th>
+                <th style={{ padding: '8px 16px', width: '12%' }}>保有期間</th>
+                <th style={{ padding: '8px 16px', width: '13%', textAlign: 'right' }}>損益</th>
               </tr>
             </thead>
             <tbody>
