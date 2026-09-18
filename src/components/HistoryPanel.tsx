@@ -361,7 +361,9 @@ export function HistoryPanel() {
           }}>
             <div style={{ ...sectionTitle, gridColumn: '1 / -1' }}>■パフォーマンス分析</div>
 
-            <div>
+            {/* リスクとパフォーマンス指標のStatGroupと同じく、項目ごとに枠を付けて区切りを
+                はっきりさせる（枠が無く地続きになっていて見づらいという指摘への対応） */}
+            <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '10px 12px' }}>
               <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>総取引数 {stats.total}</div>
               <SplitBar
                 aLabel={`勝ち ${stats.wins}`} aValue={stats.wins} aColor="#26a69a"
@@ -369,7 +371,7 @@ export function HistoryPanel() {
               />
             </div>
 
-            <div>
+            <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '10px 12px' }}>
               <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>ポジション</div>
               <SplitBar
                 aLabel={`ロング ${stats.longCount}`} aValue={stats.longCount} aColor="#42a5f5"
@@ -377,7 +379,7 @@ export function HistoryPanel() {
               />
             </div>
 
-            <div>
+            <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '10px 12px' }}>
               <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>利益（方向別）</div>
               <DirectionalPnlBar longPnl={stats.longPnl} shortPnl={stats.shortPnl} sym={sym} />
             </div>
