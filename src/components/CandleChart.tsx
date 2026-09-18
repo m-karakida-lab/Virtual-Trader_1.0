@@ -1720,7 +1720,7 @@ export function CandleChart({
     };
 
     const onRangeChange = () => {
-      syncVLines(); syncRects(); syncTrendLines(); syncArrows(); syncBrushes(); syncTexts(); syncWeekLines(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
+      syncVLines(); syncRects(); syncTrendLines(); syncArrows(); syncBrushes(); syncTexts(); syncWeekLines(); syncSessions(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
@@ -3189,6 +3189,7 @@ export function CandleChart({
           syncBrushes();
           syncTexts();
           syncWeekLines();
+          syncSessions();
           syncCloud();
         });
       }
@@ -3763,6 +3764,7 @@ export function CandleChart({
       syncBrushes();
       syncTexts();
       syncWeekLines();
+      syncSessions();
       updateRRPreview();
       syncCloud();
       syncScrubber();
@@ -3783,6 +3785,7 @@ export function CandleChart({
         syncBrushes();
         syncTexts();
         syncWeekLines();
+        syncSessions();
       });
       // フロートパネルが価格軸・時間軸に被らないよう、実測サイズをストアに反映。
       // 4画面時は全パネルほぼ同じ幅になるはずだが、書き込みはメインパネルのみに絞り
