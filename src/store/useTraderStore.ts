@@ -640,12 +640,17 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       // fontSize/borderは文字サイズ・枠線カスタマイズ追加より前に保存されたvtdファイルには
       // 存在しないため、無い場合だけデフォルト値で補う
       const texts: DrawnText[] = (drawings?.texts ?? []).map(t => ({ fontSize: 18, border: 'solid', ...(t as Partial<DrawnText>) } as DrawnText));
+      // 建玉中のポジション・未約定注文は保存対象外（「その時点のCSV+描画だけを純粋に保つ」方針）
+      // なので常に空に戻すが、決済済み取引履歴は復元する。残高は初期残高からではなく
+      // 「初期残高＋復元した取引の損益合計」にして、履歴と矛盾しない値にする
+      const restoredTrades = drawings?.closedTrades ?? [];
+      const restoredBalance = newInitialBalance + restoredTrades.reduce((sum, t) => sum + t.pnl, 0);
       set({
         candles, cursor: 0, isLoaded: true,
         isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,
-        balance: newInitialBalance, initialBalance: newInitialBalance,
+        balance: restoredBalance, initialBalance: newInitialBalance,
         positions: [], pendingOrders: [], nextOrderId: 1,
-        closedTrades: [], nextId: 1,
+        closedTrades: restoredTrades, nextId: nextIdOf(restoredTrades),
         isPlaying: false,
         lines: drawings?.lines ?? [], nextLineId: nextIdOf(drawings?.lines ?? []),
         vlines: drawings?.vlines ?? [], nextVLineId: nextIdOf(drawings?.vlines ?? []),
@@ -686,9 +691,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // 中身だけvtdになり、しかも表示は「.vtdに保存しました」で紛らわしかった）。
   // 素のCSVの初回保存は必ずダウンロード（新しい.vtdファイルとして書き出す）に倒す
   saveChartFile: async () => {
-    const { rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects, trendLines, arrows, brushes, texts } = get();
+    const { rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects, trendLines, arrows, brushes, texts, closedTrades } = get();
     if (rawCsvText === null) return;
-    const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects, trendLines, arrows, brushes, texts });
+    const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects, trendLines, arrows, brushes, texts, closedTrades });
 
     if (rawFileHandle !== null && rawFileIsBundle) {
       try {

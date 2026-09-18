@@ -5,7 +5,7 @@
 // 追加し、その後ろに描画データのJSONを1つ書くだけ。区切り文字列より前はDuckDBにとって
 // 普通のCSVそのものなので、read_csv側の実装には一切手を入れていない。
 // マーカーが無いファイル（証券会社の生CSV）は今まで通りそのまま読み込める。
-import type { DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnArrow, DrawnBrush, DrawnText } from '../types';
+import type { DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnArrow, DrawnBrush, DrawnText, ClosedTrade } from '../types';
 
 const VTD_MARKER = '\n===VT_DRAWINGS_V1===\n';
 
@@ -17,6 +17,9 @@ export interface VtdDrawings {
   arrows: DrawnArrow[];
   brushes: DrawnBrush[];
   texts: DrawnText[];
+  // 決済済み取引履歴（チャート上のエントリー/決済マーカー）。建玉中のポジション・未約定注文・
+  // 残高/初期残高等は「その時点のCSV+描画だけを純粋に保つ」方針により対象外（ユーザーと合意済み）
+  closedTrades: ClosedTrade[];
 }
 
 export function splitVtdBundle(text: string): { csvText: string; drawings: VtdDrawings | null } {
@@ -34,6 +37,8 @@ export function splitVtdBundle(text: string): { csvText: string; drawings: VtdDr
       arrows: Array.isArray(parsed.arrows) ? parsed.arrows : [],
       brushes: Array.isArray(parsed.brushes) ? parsed.brushes : [],
       texts: Array.isArray(parsed.texts) ? parsed.texts : [],
+      // 取引履歴保存より前のファイルには無いため空配列にフォールバックする
+      closedTrades: Array.isArray(parsed.closedTrades) ? parsed.closedTrades : [],
     };
     return { csvText, drawings };
   } catch {
