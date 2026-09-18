@@ -113,19 +113,28 @@ function SplitBar({
 // 符号付き金額（ロング利益・ショート利益）を、正負で色分けした横棒で比較する簡易チャート。
 // ゼロを起点に左右へ伸ばすのではなく、単純に絶対値の比率で棒の長さを揃える（値の大小比較が目的で
 // 収支の対称性までは要らないため。マイナスは赤、プラスは緑で判別できれば十分）
-function SignedBarRow({ label, value, sym, maxAbs }: { label: string; value: number; sym: string; maxAbs: number }) {
-  const pct = maxAbs > 0 ? (Math.abs(value) / maxAbs) * 100 : 0;
-  const color = value >= 0 ? '#26a69a' : '#ef5350';
+// ロング/ショートの利益を「どちらが利益の何割を占めるか」が分かる1本の横棒で示す。
+// SplitBarと同じ考え方だが、両側とも同じ色に固定できないため（片方が損失のことがある）、
+// 各セグメントの色をその側の符号（黒字/赤字）で決める。幅は絶対値の比率
+function DirectionalPnlBar({ longPnl, shortPnl, sym }: { longPnl: number; shortPnl: number; sym: string }) {
+  const totalAbs = Math.abs(longPnl) + Math.abs(shortPnl);
+  const longPct = totalAbs > 0 ? (Math.abs(longPnl) / totalAbs) * 100 : 50;
+  const longColor = longPnl >= 0 ? '#26a69a' : '#ef5350';
+  const shortColor = shortPnl >= 0 ? '#26a69a' : '#ef5350';
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <span style={{ width: '52px', flexShrink: 0, fontSize: '13px', color: '#888' }}>{label}</span>
-      <div style={{ flex: 1, height: '10px', backgroundColor: '#1a1a1a', borderRadius: '5px', overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color }} />
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+        <span style={{ color: longColor, fontWeight: 700 }}>ロング {longPnl >= 0 ? '+' : ''}{sym}{fmt(longPnl)}</span>
+        <span style={{ color: shortColor, fontWeight: 700 }}>ショート {shortPnl >= 0 ? '+' : ''}{sym}{fmt(shortPnl)}</span>
       </div>
-      <span style={{
-        width: '110px', flexShrink: 0, textAlign: 'right', fontSize: '13px', fontWeight: 700,
-        fontVariantNumeric: 'tabular-nums', color,
-      }}>{value >= 0 ? '+' : ''}{sym}{fmt(value)}</span>
+      <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
+        {totalAbs > 0 ? (
+          <>
+            <div style={{ width: `${longPct}%`, backgroundColor: longColor }} />
+            <div style={{ width: `${100 - longPct}%`, backgroundColor: shortColor }} />
+          </>
+        ) : null}
+      </div>
     </div>
   );
 }
@@ -173,7 +182,6 @@ export function HistoryPanel() {
   const sorted = [...closedTrades].sort((a, b) => a.closeTime - b.closeTime);
 
   const stats = useMemo(() => computeStats(closedTrades), [closedTrades]);
-  const maxAbsSidePnl = Math.max(Math.abs(stats.longPnl), Math.abs(stats.shortPnl));
   const rs = useMemo(() => computeTradeStats(closedTrades, initialBalance), [closedTrades, initialBalance]);
   const maxAbsSessionPnl = Math.max(...rs.bySession.map(s => Math.abs(s.pnl)));
 
@@ -340,10 +348,7 @@ export function HistoryPanel() {
 
             <div>
               <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>利益（方向別）</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <SignedBarRow label="ロング" value={stats.longPnl} sym={sym} maxAbs={maxAbsSidePnl} />
-                <SignedBarRow label="ショート" value={stats.shortPnl} sym={sym} maxAbs={maxAbsSidePnl} />
-              </div>
+              <DirectionalPnlBar longPnl={stats.longPnl} shortPnl={stats.shortPnl} sym={sym} />
             </div>
           </div>
         )}
