@@ -249,6 +249,7 @@ interface TraderState {
   showSessions: boolean; // 東京/ロンドン/NYの取引時間帯を背景帯で表示するインジケータ
   overlaysHidden: boolean; // インジケータ・描画物（線/図形等）を一括で非表示にするトグル。データは消さない
   showHistoryPanel: boolean; // 取引履歴・損益グラフのパネル表示
+  orderPanelOpen: boolean; // 発注パネル（独立フローティング、OrderPanel.tsx）の開閉
   chartRightMargin: number;  // チャート右側の価格軸の実測幅(px)。フロートパネルの配置クランプ用
   chartBottomMargin: number; // チャート下部の時間軸の実測高さ(px)。フロートパネルの配置クランプ用
   fitSignal: number;  // fitToScreen が呼ばれるたびに増える（チャート側の fitContent 起動トリガ用）
@@ -364,6 +365,7 @@ interface TraderState {
   toggleSessions: () => void;
   advanceToEnd: () => void;
   toggleHistoryPanel: () => void;
+  setOrderPanelOpen: (open: boolean) => void;
   setChartMargins: (right: number, bottom: number) => void;
   setChartLayout: (layout: '1' | '4') => void;
   setQuadTimeframe: (slot: number, sec: TimeframeSec) => void;
@@ -581,6 +583,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   showWeekLines: true,
   showSessions: true,
   showHistoryPanel: false,
+  orderPanelOpen: false,
   chartRightMargin: 60,
   chartBottomMargin: 28,
   fitSignal: 0,
@@ -1351,6 +1354,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     });
   },
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),
+  setOrderPanelOpen: (open) => set({ orderPanelOpen: open }),
   setChartMargins: (right: number, bottom: number) => set({ chartRightMargin: right, chartBottomMargin: bottom }),
   setChartLayout: (layout: '1' | '4') => {
     saveChartLayout(layout);

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
-import { TIMEFRAMES, type Position, type PendingOrder, type OrderType } from '../types';
+import { TIMEFRAMES, type Position, type PendingOrder } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { captureChartArea } from '../lib/screenshot';
@@ -41,8 +41,6 @@ export function fmtVTime(sec: number): string {
 const fmt  = (n: number) => Math.round(n).toLocaleString('ja-JP');
 const fmtp = (n: number, sym: string) => (n >= 0 ? `+${sym}${fmt(n)}` : `-${sym}${fmt(Math.abs(n))}`);
 
-const LOT_OPTIONS = [1_000, 3_000, 5_000, 10_000, 20_000, 50_000, 100_000];
-
 const pnlColor = (n: number) => n > 0 ? '#26a69a' : n < 0 ? '#ef5350' : '#444';
 
 const DEFAULT_TP_SL_PIPS = 50;
@@ -50,13 +48,6 @@ const DEFAULT_TP_SL_PIPS = 50;
 const miniBtn = (color: string): React.CSSProperties => ({
   background: 'none', border: `1px solid ${color}55`, color,
   borderRadius: '3px', padding: '1px 6px', cursor: 'pointer', fontSize: '12px',
-});
-
-// チャートクリックで値を取得するボタン（押すとピッキングモードに入る）
-const pickBtn = (color: string, active: boolean, disabled: boolean): React.CSSProperties => ({
-  backgroundColor: disabled ? '#141414' : active ? `${color}33` : '#1a1a1a',
-  border: `1px solid ${disabled ? '#222' : active ? color : '#2a2a2a'}`,
-  borderRadius: '3px', padding: '6px 8px', cursor: disabled ? 'not-allowed' : 'pointer', fontSize: '14px',
 });
 
 // ── ポジション1行 ──────────────────────────────────────────────────────────
@@ -257,20 +248,10 @@ export function Controls() {
   const jumpToTime    = useTraderStore(s => s.jumpToTime);
   const fitToScreen   = useTraderStore(s => s.fitToScreen);
   const scrollToLatest = useTraderStore(s => s.scrollToLatest);
-  const submitOrder   = useTraderStore(s => s.submitOrder);
   const closePosition = useTraderStore(s => s.closePosition);
-  const closeAll      = useTraderStore(s => s.closeAll);
   const cancelOrder   = useTraderStore(s => s.cancelOrder);
   const setPositionTP = useTraderStore(s => s.setPositionTP);
   const setPositionSL = useTraderStore(s => s.setPositionSL);
-  const setOrderType  = useTraderStore(s => s.setOrderType);
-  const setDraftPrice = useTraderStore(s => s.setDraftPrice);
-  const setDraftTP    = useTraderStore(s => s.setDraftTP);
-  const setDraftSL    = useTraderStore(s => s.setDraftSL);
-  const clearDraft    = useTraderStore(s => s.clearDraft);
-  const togglePickTarget = useTraderStore(s => s.togglePickTarget);
-  const pickTarget    = useTraderStore(s => s.pickTarget);
-  const setLots       = useTraderStore(s => s.setLots);
   const setSpeed      = useTraderStore(s => s.setSpeed);
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const symbol        = useTraderStore(s => s.symbol);
@@ -283,6 +264,8 @@ export function Controls() {
   const toggleSessions = useTraderStore(s => s.toggleSessions);
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
+  const orderPanelOpen = useTraderStore(s => s.orderPanelOpen);
+  const setOrderPanelOpen = useTraderStore(s => s.setOrderPanelOpen);
   const advanceToEnd = useTraderStore(s => s.advanceToEnd);
   const isDrawingLine = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
@@ -305,15 +288,6 @@ export function Controls() {
   const quoteCurrency = useTraderStore(s => s.quoteCurrency);
   const positions     = useTraderStore(s => s.positions);
   const pendingOrders = useTraderStore(s => s.pendingOrders);
-  const orderType     = useTraderStore(s => s.orderType);
-  const draftPrice    = useTraderStore(s => s.draftPrice);
-  const draftTP       = useTraderStore(s => s.draftTP);
-  const draftSL       = useTraderStore(s => s.draftSL);
-  const lots          = useTraderStore(s => s.lots);
-  const lotMode       = useTraderStore(s => s.lotMode);
-  const setLotMode    = useTraderStore(s => s.setLotMode);
-  const riskPercent   = useTraderStore(s => s.riskPercent);
-  const setRiskPercent = useTraderStore(s => s.setRiskPercent);
   const candles       = useTraderStore(s => s.candles);
   const timeframeSec  = useTraderStore(s => s.timeframeSec);
   const cursor        = useTraderStore(s => s.cursor);
@@ -326,16 +300,9 @@ export function Controls() {
   // 最後の足まで進んでいる（=もう先に反応できる未来が無い）間は発注・速度変更を無効化する
   const atEnd = candles.length > 0 && cursor >= candles.length - 1;
   const sym = currencySymbol(quoteCurrency);
-  const priceStep = candles.length > 0 ? 1 / 10 ** pricePrecision(candles[0].close) : 0.00001;
 
   // ポジション別含み損益
   const current = candles[cursor];
-
-  // リスク%モードのロット数プレビュー（成行=現在値、指値/逆指値=draftPrice をエントリー価格として使う）
-  const entryPriceForRisk = orderType === 'market' ? current?.close ?? null : draftPrice;
-  const riskLotsPreview = (lotMode === 'risk' && draftSL !== null && entryPriceForRisk !== null && entryPriceForRisk !== draftSL)
-    ? Math.round((balance * (riskPercent / 100)) / Math.abs(entryPriceForRisk - draftSL))
-    : null;
   const posPnlMap = new Map(positions.map(pos => {
     const dir = pos.side === 'BUY' ? 1 : -1;
     const pnl = current ? (current.close - pos.openPrice) * pos.lots * dir : 0;
@@ -350,12 +317,6 @@ export function Controls() {
     const mm = String(d.getUTCMinutes()).padStart(2, '0');
     return `${M}/${D} ${hh}:${mm}`;
   })() : '—';
-
-  // 発注パネルの開閉。他のMenuButton群と違い「画面外クリックで閉じる」を採用しない——
-  // TP/SL/価格の📍ボタンでチャート上をクリックして値を拾う操作自体が「パネルの外側クリック」に
-  // 該当してしまい、値を拾おうとするたびにパネルが閉じてしまうため。発注ボタンの再クリックか
-  // BUY/SELL確定でのみ閉じる（下のuseEffectとsubmitOrder呼び出し側を参照）
-  const [orderPanelOpen, setOrderPanelOpen] = useState(false);
 
   const [jumpDate, setJumpDate] = useState('');
   const handleJump = () => {
@@ -387,148 +348,6 @@ export function Controls() {
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
   }, [isPlaying, speed, advance]);
-
-  const orderPanel = (
-      <div style={{
-        display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', maxWidth: '640px',
-      }}>
-        <div style={{ display: 'flex', gap: '3px' }}>
-          <button
-            onClick={() => setLotMode('fixed')}
-            disabled={!isLoaded || atEnd}
-            style={tfBtn(lotMode === 'fixed', !isLoaded || atEnd)}
-          >固定</button>
-          <button
-            onClick={() => setLotMode('risk')}
-            disabled={!isLoaded || atEnd}
-            style={tfBtn(lotMode === 'risk', !isLoaded || atEnd)}
-          >リスク%</button>
-        </div>
-
-        {lotMode === 'fixed' ? (
-          <select
-            value={lots}
-            onChange={e => setLots(Number(e.target.value))}
-            disabled={!isLoaded || atEnd}
-            style={{
-              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-              borderRadius: '3px', padding: '6px 8px', fontSize: '15px', cursor: 'pointer',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          >
-            {LOT_OPTIONS.map(v => (
-              <option key={v} value={v}>{v.toLocaleString()}</option>
-            ))}
-          </select>
-        ) : (
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-            <input
-              type="number"
-              value={riskPercent}
-              onChange={e => setRiskPercent(Number(e.target.value))}
-              min={0.1} step={0.1}
-              disabled={!isLoaded || atEnd}
-              style={{
-                backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-                borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '60px',
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            />
-            <span style={{ color: '#555', fontSize: '14px' }}>%</span>
-            <span style={{ color: '#666', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
-              {riskLotsPreview !== null ? `→ ${riskLotsPreview.toLocaleString()}通貨` : '→ SLを設定'}
-            </span>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: '3px' }}>
-          {([['market', '成行'], ['limit', '指値'], ['stop', '逆指値']] as [OrderType, string][]).map(([t, label]) => (
-            <button
-              key={t}
-              onClick={() => setOrderType(t)}
-              disabled={!isLoaded || atEnd}
-              style={tfBtn(orderType === t, !isLoaded || atEnd)}
-            >{label}</button>
-          ))}
-        </div>
-
-        {orderType !== 'market' && (
-          <div style={{ display: 'flex', gap: '3px' }}>
-            <input
-              type="number"
-              placeholder="価格"
-              value={draftPrice ?? ''}
-              onChange={e => setDraftPrice(e.target.value === '' ? null : Number(e.target.value))}
-              step={priceStep}
-              style={{
-                backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-                borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '100px',
-                fontVariantNumeric: 'tabular-nums',
-              }}
-            />
-            <button
-              onClick={() => togglePickTarget('price')}
-              disabled={!isLoaded}
-              style={pickBtn('#888', pickTarget === 'price', !isLoaded)}
-            >📍</button>
-          </div>
-        )}
-
-        <div style={{ display: 'flex', gap: '3px' }}>
-          <input
-            type="number"
-            placeholder="TP"
-            value={draftTP ?? ''}
-            onChange={e => setDraftTP(e.target.value === '' ? null : Number(e.target.value))}
-            step={priceStep}
-            style={{
-              backgroundColor: '#1a1a1a', color: '#26a69a', border: '1px solid #1a3a35',
-              borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '90px',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          />
-          <button
-            onClick={() => togglePickTarget('tp')}
-            disabled={!isLoaded}
-            style={pickBtn('#26a69a', pickTarget === 'tp', !isLoaded)}
-          >📍</button>
-        </div>
-        <div style={{ display: 'flex', gap: '3px' }}>
-          <input
-            type="number"
-            placeholder="SL"
-            value={draftSL ?? ''}
-            onChange={e => setDraftSL(e.target.value === '' ? null : Number(e.target.value))}
-            step={priceStep}
-            style={{
-              backgroundColor: '#1a1a1a', color: '#ef5350', border: '1px solid #3a1a1a',
-              borderRadius: '3px', padding: '6px 8px', fontSize: '15px', width: '90px',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          />
-          <button
-            onClick={() => togglePickTarget('sl')}
-            disabled={!isLoaded}
-            style={pickBtn('#ef5350', pickTarget === 'sl', !isLoaded)}
-          >📍</button>
-        </div>
-        {(draftPrice !== null || draftTP !== null || draftSL !== null || pickTarget !== null) && (
-          <button
-            onClick={clearDraft}
-            title="価格・TP・SLの下書きをクリア"
-            style={{
-              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-              borderRadius: '3px', padding: '6px 10px', fontSize: '15px', cursor: 'pointer',
-            }}
-          >クリア</button>
-        )}
-        <button onClick={() => { submitOrder('BUY');  setOrderPanelOpen(false); }}  disabled={!isLoaded || atEnd} style={orderBtn('#0d47a1', !isLoaded || atEnd)}>BUY</button>
-        <button onClick={() => { submitOrder('SELL'); setOrderPanelOpen(false); }} disabled={!isLoaded || atEnd} style={orderBtn('#b71c1c', !isLoaded || atEnd)}>SELL</button>
-        {positions.length > 1 && (
-          <button onClick={closeAll} style={orderBtn('#333', false)}>全決済</button>
-        )}
-      </div>
-  );
 
   return (
     <div style={{ borderTop: '1px solid #1e1e1e', backgroundColor: '#0d0d0d' }}>
@@ -647,24 +466,16 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 発注パネル。他のメニューと違い画面外クリックでは閉じない（📍でチャートを
-            クリックする操作を妨げないため。orderPanelOpenのコメント参照） */}
-        <div style={{ position: 'relative', padding: '0 8px', flexShrink: 0 }}>
+        {/* 発注ボタン。パネル本体は再生ボタン(FloatingControls)・パレット(PalettePanel)と
+            同じ、チャート上に独立して浮かぶドラッグ可能なパネル（OrderPanel.tsx）を開閉する
+            だけのトグル。以前はこの場所にドロップダウンとして直接出していたが、項目が多く
+            ゴチャゴチャして見づらいという指摘を受けて独立パネル化した */}
+        <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <button
-            onClick={() => setOrderPanelOpen(o => !o)}
+            onClick={() => setOrderPanelOpen(!orderPanelOpen)}
             disabled={!isLoaded}
-            style={tfBtn(pickTarget !== null || orderPanelOpen, !isLoaded)}
-          >発注 {orderPanelOpen ? '▴' : '▾'}</button>
-          {orderPanelOpen && (
-            <div style={{
-              position: 'absolute', bottom: 'calc(100% + 6px)', right: 0,
-              backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
-              padding: '12px', boxShadow: '0 -8px 24px rgba(0,0,0,0.5)', zIndex: 60,
-              minWidth: 'max-content', maxWidth: '90vw',
-            }}>
-              {orderPanel}
-            </div>
-          )}
+            style={tfBtn(orderPanelOpen, !isLoaded)}
+          >発注</button>
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
@@ -767,7 +578,7 @@ export function Controls() {
   );
 }
 
-const tfBtn = (active: boolean, disabled: boolean): React.CSSProperties => ({
+export const tfBtn = (active: boolean, disabled: boolean): React.CSSProperties => ({
   backgroundColor: disabled ? '#141414' : active ? '#2a2a2a' : '#161616',
   color: disabled ? '#333' : active ? '#e0e0e0' : '#666',
   border: active ? '1px solid #3a3a3a' : '1px solid #222',
@@ -776,13 +587,5 @@ const tfBtn = (active: boolean, disabled: boolean): React.CSSProperties => ({
   cursor: disabled ? 'not-allowed' : 'pointer',
   fontSize: '15px',
   fontWeight: 700,
-});
-
-const orderBtn = (bg: string, disabled: boolean): React.CSSProperties => ({
-  backgroundColor: disabled ? '#1a1a1a' : bg,
-  color: disabled ? '#333' : '#fff',
-  border: 'none', borderRadius: '3px',
-  padding: '8px 14px', cursor: disabled ? 'not-allowed' : 'pointer',
-  fontSize: '17px', fontWeight: 700, letterSpacing: '0.05em',
 });
 

@@ -6,6 +6,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { FloatingControls } from './components/FloatingControls';
 import { DrawToolbar } from './components/DrawToolbar';
 import { PalettePanel } from './components/PalettePanel';
+import { OrderPanel } from './components/OrderPanel';
 import { useTraderStore } from './store/useTraderStore';
 import { initDuckDB } from './lib/duckdb';
 
@@ -158,6 +159,7 @@ export default function App() {
           </div>
           <FloatingControls />
           <PalettePanel />
+          <OrderPanel />
           {error && (
             <div style={{
               position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)',
