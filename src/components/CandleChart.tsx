@@ -1859,37 +1859,11 @@ export function CandleChart({
       }
 
       // どの特殊モードでもない通常クリック: #N付きのトレードマーカー（エントリー矢印/決済円）を
-      // 押したら取引履歴パネルを開いて該当行までスクロールする。lightweight-chartsのマーカーは
-      // 独自のDOM要素を持たない（series専用canvasへの直接描画）ためクリックイベントを拾えず、
-      // ここで時刻・Y座標から近似的に当たり判定する。マーカーの実際の描画オフセットは
-      // ライブラリ内部計算で正確な値が取れないため、高値/安値から離れすぎない範囲
-      // （TOL_PX）で緩めに判定する
+      // 押したら取引履歴パネルを開いて該当行までスクロールする（当たり判定はhitTestTradeMarkerAtTime
+      // 共通関数、findHLineNear付近で定義。マウスホバー時のカーソル変更と同じロジックを使う）
       if (param.time === undefined) return;
-      const clickTime = param.time as number;
-      const candle = displayCandlesRef.current.find(c => c.time === clickTime);
-      if (!candle) return;
-      const highY = seriesRef.current.priceToCoordinate(candle.high);
-      const lowY = seriesRef.current.priceToCoordinate(candle.low);
-      if (highY === null || lowY === null) return;
-      const clickY = param.point.y;
-      const TOL_PX = 45;
-      const { closedTrades: allClosedTrades, openHistoryForTrade } = useTraderStore.getState();
-      let bestId: number | null = null;
-      let bestDist = Infinity;
-      for (const t of allClosedTrades) {
-        const isBuy = t.side === 'BUY';
-        if (t.openTime === clickTime) {
-          // エントリー矢印: BUYはbelowBar（安値の下）、SELLはaboveBar（高値の上）
-          const dist = isBuy ? clickY - lowY : highY - clickY;
-          if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
-        }
-        if (t.closeTime === clickTime) {
-          // 決済丸: エントリーと逆側（BUYはaboveBar、SELLはbelowBar）
-          const dist = isBuy ? highY - clickY : clickY - lowY;
-          if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
-        }
-      }
-      if (bestId !== null) openHistoryForTrade(bestId);
+      const hitId = hitTestTradeMarkerAtTime(param.time as number, param.point.y);
+      if (hitId !== null) useTraderStore.getState().openHistoryForTrade(hitId);
     });
 
     // ── 四角形（ドラッグで描画） ──────────────────────────────────
@@ -2138,6 +2112,45 @@ export function CandleChart({
         if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return line.id;
       }
       return null;
+    };
+
+    // 指定時刻の足にあるトレードマーカー（エントリー矢印/決済丸）のうち、clickYに一番近い
+    // ものを返す（当たり判定はTOL_PX以内）。マウスホバー時のカーソル変更（pointer表示）と
+    // 実際のクリック時のジャンプ処理（chart.subscribeClick）の両方から呼ぶ共通ロジック。
+    // マーカーはSeries Primitivesではなく専用canvasへの直接描画でDOM要素を持たないため、
+    // 高値/安値からの距離で近似的に判定する（正確な描画オフセットは取得できない）
+    const hitTestTradeMarkerAtTime = (clickTime: number, clickY: number): number | null => {
+      if (!seriesRef.current) return null;
+      const candle = displayCandlesRef.current.find(c => c.time === clickTime);
+      if (!candle) return null;
+      const highY = seriesRef.current.priceToCoordinate(candle.high);
+      const lowY = seriesRef.current.priceToCoordinate(candle.low);
+      if (highY === null || lowY === null) return null;
+      const TOL_PX = 45;
+      const { closedTrades: allClosedTrades } = useTraderStore.getState();
+      let bestId: number | null = null;
+      let bestDist = Infinity;
+      for (const t of allClosedTrades) {
+        const isBuy = t.side === 'BUY';
+        if (t.openTime === clickTime) {
+          // エントリー矢印: BUYはbelowBar（安値の下）、SELLはaboveBar（高値の上）
+          const dist = isBuy ? clickY - lowY : highY - clickY;
+          if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
+        }
+        if (t.closeTime === clickTime) {
+          // 決済丸: エントリーと逆側（BUYはaboveBar、SELLはbelowBar）
+          const dist = isBuy ? highY - clickY : clickY - lowY;
+          if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
+        }
+      }
+      return bestId;
+    };
+
+    const findTradeMarkerNear = (x: number, y: number): number | null => {
+      if (!chartRef.current) return null;
+      const t = chartRef.current.timeScale().coordinateToTime(x);
+      if (t === null) return null;
+      return hitTestTradeMarkerAtTime(t as number, y);
     };
 
     const findPriceTargetNear = (y: number): DragTarget | null => {
@@ -3321,7 +3334,10 @@ export function CandleChart({
         // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
         // 当たらなかった場合にのみカーソルを変える（mousedown側の優先順位と揃える）
         const hlineId = findHLineNear(y);
-        container.style.cursor = hlineId !== null ? 'ns-resize' : 'default';
+        if (hlineId !== null) { container.style.cursor = 'ns-resize'; return; }
+        // トレードマーカー（#N）の上ではクリックで履歴へ飛べることが分かるようpointerにする
+        const tradeMarkerId = findTradeMarkerNear(x, y);
+        container.style.cursor = tradeMarkerId !== null ? 'pointer' : 'default';
       }
     };
 
