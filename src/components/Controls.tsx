@@ -266,6 +266,7 @@ export function Controls() {
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
   const orderPanelOpen = useTraderStore(s => s.orderPanelOpen);
   const setOrderPanelOpen = useTraderStore(s => s.setOrderPanelOpen);
+  const clearDraft = useTraderStore(s => s.clearDraft);
   const advanceToEnd = useTraderStore(s => s.advanceToEnd);
   const isDrawingLine = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
@@ -472,7 +473,13 @@ export function Controls() {
             ゴチャゴチャして見づらいという指摘を受けて独立パネル化した */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <button
-            onClick={() => setOrderPanelOpen(!orderPanelOpen)}
+            onClick={() => {
+              // 発注ボタンの再クリックでパネルを閉じる時は、価格/TP/SLの仮入力（前回比率の
+              // 再現分含む）もクリアする（クリアボタンと同じ動作）。開く時はそのまま
+              // （パネルを開いた瞬間に前回比率の仮入力が別途走る）
+              if (orderPanelOpen) clearDraft();
+              setOrderPanelOpen(!orderPanelOpen);
+            }}
             disabled={!isLoaded}
             style={tfBtn(orderPanelOpen, !isLoaded)}
           >発注</button>
