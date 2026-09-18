@@ -120,16 +120,15 @@ function DirectionalPnlBar({ longPnl, shortPnl, sym }: { longPnl: number; shortP
   const totalAbs = Math.abs(longPnl) + Math.abs(shortPnl);
   const longPct = totalAbs > 0 ? (Math.abs(longPnl) / totalAbs) * 100 : 50;
   // バーの色はロング/ショートの識別色（上の「ポジション」行のSplitBarと揃える）で固定し、
-  // 割合が一目で分かるようにする。黒字/赤字は金額側のテキスト色で示す
+  // 割合が一目で分かるようにする。文字色もバーと同じ識別色に揃える（黒字/赤字の区別は
+  // +/-の符号表記で示す。バーと文字で色基準が違うと一致していないように見えるため統一した）
   const LONG_COLOR = '#42a5f5';
   const SHORT_COLOR = '#ab47bc';
-  const longTextColor = longPnl >= 0 ? '#26a69a' : '#ef5350';
-  const shortTextColor = shortPnl >= 0 ? '#26a69a' : '#ef5350';
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-        <span style={{ color: longTextColor, fontWeight: 700 }}>ロング {longPnl >= 0 ? '+' : ''}{sym}{fmt(longPnl)}</span>
-        <span style={{ color: shortTextColor, fontWeight: 700 }}>ショート {shortPnl >= 0 ? '+' : ''}{sym}{fmt(shortPnl)}</span>
+        <span style={{ color: LONG_COLOR, fontWeight: 700 }}>ロング {longPnl >= 0 ? '+' : ''}{sym}{fmt(longPnl)}</span>
+        <span style={{ color: SHORT_COLOR, fontWeight: 700 }}>ショート {shortPnl >= 0 ? '+' : ''}{sym}{fmt(shortPnl)}</span>
       </div>
       <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
         {totalAbs > 0 ? (
