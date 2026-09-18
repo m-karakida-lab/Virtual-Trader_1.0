@@ -406,7 +406,9 @@ export function HistoryPanel() {
 
         <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px 0' }}>
           <div style={{ ...sectionTitle, marginBottom: '10px' }}>■取引内容一覧</div>
-          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
+          {/* width:100%で列幅が箱全体に均等に伸びると、中身が短い列ほど余白だらけになって
+              間延びして見えた。tableは中身の幅に合わせて自然に縮めるだけにする */}
+          <table style={{ borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
             <thead>
               <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
                 <th style={{ padding: '8px 8px' }}>#</th>
