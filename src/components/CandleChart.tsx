@@ -270,6 +270,7 @@ export function CandleChart({
   const sessionOverlayRef = useRef<HTMLDivElement>(null);
   const sessionElsRef = useRef<HTMLDivElement[]>([]);
   const sessionBandsRef = useRef<SessionBand[]>([]);
+  const sessionMarkerElRef = useRef<HTMLDivElement | null>(null);
   const syncSessionsRef = useRef<() => void>(() => {});
   const measureOverlayRef = useRef<HTMLDivElement>(null);
   const measureBoxRef = useRef<HTMLDivElement>(null);
@@ -1537,6 +1538,30 @@ export function CandleChart({
         el.style.width = `${x1 - x0}px`;
         el.style.backgroundColor = SESSIONS.find(s => s.key === band.key)!.color;
       });
+
+      // 今どのあたりの足を見ているか一目で分かるよう、現在足（メインはcursor、非メインは
+      // 表示中の末尾＝effectiveCursorRef）の位置に白い縦の目印を立てる
+      if (!sessionMarkerElRef.current) {
+        const marker = document.createElement('div');
+        marker.style.position = 'absolute';
+        marker.style.width = '2px';
+        marker.style.pointerEvents = 'none';
+        marker.style.backgroundColor = '#fff';
+        marker.style.boxShadow = '0 0 3px rgba(255,255,255,0.9)';
+        overlay.appendChild(marker);
+        sessionMarkerElRef.current = marker;
+      }
+      const marker = sessionMarkerElRef.current;
+      const currentCandle = displayCandlesRef.current[effectiveCursorRef.current];
+      const mx = currentCandle !== undefined ? timeToX(currentCandle.time) : null;
+      if (mx === null) {
+        marker.style.display = 'none';
+      } else {
+        marker.style.display = 'block';
+        marker.style.left = `${mx - 1}px`;
+        marker.style.bottom = `${bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP - 2}px`;
+        marker.style.height = `${SESSION_ROW_HEIGHT + 4}px`;
+      }
     };
     syncSessionsRef.current = syncSessions;
     syncSessions();
