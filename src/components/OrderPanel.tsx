@@ -64,7 +64,7 @@ export function OrderPanel() {
   const draftSL       = useTraderStore(s => s.draftSL);
   const setDraftSL    = useTraderStore(s => s.setDraftSL);
   const clearDraft    = useTraderStore(s => s.clearDraft);
-  const lastOrderRatios = useTraderStore(s => s.lastOrderRatios);
+  const lastOrderRatiosByKey = useTraderStore(s => s.lastOrderRatiosByKey);
   const togglePickTarget = useTraderStore(s => s.togglePickTarget);
   const pickTarget    = useTraderStore(s => s.pickTarget);
   const lots          = useTraderStore(s => s.lots);
@@ -121,13 +121,19 @@ export function OrderPanel() {
     };
   }, []);
 
-  // パネルを開いた瞬間、前回の発注で価格/TP/SLがエントリー価格から何%離れていたかを
-  // 「今の現在値」に適用し直して仮入力する（前回と同じ距離感で発注することが多いはず、
-  // という想定で毎回の手入力の手間を減らす）。既に何か入力/ピック済みなら上書きしない
+  // パネルを開いた瞬間、および注文種別(成行/指値/逆指値)・方向(BUY/SELL)を切り替えた瞬間に、
+  // その組み合わせの前回発注で価格/TP/SLがエントリー価格から何%離れていたかを「今の現在値」に
+  // 適用し直して仮入力する（前回と同じ距離感で発注することが多いはず、という想定で毎回の
+  // 手入力の手間を減らす）。BUY/SELLや注文種別を切り替えるたびに、その組み合わせ専用の
+  // 値へ置き換わる（＝既存の入力値も上書きする。組み合わせを切り替える操作自体が
+  // 「その組み合わせの値を見たい」という意思表示なので、他の組み合わせで入れた値を
+  // 引きずらない）。その組み合わせの発注履歴が無ければ何もしない（今の入力値のまま）
   useEffect(() => {
-    if (!orderPanelOpen || !lastOrderRatios) return;
-    const { candles: cs, cursor: cur, draftPrice: dp, draftTP: dtp, draftSL: dsl, orderType: ot } = useTraderStore.getState();
-    if (dp !== null || dtp !== null || dsl !== null) return;
+    if (!orderPanelOpen) return;
+    const ratioKey = `${orderType}:${selectedSide}`;
+    const ratios = lastOrderRatiosByKey[ratioKey];
+    if (!ratios) return;
+    const { candles: cs, cursor: cur } = useTraderStore.getState();
     const current = cs[cur]?.close;
     if (current === undefined) return;
     const prec = pricePrecision(current);
@@ -137,20 +143,13 @@ export function OrderPanel() {
     // ではなく「今回再現するエントリー価格」を基準に計算しないとRR（損益比）が保たれない。
     // 以前は無条件に現在値を基準にしていたため、指値/逆指値でエントリーと現在値が離れている
     // ほどRRが大きくズレる不具合になっていた（例: 1:1のつもりが1:6になる）
-    const priceRatio = lastOrderRatios.priceRatio;
-    const willUsePriceRatio = ot !== 'market' && priceRatio !== null;
+    const priceRatio = ratios.priceRatio;
+    const willUsePriceRatio = orderType !== 'market' && priceRatio !== null;
     const entryBase = willUsePriceRatio ? current * (1 + priceRatio) : current;
-    if (willUsePriceRatio) {
-      setDraftPrice(round(entryBase));
-    }
-    if (lastOrderRatios.tpRatio !== null) {
-      setDraftTP(round(entryBase * (1 + lastOrderRatios.tpRatio)));
-    }
-    if (lastOrderRatios.slRatio !== null) {
-      setDraftSL(round(entryBase * (1 + lastOrderRatios.slRatio)));
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [orderPanelOpen]);
+    setDraftPrice(willUsePriceRatio ? round(entryBase) : null);
+    setDraftTP(ratios.tpRatio !== null ? round(entryBase * (1 + ratios.tpRatio)) : null);
+    setDraftSL(ratios.slRatio !== null ? round(entryBase * (1 + ratios.slRatio)) : null);
+  }, [orderPanelOpen, orderType, selectedSide, lastOrderRatiosByKey, setDraftPrice, setDraftTP, setDraftSL]);
 
   if (!orderPanelOpen) return null;
 

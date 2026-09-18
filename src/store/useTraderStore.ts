@@ -188,10 +188,12 @@ interface TraderState {
   draftTP: number | null;    // 発注時の TP（draft）
   draftSL: number | null;    // 発注時の SL（draft）
   // 直近の発注で「価格・TP・SLがエントリー価格（成行なら約定値、指値/逆指値ならdraftPrice）
-  // から何%離れていたか」を比率で覚えておく。発注パネルを開いた時、この比率を現在値に
-  // 適用して価格/TP/SLへ予想値として仮入力する（毎回同じような距離感で発注する使い方が
-  // 多いはずなので、都度手入力する手間を減らす狙い）
-  lastOrderRatios: { priceRatio: number | null; tpRatio: number | null; slRatio: number | null } | null;
+  // から何%離れていたか」を比率で覚えておく。発注パネルを開いた時（＋注文種別/方向を
+  // 切り替えた時）、この比率を現在値に適用して価格/TP/SLへ予想値として仮入力する
+  // （毎回同じような距離感で発注する使い方が多いはずなので、都度手入力する手間を減らす狙い）。
+  // 成行/指値/逆指値 × BUY/SELL の組み合わせごとに別々に覚える（`${orderType}:${side}`キー）。
+  // 例えばBUYの成行とSELLの逆指値で全く違う値幅を使う運用でも、それぞれ独立して再現できる
+  lastOrderRatiosByKey: Record<string, { priceRatio: number | null; tpRatio: number | null; slRatio: number | null }>;
   pickTarget: 'price' | 'tp' | 'sl' | null; // チャートクリックで price/tp/sl に値を入れるモード
   // 「日足の特定の足を指して他の時間足の同じ時刻へジャンプする」ツール。ONの間に
   // どれか1つのパネルで足をクリックすると、クリックしなかった他の枠だけがその時刻を
@@ -539,7 +541,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   draftPrice: null,
   draftTP: null,
   draftSL: null,
-  lastOrderRatios: null,
+  lastOrderRatiosByKey: {},
   pickTarget: null,
   isJumpSync: false,
   jumpSyncSignal: 0,
@@ -906,12 +908,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       }
     }
 
-    // 今回の価格・TP・SLがエントリー価格から何%離れていたかを記録し、次回パネルを開いた時の
-    // 仮入力に使う（発注パネルを開いた瞬間、この比率を「今の現在値」に適用し直す）
+    // 今回の価格・TP・SLがエントリー価格から何%離れていたかを記録し、次回パネルを開いた時
+    // （＋注文種別/方向を切り替えた時）の仮入力に使う。成行/指値/逆指値×BUY/SELLの組み合わせ
+    // ごとに別々に覚える
     const priceRatio = orderType !== 'market' && draftPrice !== null ? (draftPrice - c.close) / c.close : null;
     const tpRatio = tp !== undefined && entryPrice !== null ? (tp - entryPrice) / entryPrice : null;
     const slRatio = sl !== undefined && entryPrice !== null ? (sl - entryPrice) / entryPrice : null;
-    const lastOrderRatios = { priceRatio, tpRatio, slRatio };
+    const ratioKey = `${orderType}:${side}`;
+    const lastOrderRatiosByKey = { ...get().lastOrderRatiosByKey, [ratioKey]: { priceRatio, tpRatio, slRatio } };
 
     if (orderType === 'market') {
       // 証拠金チェック（簡易: 1証拠金 = lots × price × 0.04 ≒ 4%）
@@ -924,7 +928,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         positions: [...positions, { id: nextId, side, openPrice: c.close, lots: useLots, openTime: c.time, tp, sl }],
         nextId: nextId + 1,
         draftTP: null, draftSL: null,
-        lastOrderRatios,
+        lastOrderRatiosByKey,
       });
     } else {
       if (draftPrice === null) return;
@@ -942,7 +946,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       set({
         pendingOrders: [...pendingOrders, { id: nextOrderId, side, type: orderType, price: draftPrice, lots: useLots, tp, sl }],
         nextOrderId: nextOrderId + 1,
-        lastOrderRatios,
+        lastOrderRatiosByKey,
         draftPrice: null, draftTP: null, draftSL: null, error: null,
       });
     }
