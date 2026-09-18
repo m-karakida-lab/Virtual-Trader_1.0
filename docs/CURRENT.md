@@ -26,7 +26,7 @@
 - 1分足→任意時間軸への自動集計（DuckDB SQL）。5m/15m/1H/4H/1D/1W/MN切替可。週足・月足はカレンダー基準`date_trunc`集計、それ以外は`floor(ts/sec)`固定長バケット集計
 - 表示は日本時間(JST)に変換済み。CSV（ブローカーサーバー時間）はEU夏時間ルール（GMT+2冬/+3夏）前提で自動変換。チャート・日付ジャンプ・取引履歴すべてJST基準
 - 通貨記号はファイル名（例`EURUSD_2025_all.csv`）から自動検出。実際の円換算はしない
-- 書き込み（水平線・垂直線・四角形・トレンドライン・ブラシ・テキスト）の保存/読込: 単一ファイル読込時のみ「💾 vtd保存」ボタンが現れ、CSV＋描画データJSONを`.vtd`1ファイルに保存（`src/lib/vtd.ts`）。元がvtdバンドルだった場合のみ「上書き保存」でそのファイルへ直接書込み、素のCSVを開いた場合は常に新規ダウンロード。複数ファイル同時読込時は保存機能自体使えない。ズーム位置・トレード状態は保存対象外
+- 書き込み（水平線・垂直線・四角形・トレンドライン・ブラシ・テキスト）の保存/読込: 単一ファイル読込時のみ「💾 vtd保存」ボタンが現れ、CSV＋描画データJSON＋決済済み取引履歴（closedTrades）を`.vtd`1ファイルに保存（`src/lib/vtd.ts`）。元がvtdバンドルだった場合のみ「上書き保存」でそのファイルへ直接書込み、素のCSVを開いた場合は常に新規ダウンロード。複数ファイル同時読込時は保存機能自体使えない。建玉中のポジション・未約定注文・残高/初期残高等の「設定」・ズーム位置は保存対象外（残高は読込時に初期残高＋復元した取引の損益合計で再計算）
 
 ### チャート表示・描画
 - インジケーター: 200EMA（増分計算、デフォルトOFF）、SMA14（増分計算、デフォルトOFF）、ボリンジャーバンド（期間20、増分計算、デフォルトON）、一目均衡表の雲（先行スパンA/Bのみ、26本先行、デフォルトON）、区間区切り線（5m/15m/1Hは日替わり・4Hは週替わり・1D/1Wは月替わり・MNは年替わり、デフォルトON）、東京/ロンドン/NYセッション帯（JST 9-16/16-22/22-7時、重複なし。全期間スクラバーの少し上に、同じ太さ（高さ4px）の1行で濃い色表示、所属セッションの帯だけ不透明度を上げて濃く見せる演出、現在足の位置に白い縦線の目印（帯の上に離して配置、重ねない）、日足以上では非表示、デフォルトON）。全て4画面時のミニパネルにも連動（`src/lib/indicators.ts`・`src/lib/weekLines.ts`・`src/lib/sessions.ts`共有）。区切り線・セッション帯はDOMオーバーレイ（`weekOverlayRef`/`sessionOverlayRef`ともzIndex:8、四角形のcanvas zIndex:9より下）
@@ -115,7 +115,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/duckdb.ts` — DuckDB初期化・複数CSV読み込み・任意時間軸集計クエリ（`queryCandles`はJST変換済みを返す。週/月足は`date_trunc`、それ以外は`floor(ts/sec)`）
 - `src/lib/timezone.ts` — ブローカーサーバー時間（EU夏時間ルール GMT+2冬/+3夏）→JST変換
 - `src/lib/currency.ts` — ファイル名から通貨ペア検出・クオート通貨/記号マッピング
-- `src/lib/vtd.ts` — CSV＋描画データの1ファイル化（`splitVtdBundle`/`buildVtdBundle`）。区切り文字列より前は通常CSVのまま
+- `src/lib/vtd.ts` — CSV＋描画データ＋決済済み取引履歴の1ファイル化（`splitVtdBundle`/`buildVtdBundle`）。区切り文字列より前は通常CSVのまま。取引履歴を含まない旧形式ファイルは空配列にフォールバックして読み込める
 - `src/lib/chartTheme.ts` — TradingView風チャート共通スタイル定数（フォント・軸文字色/サイズ）
 - `src/lib/chartViewState.ts` — ズーム/スケールを時間軸ごとにlocalStorage保存/復元（絶対時刻でなく相対位置）
 - `src/lib/indicators.ts` — EMA/SMA/BB/雲の全体再計算版（CandleChartは別途増分計算の最適化版を持つ）。雲のずらし先時刻`cloudDisplacedTime`のみCandleChart共通利用
