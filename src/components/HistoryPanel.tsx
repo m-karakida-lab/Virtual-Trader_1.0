@@ -34,7 +34,7 @@ function fmtDuration(sec: number): string {
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', gap: '10px', fontSize: '13px', padding: '3px 0' }}>
-      <span style={{ color: '#888', width: '168px', flexShrink: 0 }}>{label}</span>
+      <span style={{ color: '#888', width: '190px', flexShrink: 0, whiteSpace: 'nowrap' }}>{label}</span>
       <span style={{ color: '#ddd', fontVariantNumeric: 'tabular-nums', fontWeight: 600, whiteSpace: 'nowrap' }}>{value}</span>
     </div>
   );
@@ -66,7 +66,7 @@ function SessionStatRow({
 
 function StatGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '12px 14px' }}>
+    <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '12px 14px', width: 'fit-content' }}>
       <div style={{ color: '#888', fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>{title}</div>
       <div>{children}</div>
     </div>
@@ -290,7 +290,10 @@ export function HistoryPanel() {
         {sorted.length > 0 && (
           <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
             <div style={{ color: '#888', fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>■リスクとパフォーマンス指標</div>
-            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+            {/* grid 2列だと箱がパネル半分の幅まで伸び、中身（ラベル+値）はその半分しか
+                使わないので右側が丸ごと空いて間延びして見えた。箱自体を中身の幅に合わせて
+                flex-wrapで並べる方式に変更（StatGroupのmaxWidth参照） */}
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
               <StatGroup title="収入">
                 <StatRow label="純利益" value={fmtMoney(rs.netProfit)} />
                 <StatRow label="平均トレード損益" value={fmtMoney(rs.avgTradePnl)} />
