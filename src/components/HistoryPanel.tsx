@@ -337,11 +337,15 @@ export function HistoryPanel() {
           </div>
         )}
 
-        <div style={{ height: '220px', border: '1px solid #1e1e1e', borderRadius: '4px', flexShrink: 0 }}>
-          <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
+          <div style={{ ...sectionTitle, marginBottom: '10px' }}>■残高の推移</div>
+          <div style={{ height: '220px' }}>
+            <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+          </div>
         </div>
 
-        <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px' }}>
+        <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px 0' }}>
+          <div style={{ ...sectionTitle, marginBottom: '10px' }}>■取引内容一覧</div>
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
             <thead>
               <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
