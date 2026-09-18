@@ -1855,7 +1855,41 @@ export function CandleChart({
         // 水平線・垂直線と同じく1回配置したらツールは解除する（addText自身が行う）。
         // 配置と同時にその場でcontentEditableの入力ボックスに切り替え、直接入力させる
         beginNewTextEdit(time as number, price);
+        return;
       }
+
+      // どの特殊モードでもない通常クリック: #N付きのトレードマーカー（エントリー矢印/決済円）を
+      // 押したら取引履歴パネルを開いて該当行までスクロールする。lightweight-chartsのマーカーは
+      // 独自のDOM要素を持たない（series専用canvasへの直接描画）ためクリックイベントを拾えず、
+      // ここで時刻・Y座標から近似的に当たり判定する。マーカーの実際の描画オフセットは
+      // ライブラリ内部計算で正確な値が取れないため、高値/安値から離れすぎない範囲
+      // （TOL_PX）で緩めに判定する
+      if (param.time === undefined) return;
+      const clickTime = param.time as number;
+      const candle = displayCandlesRef.current.find(c => c.time === clickTime);
+      if (!candle) return;
+      const highY = seriesRef.current.priceToCoordinate(candle.high);
+      const lowY = seriesRef.current.priceToCoordinate(candle.low);
+      if (highY === null || lowY === null) return;
+      const clickY = param.point.y;
+      const TOL_PX = 45;
+      const { closedTrades: allClosedTrades, openHistoryForTrade } = useTraderStore.getState();
+      let bestId: number | null = null;
+      let bestDist = Infinity;
+      for (const t of allClosedTrades) {
+        const isBuy = t.side === 'BUY';
+        if (t.openTime === clickTime) {
+          // エントリー矢印: BUYはbelowBar（安値の下）、SELLはaboveBar（高値の上）
+          const dist = isBuy ? clickY - lowY : highY - clickY;
+          if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
+        }
+        if (t.closeTime === clickTime) {
+          // 決済丸: エントリーと逆側（BUYはaboveBar、SELLはbelowBar）
+          const dist = isBuy ? highY - clickY : clickY - lowY;
+          if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
+        }
+      }
+      if (bestId !== null) openHistoryForTrade(bestId);
     });
 
     // ── 四角形（ドラッグで描画） ──────────────────────────────────

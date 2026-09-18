@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { ClosedTrade } from '../types';
@@ -160,11 +160,15 @@ export function HistoryPanel() {
   const quoteCurrency   = useTraderStore(s => s.quoteCurrency);
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
   const jumpToTime = useTraderStore(s => s.jumpToTime);
+  const scrollToTradeId = useTraderStore(s => s.scrollToTradeId);
+  const setScrollToTradeId = useTraderStore(s => s.setScrollToTradeId);
   const sym = currencySymbol(quoteCurrency);
 
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
+  const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
+  const [highlightedTradeId, setHighlightedTradeId] = useState<number | null>(null);
 
   const sorted = [...closedTrades].sort((a, b) => a.closeTime - b.closeTime);
 
@@ -220,6 +224,20 @@ export function HistoryPanel() {
     chartRef.current?.timeScale().fitContent();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closedTrades, initialBalance]);
+
+  // チャート上のトレードマーカー（#N）クリックで、取引一覧の該当行までスクロール＋一瞬ハイライトする
+  useEffect(() => {
+    if (scrollToTradeId === null) return;
+    const el = rowRefs.current.get(scrollToTradeId);
+    if (el) {
+      el.scrollIntoView({ block: 'center' });
+      setHighlightedTradeId(scrollToTradeId);
+      const timer = window.setTimeout(() => setHighlightedTradeId(null), 1800);
+      setScrollToTradeId(null);
+      return () => window.clearTimeout(timer);
+    }
+    setScrollToTradeId(null);
+  }, [scrollToTradeId, setScrollToTradeId]);
 
   return (
     <div style={{
@@ -368,11 +386,16 @@ export function HistoryPanel() {
                 [...sorted].reverse().map((t, i) => (
                   <tr
                     key={t.id}
+                    ref={el => { if (el) rowRefs.current.set(t.id, el); else rowRefs.current.delete(t.id); }}
                     onClick={() => { jumpToTime(t.openTime); toggleHistoryPanel(); }}
                     title="クリックでこのトレードの開始位置へチャートを移動"
-                    style={{ borderBottom: '1px solid #161616', cursor: 'pointer' }}
-                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#161616'; }}
-                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                    style={{
+                      borderBottom: '1px solid #161616', cursor: 'pointer',
+                      backgroundColor: highlightedTradeId === t.id ? 'rgba(66,165,245,0.25)' : 'transparent',
+                      transition: 'background-color 0.3s ease',
+                    }}
+                    onMouseEnter={e => { if (highlightedTradeId !== t.id) e.currentTarget.style.backgroundColor = '#161616'; }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = highlightedTradeId === t.id ? 'rgba(66,165,245,0.25)' : 'transparent'; }}
                   >
                     <td style={{ padding: '6px 12px', color: '#555' }}>{sorted.length - i}</td>
                     <td style={{ padding: '6px 12px', color: t.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{t.side}</td>
