@@ -130,26 +130,29 @@ function SplitBar({
 // SplitBarと同じ考え方だが、両側とも同じ色に固定できないため（片方が損失のことがある）、
 // 各セグメントの色をその側の符号（黒字/赤字）で決める。幅は絶対値の比率
 function DirectionalPnlBar({ longPnl, shortPnl, sym }: { longPnl: number; shortPnl: number; sym: string }) {
-  const totalAbs = Math.abs(longPnl) + Math.abs(shortPnl);
-  const longPct = totalAbs > 0 ? (Math.abs(longPnl) / totalAbs) * 100 : 50;
-  // バーの色はロング/ショートの識別色（上の「ポジション」行のSplitBarと揃える）で固定し、
-  // 割合が一目で分かるようにする。文字色もバーと同じ識別色に揃える（黒字/赤字の区別は
-  // +/-の符号表記で示す。バーと文字で色基準が違うと一致していないように見えるため統一した）
+  // バーは「利益への貢献度」を示すため、赤字側は幅0にする（黒字側だけで100%を占める）。
+  // マイナスの取引額の大小をバーの幅に反映すると、赤字が大きいほどバーが目立って
+  // 「黒字を出しているように」誤読されかねないため。赤字の金額自体はテキスト（赤）で示す
+  const longPositive = Math.max(0, longPnl);
+  const shortPositive = Math.max(0, shortPnl);
+  const totalPositive = longPositive + shortPositive;
+  const longPct = totalPositive > 0 ? (longPositive / totalPositive) * 100 : 0;
   const LONG_COLOR = '#42a5f5';
   const SHORT_COLOR = '#ab47bc';
+  const LOSS_COLOR = '#ef5350';
   return (
     <div>
       <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
-        <span style={{ color: LONG_COLOR, fontWeight: 700 }}>ロング {longPnl >= 0 ? '+' : ''}{sym}{fmt(longPnl)}</span>
-        <span style={{ color: SHORT_COLOR, fontWeight: 700 }}>ショート {shortPnl >= 0 ? '+' : ''}{sym}{fmt(shortPnl)}</span>
+        <span style={{ color: longPnl < 0 ? LOSS_COLOR : LONG_COLOR, fontWeight: 700 }}>ロング {longPnl >= 0 ? '+' : ''}{sym}{fmt(longPnl)}</span>
+        <span style={{ color: shortPnl < 0 ? LOSS_COLOR : SHORT_COLOR, fontWeight: 700 }}>ショート {shortPnl >= 0 ? '+' : ''}{sym}{fmt(shortPnl)}</span>
       </div>
       <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
-        {totalAbs > 0 ? (
+        {totalPositive > 0 && (
           <>
-            <div style={{ width: `${longPct}%`, backgroundColor: LONG_COLOR }} />
-            <div style={{ width: `${100 - longPct}%`, backgroundColor: SHORT_COLOR }} />
+            {longPositive > 0 && <div style={{ width: `${longPct}%`, backgroundColor: LONG_COLOR }} />}
+            {shortPositive > 0 && <div style={{ width: `${100 - longPct}%`, backgroundColor: SHORT_COLOR }} />}
           </>
-        ) : null}
+        )}
       </div>
     </div>
   );
