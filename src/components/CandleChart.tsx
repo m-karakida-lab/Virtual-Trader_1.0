@@ -271,6 +271,7 @@ export function CandleChart({
   const sessionElsRef = useRef<HTMLDivElement[]>([]);
   const sessionBandsRef = useRef<SessionBand[]>([]);
   const sessionMarkerElRef = useRef<HTMLDivElement | null>(null);
+  const sessionLabelElRef = useRef<HTMLDivElement | null>(null);
   const syncSessionsRef = useRef<() => void>(() => {});
   const measureOverlayRef = useRef<HTMLDivElement>(null);
   const measureBoxRef = useRef<HTMLDivElement>(null);
@@ -1524,8 +1525,18 @@ export function CandleChart({
         els.pop()?.remove();
       }
 
+      // 現在足（メインはcursor、非メインは表示中の末尾＝effectiveCursorRef）がどのセッションに
+      // 属するか（境目にいる時にどちらのセッションか分かりにくいという指摘対策）。
+      // 各セッションは[start, end)の半開区間で重ならないよう定義済みなので、含む帯は必ず1つ
+      const currentCandle = displayCandlesRef.current[effectiveCursorRef.current];
+      const currentTime = currentCandle?.time;
+      const activeIdx = currentTime === undefined
+        ? -1
+        : bands.findIndex(b => currentTime >= b.start && currentTime < b.end);
+
       bands.forEach((band, i) => {
         const el = els[i];
+        const isActive = i === activeIdx;
         el.style.bottom = `${bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP}px`;
         const x0 = timeToX(band.start);
         const x1 = timeToX(band.end);
@@ -1537,10 +1548,14 @@ export function CandleChart({
         el.style.left = `${x0}px`;
         el.style.width = `${x1 - x0}px`;
         el.style.backgroundColor = SESSIONS.find(s => s.key === band.key)!.color;
+        // 今いるセッションの帯だけ白枠＋発光ではっきり目立たせ、境目でもどちらか一目で分かるようにする
+        el.style.outline = isActive ? '2px solid #fff' : 'none';
+        el.style.boxShadow = isActive ? '0 0 6px rgba(255,255,255,0.8)' : 'none';
+        el.style.opacity = isActive || activeIdx === -1 ? '1' : '0.45';
       });
 
-      // 今どのあたりの足を見ているか一目で分かるよう、現在足（メインはcursor、非メインは
-      // 表示中の末尾＝effectiveCursorRef）の位置に白い縦の目印を立てる
+      // 現在足の位置に白い縦の目印を立てる。加えて目印の真上に現在のセッション名タグを
+      // 表示し、境目付近でも文字で確実に判別できるようにする
       if (!sessionMarkerElRef.current) {
         const marker = document.createElement('div');
         marker.style.position = 'absolute';
@@ -1551,16 +1566,42 @@ export function CandleChart({
         overlay.appendChild(marker);
         sessionMarkerElRef.current = marker;
       }
+      if (!sessionLabelElRef.current) {
+        const label = document.createElement('div');
+        label.style.position = 'absolute';
+        label.style.pointerEvents = 'none';
+        label.style.fontSize = '10px';
+        label.style.fontWeight = '700';
+        label.style.color = '#000';
+        label.style.padding = '1px 5px';
+        label.style.borderRadius = '3px';
+        label.style.whiteSpace = 'nowrap';
+        label.style.transform = 'translateX(-50%)';
+        overlay.appendChild(label);
+        sessionLabelElRef.current = label;
+      }
       const marker = sessionMarkerElRef.current;
-      const currentCandle = displayCandlesRef.current[effectiveCursorRef.current];
-      const mx = currentCandle !== undefined ? timeToX(currentCandle.time) : null;
+      const label = sessionLabelElRef.current;
+      const mx = currentTime !== undefined ? timeToX(currentTime) : null;
+      const rowBottom = bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP;
       if (mx === null) {
         marker.style.display = 'none';
+        label.style.display = 'none';
       } else {
         marker.style.display = 'block';
         marker.style.left = `${mx - 1}px`;
-        marker.style.bottom = `${bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP - 2}px`;
+        marker.style.bottom = `${rowBottom - 2}px`;
         marker.style.height = `${SESSION_ROW_HEIGHT + 4}px`;
+
+        if (activeIdx === -1) {
+          label.style.display = 'none';
+        } else {
+          label.style.display = 'block';
+          label.style.left = `${mx}px`;
+          label.style.bottom = `${rowBottom + SESSION_ROW_HEIGHT + 6}px`;
+          label.style.backgroundColor = SESSIONS.find(s => s.key === bands[activeIdx].key)!.color;
+          label.textContent = SESSIONS.find(s => s.key === bands[activeIdx].key)!.label;
+        }
       }
     };
     syncSessionsRef.current = syncSessions;
