@@ -2118,7 +2118,13 @@ export function CandleChart({
     // ものを返す（当たり判定はTOL_PX以内）。マウスホバー時のカーソル変更（pointer表示）と
     // 実際のクリック時のジャンプ処理（chart.subscribeClick）の両方から呼ぶ共通ロジック。
     // マーカーはSeries Primitivesではなく専用canvasへの直接描画でDOM要素を持たないため、
-    // 高値/安値からの距離で近似的に判定する（正確な描画オフセットは取得できない）
+    // 高値/安値からの距離で近似的に判定する（正確な描画オフセットは取得できない）。
+    // トレードのopenTime/closeTimeは元の時間軸（実際に約定した分単位の時刻）そのものだが、
+    // 4H/1D等の上位時間軸パネルではclickTimeはそのパネル自身の足の開始時刻（例: 4H足の
+    // キリの良い時刻）になり、ほぼ一致しない。以前は完全一致(===)で判定しており、上位
+    // 時間軸パネルではほぼ絶対に当たらずクリックを拾えなかった（1H等ではopenTime/closeTime
+    // がたまたま足の開始時刻と一致しやすく動いて見えた）。この足の区間
+    // [clickTime, clickTime+timeframeSec) に収まっているかで判定するよう修正した
     const hitTestTradeMarkerAtTime = (clickTime: number, clickY: number): number | null => {
       if (!seriesRef.current) return null;
       const candle = displayCandlesRef.current.find(c => c.time === clickTime);
@@ -2127,17 +2133,18 @@ export function CandleChart({
       const lowY = seriesRef.current.priceToCoordinate(candle.low);
       if (highY === null || lowY === null) return null;
       const TOL_PX = 45;
+      const barEnd = clickTime + timeframeSecRef.current;
       const { closedTrades: allClosedTrades } = useTraderStore.getState();
       let bestId: number | null = null;
       let bestDist = Infinity;
       for (const t of allClosedTrades) {
         const isBuy = t.side === 'BUY';
-        if (t.openTime === clickTime) {
+        if (t.openTime >= clickTime && t.openTime < barEnd) {
           // エントリー矢印: BUYはbelowBar（安値の下）、SELLはaboveBar（高値の上）
           const dist = isBuy ? clickY - lowY : highY - clickY;
           if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
         }
-        if (t.closeTime === clickTime) {
+        if (t.closeTime >= clickTime && t.closeTime < barEnd) {
           // 決済丸: エントリーと逆側（BUYはaboveBar、SELLはbelowBar）
           const dist = isBuy ? highY - clickY : clickY - lowY;
           if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
