@@ -15,6 +15,7 @@ import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { recognizeShape } from '../lib/shapeRecognition';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
+import { SESSIONS, computeSessionBands, type SessionBand } from '../lib/sessions';
 import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud } from '../lib/indicators';
 import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
@@ -266,6 +267,10 @@ export function CandleChart({
   const weekLineElsRef = useRef<HTMLDivElement[]>([]);
   const weekBoundariesRef = useRef<number[]>([]);
   const syncWeekLinesRef = useRef<() => void>(() => {});
+  const sessionOverlayRef = useRef<HTMLDivElement>(null);
+  const sessionElsRef = useRef<HTMLDivElement[]>([]);
+  const sessionBandsRef = useRef<SessionBand[]>([]);
+  const syncSessionsRef = useRef<() => void>(() => {});
   const measureOverlayRef = useRef<HTMLDivElement>(null);
   const measureBoxRef = useRef<HTMLDivElement>(null);
   const measureMidLineRef = useRef<HTMLDivElement>(null);
@@ -325,6 +330,7 @@ export function CandleChart({
   const isLoaded = useTraderStore(s => s.isLoaded);
   const dataVersion = useTraderStore(s => s.dataVersion);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
+  const showSessions = useTraderStore(s => s.showSessions);
   const fitSignal  = useTraderStore(s => s.fitSignal);
   const scrollToLatestSignal = useTraderStore(s => s.scrollToLatestSignal);
   const followLatest = useTraderStore(s => s.followLatest);
@@ -1484,6 +1490,51 @@ export function CandleChart({
     };
     syncWeekLinesRef.current = syncWeekLines;
     syncWeekLines();
+
+    // ── 東京/ロンドン/NYセッション帯の位置を再計算してDOMに反映（薄い背景色の帯） ──
+    // 日足以上は1本のローソク足が1日分になり帯を表示する意味が無いため、その時間軸では隠す。
+    // 週区切り線と同じくDOMオーバーレイ方式。背景の薄い帯なので雲（zIndex:5）よりさらに
+    // 下のzIndex:4にして常に一番奥に見せる
+    const syncSessions = () => {
+      if (!chartRef.current || !sessionOverlayRef.current) return;
+      const { showSessions: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const visible = show && timeframeSecRef.current < 86400;
+      const overlay = sessionOverlayRef.current;
+      overlay.style.display = visible ? 'block' : 'none';
+      if (!visible) return;
+
+      const bands = sessionBandsRef.current;
+      const els = sessionElsRef.current;
+
+      while (els.length < bands.length) {
+        const el = document.createElement('div');
+        el.style.position = 'absolute';
+        el.style.top = '0';
+        el.style.pointerEvents = 'none';
+        overlay.appendChild(el);
+        els.push(el);
+      }
+      while (els.length > bands.length) {
+        els.pop()?.remove();
+      }
+
+      bands.forEach((band, i) => {
+        const el = els[i];
+        el.style.height = `calc(100% - ${bottomMargin}px)`;
+        const x0 = timeToX(band.start);
+        const x1 = timeToX(band.end);
+        if (x0 === null || x1 === null || x1 <= x0) {
+          el.style.display = 'none';
+          return;
+        }
+        el.style.display = 'block';
+        el.style.left = `${x0}px`;
+        el.style.width = `${x1 - x0}px`;
+        el.style.backgroundColor = SESSIONS.find(s => s.key === band.key)!.color;
+      });
+    };
+    syncSessionsRef.current = syncSessions;
+    syncSessions();
 
     // ── 発注パネルの draft 価格から リスクリワード（TP/SL比率）をプレビュー ──
     const RR_BOX_WIDTH = 70; // px
@@ -4093,6 +4144,16 @@ export function CandleChart({
     syncWeekLinesRef.current();
   }, [showWeekLines]);
 
+  // セッション帯（東京/ロンドン/NY）: candles変化時に帯を再計算、showSessions/timeframeSec変化時は表示トグル
+  useEffect(() => {
+    sessionBandsRef.current = computeSessionBands(displayCandles);
+    syncSessionsRef.current();
+  }, [displayCandles, timeframeSec]);
+
+  useEffect(() => {
+    syncSessionsRef.current();
+  }, [showSessions]);
+
   // EMA 表示 ON/OFF。overlaysHidden中はvisibleを触らず色だけ透明にする
   // （visible:falseにするとオートスケール計算から除外され、非表示/復帰のたびに
   // ローソク足の縦スケールがガクッと動いて見える不具合になるため。詳細はEMA_COLOR等の定義部）
@@ -4191,6 +4252,7 @@ export function CandleChart({
         syncBrushesRef.current();
         syncTextsRef.current();
         syncWeekLinesRef.current();
+        syncSessionsRef.current();
       });
     });
     return () => {
@@ -4277,6 +4339,7 @@ export function CandleChart({
       syncBrushesRef.current();
       syncTextsRef.current();
       syncWeekLinesRef.current();
+      syncSessionsRef.current();
     });
     return () => cancelAnimationFrame(raf);
   }, [scrollToLatestSignal]);
@@ -4303,6 +4366,7 @@ export function CandleChart({
       syncBrushesRef.current();
       syncTextsRef.current();
       syncWeekLinesRef.current();
+      syncSessionsRef.current();
     });
     return () => cancelAnimationFrame(raf);
   }, [followLatest, cursor, nonMainVisible]);
@@ -4352,6 +4416,8 @@ export function CandleChart({
     syncBrushesRef.current();
     syncTextsRef.current();
     syncWeekLinesRef.current();
+    syncSessionsRef.current();
+
     syncScrubberRef.current();
 
     prevCursorRef.current  = cursor;
@@ -4368,6 +4434,8 @@ export function CandleChart({
       syncBrushesRef.current();
       syncTextsRef.current();
       syncWeekLinesRef.current();
+      syncSessionsRef.current();
+
       syncCloudRef.current();
       syncScrubberRef.current();
     });
@@ -4411,7 +4479,7 @@ export function CandleChart({
     syncBrushesRef.current();
     syncTextsRef.current();
     syncWeekLinesRef.current();
-
+    syncSessionsRef.current();
     // 新しいデータセットに切り替わった時だけ画面フィットする（CandleChart側の
     // 通常のフィット処理はcursor基準のためここでは自前でMiniChart.tsxと同じ判定を行う）。
     // ただし「メインだった枠が今まさに降格した直後」は、この枠は既にメインとして
@@ -4482,6 +4550,7 @@ export function CandleChart({
       syncBrushesRef.current();
       syncTextsRef.current();
       syncWeekLinesRef.current();
+      syncSessionsRef.current();
     });
     return () => cancelAnimationFrame(raf);
   }, [isMain, nonMainVisible, nonMainCandles, timeframeSec]);
@@ -4629,6 +4698,7 @@ export function CandleChart({
       syncBrushesRef.current();
       syncTextsRef.current();
       syncWeekLinesRef.current();
+      syncSessionsRef.current();
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4668,6 +4738,7 @@ export function CandleChart({
       syncBrushesRef.current();
       syncTextsRef.current();
       syncWeekLinesRef.current();
+      syncSessionsRef.current();
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4864,6 +4935,8 @@ export function CandleChart({
       {/* 週区切り線は四角形（zIndex:9）より下（zIndex:8）にして「四角形が区切り線より上」を
           維持する（区切り線自体はローソク足の下である必要はなく、常時前面表示で問題ない） */}
       <div ref={weekOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 8 }} />
+      {/* 東京/ロンドン/NYセッション帯。雲（zIndex:5）よりさらに下＝常に一番奥の薄い背景として見せる */}
+      <div ref={sessionOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 4 }} />
       {/* 四角形の枠線本体は専用canvasに自前描画（syncRects、destination-outでローソク足と
           重なった部分を透明に抜く）。価格軸に被らないよう幅はトレンドライン等と揃える。
           垂直線・四角形ハンドルのオーバーレイは価格軸の領域には侵入させない。overflow:hiddenと

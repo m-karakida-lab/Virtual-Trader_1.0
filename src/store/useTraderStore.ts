@@ -246,6 +246,7 @@ interface TraderState {
   showBB: boolean;
   showCloud: boolean;
   showWeekLines: boolean;
+  showSessions: boolean; // 東京/ロンドン/NYの取引時間帯を背景帯で表示するインジケータ
   overlaysHidden: boolean; // インジケータ・描画物（線/図形等）を一括で非表示にするトグル。データは消さない
   showHistoryPanel: boolean; // 取引履歴・損益グラフのパネル表示
   chartRightMargin: number;  // チャート右側の価格軸の実測幅(px)。フロートパネルの配置クランプ用
@@ -360,6 +361,7 @@ interface TraderState {
   toggleCloud: () => void;
   toggleOverlaysHidden: () => void;
   toggleWeekLines: () => void;
+  toggleSessions: () => void;
   advanceToEnd: () => void;
   toggleHistoryPanel: () => void;
   setChartMargins: (right: number, bottom: number) => void;
@@ -577,6 +579,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   showCloud: true,
   overlaysHidden: false,
   showWeekLines: true,
+  showSessions: true,
   showHistoryPanel: false,
   chartRightMargin: 60,
   chartBottomMargin: 28,
@@ -1328,6 +1331,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   toggleCloud: () => set(s => ({ showCloud: !s.showCloud })),
   toggleOverlaysHidden: () => set(s => ({ overlaysHidden: !s.overlaysHidden })),
   toggleWeekLines: () => set(s => ({ showWeekLines: !s.showWeekLines })),
+  toggleSessions: () => set(s => ({ showSessions: !s.showSessions })),
   // 「チャート全表示」: 一時的なプレビューではなく、読み込んだデータの最後まで実際に
   // カーソルを進める（通過した範囲の注文約定・TP/SL判定も行う。advanceを1本ずつ
   // 呼ぶ代わりにprocessOrderRangeへ一括で渡すことで、本数が多くても一瞬で終わる）

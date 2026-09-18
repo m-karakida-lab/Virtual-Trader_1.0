@@ -280,6 +280,7 @@ export function Controls() {
   const toggleBB      = useTraderStore(s => s.toggleBB);
   const toggleCloud   = useTraderStore(s => s.toggleCloud);
   const toggleWeekLines = useTraderStore(s => s.toggleWeekLines);
+  const toggleSessions = useTraderStore(s => s.toggleSessions);
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
   const advanceToEnd = useTraderStore(s => s.advanceToEnd);
@@ -296,6 +297,7 @@ export function Controls() {
   const showBB        = useTraderStore(s => s.showBB);
   const showCloud     = useTraderStore(s => s.showCloud);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
+  const showSessions = useTraderStore(s => s.showSessions);
   const balance       = useTraderStore(s => s.balance);
   const initialBalance = useTraderStore(s => s.initialBalance);
   const setInitialBalance = useTraderStore(s => s.setInitialBalance);
@@ -679,6 +681,7 @@ export function Controls() {
               <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
               <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
               <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
+              <button onClick={toggleSessions} disabled={!isLoaded} style={tfBtn(showSessions, !isLoaded)}>セッション</button>
               {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingArrow || isDrawingBrush || isDrawingText) && (
                 <span style={{ color: '#42a5f5', fontSize: '14px' }}>
                   {isDrawingLine && 'クリックで配置...'}
