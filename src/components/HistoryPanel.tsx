@@ -5,6 +5,12 @@ import type { ClosedTrade } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { pricePrecision } from '../lib/pips';
 import { computeTradeStats } from '../lib/tradeStats';
+import { SESSIONS } from '../lib/sessions';
+
+const SESSION_COLOR: Record<string, string> = {
+  ...Object.fromEntries(SESSIONS.map(s => [s.key, s.color])),
+  other: '#666',
+};
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ja-JP');
 
@@ -28,6 +34,30 @@ function StatRow({ label, value }: { label: string; value: string }) {
     <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '13px', padding: '3px 0' }}>
       <span style={{ color: '#888' }}>{label}</span>
       <span style={{ color: '#ddd', fontVariantNumeric: 'tabular-nums', fontWeight: 600, whiteSpace: 'nowrap' }}>{value}</span>
+    </div>
+  );
+}
+
+// セッション別分析の1行。件数＋損益（正負で色分けした横棒）を横並びで見せる
+function SessionStatRow({
+  label, color, count, pnl, sym, maxAbs,
+}: {
+  label: string; color: string; count: number; pnl: number; sym: string; maxAbs: number;
+}) {
+  const pct = maxAbs > 0 ? (Math.abs(pnl) / maxAbs) * 100 : 0;
+  const barColor = pnl >= 0 ? '#26a69a' : '#ef5350';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: color, flexShrink: 0 }} />
+      <span style={{ width: '76px', flexShrink: 0, fontSize: '13px', color: '#aaa' }}>{label}</span>
+      <span style={{ width: '44px', flexShrink: 0, fontSize: '12px', color: '#666', textAlign: 'right' }}>{count}件</span>
+      <div style={{ flex: 1, height: '10px', backgroundColor: '#1a1a1a', borderRadius: '5px', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', backgroundColor: barColor }} />
+      </div>
+      <span style={{
+        width: '110px', flexShrink: 0, textAlign: 'right', fontSize: '13px', fontWeight: 700,
+        fontVariantNumeric: 'tabular-nums', color: barColor,
+      }}>{pnl >= 0 ? '+' : ''}{sym}{fmt(pnl)}</span>
     </div>
   );
 }
@@ -132,6 +162,7 @@ export function HistoryPanel() {
   const stats = useMemo(() => computeStats(closedTrades), [closedTrades]);
   const maxAbsSidePnl = Math.max(Math.abs(stats.longPnl), Math.abs(stats.shortPnl));
   const rs = useMemo(() => computeTradeStats(closedTrades, initialBalance), [closedTrades, initialBalance]);
+  const maxAbsSessionPnl = Math.max(...rs.bySession.map(s => Math.abs(s.pnl)));
 
   // リスク・パフォーマンス指標セクション専用のフォーマッタ（symは通貨記号、rsはcomputeTradeStatsの結果）
   const fmtMoney = (n: number) => `${n >= 0 ? '+' : ''}${sym}${fmt(n)}`;
@@ -235,6 +266,21 @@ export function HistoryPanel() {
                 <SignedBarRow label="ロング" value={stats.longPnl} sym={sym} maxAbs={maxAbsSidePnl} />
                 <SignedBarRow label="ショート" value={stats.shortPnl} sym={sym} maxAbs={maxAbsSidePnl} />
               </div>
+            </div>
+          </div>
+        )}
+
+        {sorted.length > 0 && (
+          <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
+            <div style={{ color: '#888', fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>■セッション別分析</div>
+            <div style={{ color: '#555', fontSize: '11px', marginBottom: '8px' }}>エントリー時刻（JST）が属するセッション基準</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {rs.bySession.map(s => (
+                <SessionStatRow
+                  key={s.key} label={s.label} color={SESSION_COLOR[s.key]}
+                  count={s.count} pnl={s.pnl} sym={sym} maxAbs={maxAbsSessionPnl}
+                />
+              ))}
             </div>
           </div>
         )}

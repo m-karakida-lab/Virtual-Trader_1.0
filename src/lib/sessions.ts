@@ -27,6 +27,22 @@ function dayStartOf(sec: number): number {
   return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000);
 }
 
+// その時刻がどのセッションに属するか（時間帯のみで判定、日付は問わない）。
+// NY終了(7時)〜東京開始(9時)の2時間はどのセッションにも属さないためnullを返す
+// （取引履歴のセッション別分析で使う。sessions.ts自身のチャート表示ロジックとは独立）
+export function sessionKeyAt(sec: number): typeof SESSIONS[number]['key'] | null {
+  const d = new Date(sec * 1000);
+  const hour = d.getUTCHours();
+  for (const s of SESSIONS) {
+    const endHour = s.endHour % 24;
+    const wraps = s.endHour > 24;
+    if (wraps ? (hour >= s.startHour || hour < endHour) : (hour >= s.startHour && hour < endHour)) {
+      return s.key;
+    }
+  }
+  return null;
+}
+
 // 実データに存在する日ごとに3セッション分の帯を作る（足が1本も無い日には帯を作らない）
 export function computeSessionBands(candles: Candle[]): SessionBand[] {
   const days: number[] = [];

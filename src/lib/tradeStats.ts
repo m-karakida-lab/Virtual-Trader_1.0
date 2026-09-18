@@ -7,6 +7,7 @@
 //   リライアビリティファクター = 勝ちトレード数 ÷ トレード総数（勝率%を比率のまま表したもの）
 import type { ClosedTrade } from '../types';
 import { MONTH_SEC } from '../types';
+import { SESSIONS, sessionKeyAt } from './sessions';
 
 const DAY_SEC = 86400;
 const MONTH_DAYS = MONTH_SEC / DAY_SEC; // 平均月長（日）。types.tsのMONTH_SECと基準を揃える
@@ -56,6 +57,10 @@ export interface TradeStats {
   reliabilityFactor: number | null;
   winRatePct: number | null;
   lossRatePct: number | null;
+
+  // セッション別分析: エントリー時刻（openTime）でどのセッションだったかを判定して集計。
+  // どのセッションにも属さない時間帯（NY終了〜東京開始の2時間）は「セッション外」にまとめる
+  bySession: { key: string; label: string; count: number; pnl: number }[];
 }
 
 export function computeTradeStats(trades: ClosedTrade[], initialBalance: number): TradeStats {
@@ -144,6 +149,17 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
   const winRatePct = totalTrades > 0 ? (winCount / totalTrades) * 100 : null;
   const lossRatePct = totalTrades > 0 ? (lossCount / totalTrades) * 100 : null;
 
+  const sessionBuckets = new Map<string, { key: string; label: string; count: number; pnl: number }>();
+  for (const s of SESSIONS) sessionBuckets.set(s.key, { key: s.key, label: s.label, count: 0, pnl: 0 });
+  sessionBuckets.set('other', { key: 'other', label: 'セッション外', count: 0, pnl: 0 });
+  for (const t of sorted) {
+    const key = sessionKeyAt(t.openTime) ?? 'other';
+    const bucket = sessionBuckets.get(key)!;
+    bucket.count++;
+    bucket.pnl += t.pnl;
+  }
+  const bySession = [...sessionBuckets.values()];
+
   return {
     netProfit, avgTradePnl, grossProfit, grossLoss, avgMonthlyProfit, avgWin, avgLoss,
     maxDrawdown, maxDailyLossPct, profitFactor, returnPct,
@@ -151,5 +167,6 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
     avgTradesPerDay, avgTradesPerMonth, avgWinsPerMonth, avgLossesPerMonth, largestWin, largestLoss,
     elapsedDays, elapsedMonths,
     maxLots, restorationFactor, reliabilityFactor, winRatePct, lossRatePct,
+    bySession,
   };
 }
