@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import type { OrderType } from '../types';
+import type { OrderType, Side } from '../types';
 import { pricePrecision } from '../lib/pips';
 import { loadOrderPanelPos, saveOrderPanelPos, type PanelPos } from '../lib/orderPanelPos';
 import { tfBtn } from './Controls';
@@ -20,6 +20,15 @@ const orderBtn = (bg: string, disabled: boolean): React.CSSProperties => ({
   border: 'none', borderRadius: '3px',
   padding: '8px 14px', cursor: disabled ? 'not-allowed' : 'pointer',
   fontSize: '17px', fontWeight: 700, letterSpacing: '0.05em',
+});
+
+// BUY/SELLの方向選択ボタン（選んだだけでは発注しない、tfBtnのactive/inactiveと同じ考え方の色付き版）
+const sideBtn = (color: string, active: boolean, disabled: boolean): React.CSSProperties => ({
+  backgroundColor: disabled ? '#1a1a1a' : active ? color : '#161616',
+  color: disabled ? '#333' : active ? '#fff' : color,
+  border: `1px solid ${disabled ? '#222' : color}`,
+  borderRadius: '3px', padding: '8px 14px', cursor: disabled ? 'not-allowed' : 'pointer',
+  fontSize: '16px', fontWeight: 700, letterSpacing: '0.05em',
 });
 
 const rowLabel: React.CSSProperties = {
@@ -78,6 +87,9 @@ export function OrderPanel() {
 
   const [pos, setPos] = useState<PanelPos | null>(null);
   useEffect(() => { setPos(loadOrderPanelPos()); }, []);
+  // BUY/SELLは即実行ボタンではなく「どちら向きで出すか」を選ぶだけにし、実際の発注は
+  // 別途「注文執行」ボタンで確定する2段階操作にした（うっかりクリックでの誤発注を防ぐ狙い）
+  const [selectedSide, setSelectedSide] = useState<Side>('BUY');
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; el: HTMLDivElement } | null>(null);
 
   useEffect(() => {
@@ -119,8 +131,8 @@ export function OrderPanel() {
     dragRef.current = { startX: e.clientX, startY: e.clientY, origX, origY, el: panel };
   };
 
-  const handleSubmit = (side: 'BUY' | 'SELL') => {
-    submitOrder(side);
+  const handleExecute = () => {
+    submitOrder(selectedSide);
     setOrderPanelOpen(false);
   };
 
@@ -272,11 +284,29 @@ export function OrderPanel() {
         )}
       </div>
 
-      {/* BUY / SELL */}
+      {/* BUY / SELL（方向を選ぶだけ。即実行はしない） */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px', marginTop: '2px' }}>
+        <span style={rowLabel}>方向</span>
+        <button
+          onClick={() => setSelectedSide('BUY')}
+          disabled={!isLoaded || atEnd}
+          style={sideBtn('#1565c0', selectedSide === 'BUY', !isLoaded || atEnd)}
+        >BUY</button>
+        <button
+          onClick={() => setSelectedSide('SELL')}
+          disabled={!isLoaded || atEnd}
+          style={sideBtn('#c62828', selectedSide === 'SELL', !isLoaded || atEnd)}
+        >SELL</button>
+      </div>
+
+      {/* 注文執行（ここで確定。BUY/SELLで選んだ方向を実際に発注する） */}
+      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <span style={rowLabel} />
-        <button onClick={() => handleSubmit('BUY')}  disabled={!isLoaded || atEnd} style={orderBtn('#0d47a1', !isLoaded || atEnd)}>BUY</button>
-        <button onClick={() => handleSubmit('SELL')} disabled={!isLoaded || atEnd} style={orderBtn('#b71c1c', !isLoaded || atEnd)}>SELL</button>
+        <button
+          onClick={handleExecute}
+          disabled={!isLoaded || atEnd}
+          style={orderBtn(selectedSide === 'BUY' ? '#0d47a1' : '#b71c1c', !isLoaded || atEnd)}
+        >注文執行</button>
         {positions.length > 1 && (
           <button onClick={closeAll} style={orderBtn('#333', false)}>全決済</button>
         )}
