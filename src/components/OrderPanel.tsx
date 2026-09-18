@@ -64,6 +64,7 @@ export function OrderPanel() {
   const draftSL       = useTraderStore(s => s.draftSL);
   const setDraftSL    = useTraderStore(s => s.setDraftSL);
   const clearDraft    = useTraderStore(s => s.clearDraft);
+  const lastOrderRatios = useTraderStore(s => s.lastOrderRatios);
   const togglePickTarget = useTraderStore(s => s.togglePickTarget);
   const pickTarget    = useTraderStore(s => s.pickTarget);
   const lots          = useTraderStore(s => s.lots);
@@ -119,6 +120,29 @@ export function OrderPanel() {
       window.removeEventListener('mouseup', onUp);
     };
   }, []);
+
+  // パネルを開いた瞬間、前回の発注で価格/TP/SLがエントリー価格から何%離れていたかを
+  // 「今の現在値」に適用し直して仮入力する（前回と同じ距離感で発注することが多いはず、
+  // という想定で毎回の手入力の手間を減らす）。既に何か入力/ピック済みなら上書きしない
+  useEffect(() => {
+    if (!orderPanelOpen || !lastOrderRatios) return;
+    const { candles: cs, cursor: cur, draftPrice: dp, draftTP: dtp, draftSL: dsl, orderType: ot } = useTraderStore.getState();
+    if (dp !== null || dtp !== null || dsl !== null) return;
+    const current = cs[cur]?.close;
+    if (current === undefined) return;
+    const prec = pricePrecision(current);
+    const round = (v: number) => Number(v.toFixed(prec));
+    if (lastOrderRatios.priceRatio !== null && ot !== 'market') {
+      setDraftPrice(round(current * (1 + lastOrderRatios.priceRatio)));
+    }
+    if (lastOrderRatios.tpRatio !== null) {
+      setDraftTP(round(current * (1 + lastOrderRatios.tpRatio)));
+    }
+    if (lastOrderRatios.slRatio !== null) {
+      setDraftSL(round(current * (1 + lastOrderRatios.slRatio)));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [orderPanelOpen]);
 
   if (!orderPanelOpen) return null;
 
