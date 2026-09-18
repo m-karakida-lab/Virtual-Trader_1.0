@@ -75,7 +75,7 @@
 - 発注パネルの「価格」「TP」「SL」（draft値）はいずれか1つでも入力済み・またはPickモード中なら「クリア」ボタンが現れまとめて空にできる
 - 複数ポジション同時保有可能、個別決済/全決済
 - エントリー・決済マーカー: チャート上に矢印（エントリー）と円（決済、損益付き）を表示。決済済みトレードは`closedTrades`に履歴保存
-- 取引履歴パネル: パフォーマンス分析（総取引数の勝敗・ロング/ショート件数・方向別利益、いずれも横棒グラフ付き）+リスクとパフォーマンス指標（収入/トレード数/時間/その他の4カテゴリ、純利益・PF・最大DD・連続勝敗数等）+エクイティカーブ（損益推移の線グラフ）+取引一覧テーブル（方向・ロット・価格・保有期間・損益、勝率・合計損益も表示）。パネル全体が1つのスクロール領域
+- 取引履歴パネル: パフォーマンス分析（総取引数の勝敗・ロング/ショート件数・方向別利益、いずれも横棒グラフ付き）+セッション別分析（東京/ロンドン/NY別の取引回数・損益、エントリー時刻基準）+リスクとパフォーマンス指標（収入/トレード数/時間/その他の4カテゴリ、純利益・PF・最大DD・連続勝敗数等）+エクイティカーブ（損益推移の線グラフ）+取引一覧テーブル（方向・ロット・価格・保有期間・損益、勝率・合計損益も表示）。パネル全体が1つのスクロール領域
 
 ### 口座
 - 残高・含み損益（ポジション別・合計）のリアルタイム表示
@@ -120,7 +120,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/lib/chartViewState.ts` — ズーム/スケールを時間軸ごとにlocalStorage保存/復元（絶対時刻でなく相対位置）
 - `src/lib/indicators.ts` — EMA/SMA/BB/雲の全体再計算版（CandleChartは別途増分計算の最適化版を持つ）。雲のずらし先時刻`cloudDisplacedTime`のみCandleChart共通利用
 - `src/lib/weekLines.ts` — 区間区切りの境界計算（`computeSeparatorBoundaries`、MN=年区切り、1D/1W=月区切り、4H=週区切り、5m/15m/1H=日区切り）
-- `src/lib/sessions.ts` — 東京/ロンドン/NYセッション帯の時間帯計算（`computeSessionBands`、`weekLines.ts`の`computeDayBoundaries`を流用して実データに存在する日ごとに帯を作る）
+- `src/lib/sessions.ts` — 東京/ロンドン/NYセッション帯の時間帯計算（`computeSessionBands`、`weekLines.ts`の`computeDayBoundaries`を流用して実データに存在する日ごとに帯を作る）。`sessionKeyAt(sec)`は任意の時刻がどのセッションかを判定（取引履歴のセッション別分析で使用、チャート表示ロジックとは独立）
 - `src/lib/shapeRecognition.ts` — ブラシの図形認識（`recognizeShape`）。AI不使用、Douglas-Peucker単純化＋半径のばらつきによる古典的幾何判定のみ
 - `src/lib/pips.ts` — 価格帯からpip単位・表示精度を推定
 - `src/lib/crosshairSync.ts` — 4画面十字カーソル同期用（`priceAtTime`、範囲外はnull）。戻り値の`time`は発信元パネルの時刻ではなく実際にマッチしたこのパネル自身の足の時刻（`setCrosshairPosition`には自パネルの足の時刻を渡すこと。発信元の時刻をそのまま渡すと時間軸が違うパネル間で内部の座標解決に失敗し例外を投げる不具合を実際に踏んだ）
