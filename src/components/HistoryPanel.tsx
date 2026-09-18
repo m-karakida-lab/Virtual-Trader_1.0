@@ -160,9 +160,6 @@ export function HistoryPanel() {
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
 
   const sorted = [...closedTrades].sort((a, b) => a.closeTime - b.closeTime);
-  const totalPnl = sorted.reduce((sum, t) => sum + t.pnl, 0);
-  const wins = sorted.filter(t => t.pnl > 0).length;
-  const winRate = sorted.length > 0 ? (wins / sorted.length) * 100 : 0;
 
   const stats = useMemo(() => computeStats(closedTrades), [closedTrades]);
   const maxAbsSidePnl = Math.max(Math.abs(stats.longPnl), Math.abs(stats.shortPnl));
@@ -225,14 +222,6 @@ export function HistoryPanel() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '14px' }}>
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '16px' }}>
           <span style={{ color: '#e0e0e0', fontSize: '18px', fontWeight: 700 }}>取引履歴</span>
-          {sorted.length > 0 && (
-            <span style={{ color: '#666', fontSize: '13px', fontVariantNumeric: 'tabular-nums' }}>
-              {sorted.length}件 · 勝率 {winRate.toFixed(0)}% · 合計
-              <span style={{ color: totalPnl >= 0 ? '#26a69a' : '#ef5350', fontWeight: 700, marginLeft: '4px' }}>
-                {totalPnl >= 0 ? '+' : ''}{sym}{fmt(totalPnl)}
-              </span>
-            </span>
-          )}
         </div>
         <button onClick={toggleHistoryPanel} style={{
           background: 'none', border: '1px solid #444', color: '#aaa',
