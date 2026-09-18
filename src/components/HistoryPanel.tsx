@@ -1,10 +1,74 @@
-import { useEffect, useRef } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
+import type { ClosedTrade } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { pricePrecision } from '../lib/pips';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ja-JP');
+
+// 2つの内訳（勝敗・ロング/ショート等）を横棒1本で示す簡易チャート。
+// 件数・金額どちらでも使えるよう「表示用ラベル文字列」を呼び出し側で作って渡す
+function SplitBar({
+  aLabel, aValue, aColor, bLabel, bValue, bColor,
+}: {
+  aLabel: string; aValue: number; aColor: string;
+  bLabel: string; bValue: number; bColor: string;
+}) {
+  const total = aValue + bValue;
+  const aPct = total > 0 ? (aValue / total) * 100 : 50;
+  return (
+    <div>
+      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '13px', marginBottom: '4px' }}>
+        <span style={{ color: aColor, fontWeight: 700 }}>{aLabel}</span>
+        <span style={{ color: bColor, fontWeight: 700 }}>{bLabel}</span>
+      </div>
+      <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
+        {total > 0 ? (
+          <>
+            <div style={{ width: `${aPct}%`, backgroundColor: aColor }} />
+            <div style={{ width: `${100 - aPct}%`, backgroundColor: bColor }} />
+          </>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+// 符号付き金額（ロング利益・ショート利益）を、正負で色分けした横棒で比較する簡易チャート。
+// ゼロを起点に左右へ伸ばすのではなく、単純に絶対値の比率で棒の長さを揃える（値の大小比較が目的で
+// 収支の対称性までは要らないため。マイナスは赤、プラスは緑で判別できれば十分）
+function SignedBarRow({ label, value, sym, maxAbs }: { label: string; value: number; sym: string; maxAbs: number }) {
+  const pct = maxAbs > 0 ? (Math.abs(value) / maxAbs) * 100 : 0;
+  const color = value >= 0 ? '#26a69a' : '#ef5350';
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <span style={{ width: '52px', flexShrink: 0, fontSize: '13px', color: '#888' }}>{label}</span>
+      <div style={{ flex: 1, height: '10px', backgroundColor: '#1a1a1a', borderRadius: '5px', overflow: 'hidden' }}>
+        <div style={{ width: `${pct}%`, height: '100%', backgroundColor: color }} />
+      </div>
+      <span style={{
+        width: '110px', flexShrink: 0, textAlign: 'right', fontSize: '13px', fontWeight: 700,
+        fontVariantNumeric: 'tabular-nums', color,
+      }}>{value >= 0 ? '+' : ''}{sym}{fmt(value)}</span>
+    </div>
+  );
+}
+
+interface PerformanceStats {
+  total: number; wins: number; losses: number;
+  longCount: number; shortCount: number;
+  longPnl: number; shortPnl: number;
+}
+
+function computeStats(trades: ClosedTrade[]): PerformanceStats {
+  let wins = 0, losses = 0, longCount = 0, shortCount = 0, longPnl = 0, shortPnl = 0;
+  for (const t of trades) {
+    if (t.pnl > 0) wins++; else if (t.pnl < 0) losses++;
+    if (t.side === 'BUY') { longCount++; longPnl += t.pnl; } else { shortCount++; shortPnl += t.pnl; }
+  }
+  return { total: trades.length, wins, losses, longCount, shortCount, longPnl, shortPnl };
+}
 
 function fmtDateTime(sec: number): string {
   const d = new Date(sec * 1000);
@@ -30,6 +94,9 @@ export function HistoryPanel() {
   const totalPnl = sorted.reduce((sum, t) => sum + t.pnl, 0);
   const wins = sorted.filter(t => t.pnl > 0).length;
   const winRate = sorted.length > 0 ? (wins / sorted.length) * 100 : 0;
+
+  const stats = useMemo(() => computeStats(closedTrades), [closedTrades]);
+  const maxAbsSidePnl = Math.max(Math.abs(stats.longPnl), Math.abs(stats.shortPnl));
 
   // チャート初期化（マウント時1回のみ）
   useEffect(() => {
@@ -95,6 +162,40 @@ export function HistoryPanel() {
           borderRadius: '4px', padding: '6px 14px', cursor: 'pointer', fontSize: '14px',
         }}>閉じる</button>
       </div>
+
+      {sorted.length > 0 && (
+        <div style={{
+          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px',
+          padding: '14px 16px', marginBottom: '16px', border: '1px solid #1e1e1e',
+          borderRadius: '4px', flexShrink: 0,
+        }}>
+          <div style={{ gridColumn: '1 / -1', color: '#888', fontSize: '13px', fontWeight: 700 }}>■パフォーマンス分析</div>
+
+          <div>
+            <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>総取引数 {stats.total}</div>
+            <SplitBar
+              aLabel={`勝ち ${stats.wins}`} aValue={stats.wins} aColor="#26a69a"
+              bLabel={`負け ${stats.losses}`} bValue={stats.losses} bColor="#ef5350"
+            />
+          </div>
+
+          <div>
+            <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>ポジション</div>
+            <SplitBar
+              aLabel={`ロング ${stats.longCount}`} aValue={stats.longCount} aColor="#42a5f5"
+              bLabel={`ショート ${stats.shortCount}`} bValue={stats.shortCount} bColor="#ab47bc"
+            />
+          </div>
+
+          <div>
+            <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>利益（方向別）</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              <SignedBarRow label="ロング" value={stats.longPnl} sym={sym} maxAbs={maxAbsSidePnl} />
+              <SignedBarRow label="ショート" value={stats.shortPnl} sym={sym} maxAbs={maxAbsSidePnl} />
+            </div>
+          </div>
+        </div>
+      )}
 
       <div style={{ height: '220px', marginBottom: '16px', border: '1px solid #1e1e1e', borderRadius: '4px', flexShrink: 0 }}>
         <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
