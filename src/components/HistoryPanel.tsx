@@ -4,8 +4,42 @@ import { useTraderStore } from '../store/useTraderStore';
 import type { ClosedTrade } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { pricePrecision } from '../lib/pips';
+import { computeTradeStats } from '../lib/tradeStats';
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ja-JP');
+
+// 保有期間（決済-建玉）の表示用フォーマット。主要な2単位だけに絞る（分＋秒等の細かすぎる
+// 表示は避ける。数分〜数ヶ月と幅が広いトレードを同じ書式で扱うための簡易表現）
+function fmtDuration(sec: number): string {
+  if (sec < 60) return `${Math.round(sec)}秒`;
+  const totalMin = Math.floor(sec / 60);
+  const days = Math.floor(totalMin / (60 * 24));
+  const hours = Math.floor((totalMin % (60 * 24)) / 60);
+  const mins = totalMin % 60;
+  const parts: string[] = [];
+  if (days > 0) parts.push(`${days}日`);
+  if (hours > 0) parts.push(`${hours}時間`);
+  if (mins > 0 || parts.length === 0) parts.push(`${mins}分`);
+  return parts.slice(0, 2).join(' ');
+}
+
+function StatRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', gap: '10px', fontSize: '13px', padding: '3px 0' }}>
+      <span style={{ color: '#888' }}>{label}</span>
+      <span style={{ color: '#ddd', fontVariantNumeric: 'tabular-nums', fontWeight: 600, whiteSpace: 'nowrap' }}>{value}</span>
+    </div>
+  );
+}
+
+function StatGroup({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '12px 14px' }}>
+      <div style={{ color: '#888', fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>{title}</div>
+      <div>{children}</div>
+    </div>
+  );
+}
 
 // 2つの内訳（勝敗・ロング/ショート等）を横棒1本で示す簡易チャート。
 // 件数・金額どちらでも使えるよう「表示用ラベル文字列」を呼び出し側で作って渡す
@@ -97,6 +131,13 @@ export function HistoryPanel() {
 
   const stats = useMemo(() => computeStats(closedTrades), [closedTrades]);
   const maxAbsSidePnl = Math.max(Math.abs(stats.longPnl), Math.abs(stats.shortPnl));
+  const rs = useMemo(() => computeTradeStats(closedTrades, initialBalance), [closedTrades, initialBalance]);
+
+  // リスク・パフォーマンス指標セクション専用のフォーマッタ（symは通貨記号、rsはcomputeTradeStatsの結果）
+  const fmtMoney = (n: number) => `${n >= 0 ? '+' : ''}${sym}${fmt(n)}`;
+  const fmtMoneyAbs = (n: number) => `${sym}${fmt(Math.abs(n))}`;
+  const fmtPct = (n: number, digits = 1) => `${n.toFixed(digits)}%`;
+  const nn = <T,>(v: T | null, f: (v: T) => string) => v === null ? '—' : f(v);
 
   // チャート初期化（マウント時1回のみ）
   useEffect(() => {
@@ -163,80 +204,133 @@ export function HistoryPanel() {
         }}>閉じる</button>
       </div>
 
-      {sorted.length > 0 && (
-        <div style={{
-          display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px',
-          padding: '14px 16px', marginBottom: '16px', border: '1px solid #1e1e1e',
-          borderRadius: '4px', flexShrink: 0,
-        }}>
-          <div style={{ gridColumn: '1 / -1', color: '#888', fontSize: '13px', fontWeight: 700 }}>■パフォーマンス分析</div>
+      <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
+        {sorted.length > 0 && (
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px',
+            padding: '14px 16px', border: '1px solid #1e1e1e',
+            borderRadius: '4px', flexShrink: 0,
+          }}>
+            <div style={{ gridColumn: '1 / -1', color: '#888', fontSize: '13px', fontWeight: 700 }}>■パフォーマンス分析</div>
 
-          <div>
-            <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>総取引数 {stats.total}</div>
-            <SplitBar
-              aLabel={`勝ち ${stats.wins}`} aValue={stats.wins} aColor="#26a69a"
-              bLabel={`負け ${stats.losses}`} bValue={stats.losses} bColor="#ef5350"
-            />
-          </div>
+            <div>
+              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>総取引数 {stats.total}</div>
+              <SplitBar
+                aLabel={`勝ち ${stats.wins}`} aValue={stats.wins} aColor="#26a69a"
+                bLabel={`負け ${stats.losses}`} bValue={stats.losses} bColor="#ef5350"
+              />
+            </div>
 
-          <div>
-            <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>ポジション</div>
-            <SplitBar
-              aLabel={`ロング ${stats.longCount}`} aValue={stats.longCount} aColor="#42a5f5"
-              bLabel={`ショート ${stats.shortCount}`} bValue={stats.shortCount} bColor="#ab47bc"
-            />
-          </div>
+            <div>
+              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>ポジション</div>
+              <SplitBar
+                aLabel={`ロング ${stats.longCount}`} aValue={stats.longCount} aColor="#42a5f5"
+                bLabel={`ショート ${stats.shortCount}`} bValue={stats.shortCount} bColor="#ab47bc"
+              />
+            </div>
 
-          <div>
-            <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>利益（方向別）</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              <SignedBarRow label="ロング" value={stats.longPnl} sym={sym} maxAbs={maxAbsSidePnl} />
-              <SignedBarRow label="ショート" value={stats.shortPnl} sym={sym} maxAbs={maxAbsSidePnl} />
+            <div>
+              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>利益（方向別）</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <SignedBarRow label="ロング" value={stats.longPnl} sym={sym} maxAbs={maxAbsSidePnl} />
+                <SignedBarRow label="ショート" value={stats.shortPnl} sym={sym} maxAbs={maxAbsSidePnl} />
+              </div>
             </div>
           </div>
+        )}
+
+        {sorted.length > 0 && (
+          <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
+            <div style={{ color: '#888', fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>■リスクとパフォーマンス指標</div>
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '12px' }}>
+              <StatGroup title="収入">
+                <StatRow label="純利益" value={fmtMoney(rs.netProfit)} />
+                <StatRow label="平均トレード損益" value={fmtMoney(rs.avgTradePnl)} />
+                <StatRow label="利益総計" value={fmtMoneyAbs(rs.grossProfit)} />
+                <StatRow label="損失総計" value={fmtMoneyAbs(rs.grossLoss)} />
+                <StatRow label="月平均利益" value={fmtMoney(rs.avgMonthlyProfit)} />
+                <StatRow label="利益平均額" value={fmtMoneyAbs(rs.avgWin)} />
+                <StatRow label="損失平均額" value={fmtMoneyAbs(rs.avgLoss)} />
+                <StatRow label="最大ドローダウン" value={fmtMoneyAbs(rs.maxDrawdown)} />
+                <StatRow label="当日最大損失率" value={nn(rs.maxDailyLossPct, v => fmtPct(v))} />
+                <StatRow label="プロフィットファクター" value={nn(rs.profitFactor, v => v.toFixed(2))} />
+                <StatRow label="リターン" value={nn(rs.returnPct, v => fmtPct(v))} />
+              </StatGroup>
+
+              <StatGroup title="トレード数">
+                <StatRow label="合計トレード" value={`${rs.totalTrades}`} />
+                <StatRow label="Trading Days数" value={`${rs.tradingDays}`} />
+                <StatRow label="勝ちトレード" value={`${rs.winCount}`} />
+                <StatRow label="負けトレード" value={`${rs.lossCount}`} />
+                <StatRow label="最大連続利益トレード数" value={`${rs.maxConsecutiveWins}`} />
+                <StatRow label="最大連続損失トレード数" value={`${rs.maxConsecutiveLosses}`} />
+                <StatRow label="1日平均のトレード数" value={nn(rs.avgTradesPerDay, v => v.toFixed(1))} />
+                <StatRow label="月平均トレード数" value={nn(rs.avgTradesPerMonth, v => v.toFixed(1))} />
+                <StatRow label="勝ちトレードの月平均回数" value={nn(rs.avgWinsPerMonth, v => v.toFixed(1))} />
+                <StatRow label="負けトレードの月平均回数" value={nn(rs.avgLossesPerMonth, v => v.toFixed(1))} />
+                <StatRow label="1トレードの最大利益" value={fmtMoneyAbs(rs.largestWin)} />
+                <StatRow label="1トレードの最大損失" value={fmtMoneyAbs(rs.largestLoss)} />
+              </StatGroup>
+
+              <StatGroup title="時間">
+                <StatRow label="経過日数" value={rs.elapsedDays.toFixed(1)} />
+                <StatRow label="経過月数" value={rs.elapsedMonths.toFixed(1)} />
+              </StatGroup>
+
+              <StatGroup title="その他">
+                <StatRow label="最大ロット" value={rs.maxLots.toLocaleString()} />
+                <StatRow label="レストレーションファクター" value={nn(rs.restorationFactor, v => v.toFixed(2))} />
+                <StatRow label="リライアビリティファクター" value={nn(rs.reliabilityFactor, v => v.toFixed(2))} />
+                <StatRow label="勝率" value={nn(rs.winRatePct, v => fmtPct(v))} />
+                <StatRow label="損失率" value={nn(rs.lossRatePct, v => fmtPct(v))} />
+              </StatGroup>
+            </div>
+          </div>
+        )}
+
+        <div style={{ height: '220px', border: '1px solid #1e1e1e', borderRadius: '4px', flexShrink: 0 }}>
+          <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
         </div>
-      )}
 
-      <div style={{ height: '220px', marginBottom: '16px', border: '1px solid #1e1e1e', borderRadius: '4px', flexShrink: 0 }}>
-        <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
-      </div>
-
-      <div style={{ flex: 1, overflowY: 'auto', border: '1px solid #1e1e1e', borderRadius: '4px' }}>
-        <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
-          <thead>
-            <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
-              <th style={{ padding: '8px 12px' }}>方向</th>
-              <th style={{ padding: '8px 12px' }}>ロット</th>
-              <th style={{ padding: '8px 12px' }}>エントリー</th>
-              <th style={{ padding: '8px 12px' }}>決済</th>
-              <th style={{ padding: '8px 12px' }}>開始</th>
-              <th style={{ padding: '8px 12px' }}>終了</th>
-              <th style={{ padding: '8px 12px', textAlign: 'right' }}>損益</th>
-            </tr>
-          </thead>
-          <tbody>
-            {sorted.length === 0 ? (
-              <tr><td colSpan={7} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
-            ) : (
-              [...sorted].reverse().map(t => (
-                <tr key={t.id} style={{ borderBottom: '1px solid #161616' }}>
-                  <td style={{ padding: '6px 12px', color: t.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{t.side}</td>
-                  <td style={{ padding: '6px 12px', color: '#888' }}>{t.lots.toLocaleString()}</td>
-                  <td style={{ padding: '6px 12px', color: '#aaa' }}>{t.openPrice.toFixed(pricePrecision(t.openPrice))}</td>
-                  <td style={{ padding: '6px 12px', color: '#aaa' }}>{t.closePrice.toFixed(pricePrecision(t.closePrice))}</td>
-                  <td style={{ padding: '6px 12px', color: '#555' }}>{fmtDateTime(t.openTime)}</td>
-                  <td style={{ padding: '6px 12px', color: '#555' }}>{fmtDateTime(t.closeTime)}</td>
-                  <td style={{
-                    padding: '6px 12px', textAlign: 'right', fontWeight: 700,
-                    color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
-                  }}>
-                    {t.pnl >= 0 ? '+' : ''}{sym}{fmt(t.pnl)}
-                  </td>
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
+        <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px' }}>
+          <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
+            <thead>
+              <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
+                <th style={{ padding: '8px 12px' }}>方向</th>
+                <th style={{ padding: '8px 12px' }}>ロット</th>
+                <th style={{ padding: '8px 12px' }}>エントリー</th>
+                <th style={{ padding: '8px 12px' }}>決済</th>
+                <th style={{ padding: '8px 12px' }}>開始</th>
+                <th style={{ padding: '8px 12px' }}>終了</th>
+                <th style={{ padding: '8px 12px' }}>保有期間</th>
+                <th style={{ padding: '8px 12px', textAlign: 'right' }}>損益</th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted.length === 0 ? (
+                <tr><td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
+              ) : (
+                [...sorted].reverse().map(t => (
+                  <tr key={t.id} style={{ borderBottom: '1px solid #161616' }}>
+                    <td style={{ padding: '6px 12px', color: t.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{t.side}</td>
+                    <td style={{ padding: '6px 12px', color: '#888' }}>{t.lots.toLocaleString()}</td>
+                    <td style={{ padding: '6px 12px', color: '#aaa' }}>{t.openPrice.toFixed(pricePrecision(t.openPrice))}</td>
+                    <td style={{ padding: '6px 12px', color: '#aaa' }}>{t.closePrice.toFixed(pricePrecision(t.closePrice))}</td>
+                    <td style={{ padding: '6px 12px', color: '#555' }}>{fmtDateTime(t.openTime)}</td>
+                    <td style={{ padding: '6px 12px', color: '#555' }}>{fmtDateTime(t.closeTime)}</td>
+                    <td style={{ padding: '6px 12px', color: '#666' }}>{fmtDuration(t.closeTime - t.openTime)}</td>
+                    <td style={{
+                      padding: '6px 12px', textAlign: 'right', fontWeight: 700,
+                      color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
+                    }}>
+                      {t.pnl >= 0 ? '+' : ''}{sym}{fmt(t.pnl)}
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
       </div>
     </div>
   );
