@@ -411,15 +411,15 @@ export function HistoryPanel() {
           <table style={{ borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
             <thead>
               <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
-                <th style={{ padding: '8px 10px' }}>#</th>
-                <th style={{ padding: '8px 10px' }}>方向</th>
-                <th style={{ padding: '8px 10px' }}>ロット</th>
-                <th style={{ padding: '8px 10px' }}>エントリー</th>
-                <th style={{ padding: '8px 10px' }}>決済</th>
-                <th style={{ padding: '8px 10px' }}>開始</th>
-                <th style={{ padding: '8px 10px' }}>終了</th>
-                <th style={{ padding: '8px 10px' }}>保有期間</th>
-                <th style={{ padding: '8px 10px', textAlign: 'right' }}>損益</th>
+                <th style={{ padding: '8px 16px' }}>#</th>
+                <th style={{ padding: '8px 16px' }}>方向</th>
+                <th style={{ padding: '8px 16px' }}>ロット</th>
+                <th style={{ padding: '8px 16px' }}>エントリー</th>
+                <th style={{ padding: '8px 16px' }}>決済</th>
+                <th style={{ padding: '8px 16px' }}>開始</th>
+                <th style={{ padding: '8px 16px' }}>終了</th>
+                <th style={{ padding: '8px 16px' }}>保有期間</th>
+                <th style={{ padding: '8px 16px', textAlign: 'right' }}>損益</th>
               </tr>
             </thead>
             <tbody>
@@ -440,16 +440,16 @@ export function HistoryPanel() {
                     onMouseEnter={e => { if (highlightedTradeId !== t.id) e.currentTarget.style.backgroundColor = '#161616'; }}
                     onMouseLeave={e => { e.currentTarget.style.backgroundColor = highlightedTradeId === t.id ? 'rgba(66,165,245,0.25)' : 'transparent'; }}
                   >
-                    <td style={{ padding: '6px 10px', color: '#555' }}>{sorted.length - i}</td>
-                    <td style={{ padding: '6px 10px', color: t.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{t.side}</td>
-                    <td style={{ padding: '6px 10px', color: '#888' }}>{t.lots.toLocaleString()}</td>
-                    <td style={{ padding: '6px 10px', color: '#aaa' }}>{t.openPrice.toFixed(pricePrecision(t.openPrice))}</td>
-                    <td style={{ padding: '6px 10px', color: '#aaa' }}>{t.closePrice.toFixed(pricePrecision(t.closePrice))}</td>
-                    <td style={{ padding: '6px 10px', color: '#555' }}>{fmtDateTime(t.openTime)}</td>
-                    <td style={{ padding: '6px 10px', color: '#555' }}>{fmtDateTime(t.closeTime)}</td>
-                    <td style={{ padding: '6px 10px', color: '#666' }}>{fmtDuration(t.closeTime - t.openTime)}</td>
+                    <td style={{ padding: '6px 16px', color: '#555' }}>{sorted.length - i}</td>
+                    <td style={{ padding: '6px 16px', color: t.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{t.side}</td>
+                    <td style={{ padding: '6px 16px', color: '#888' }}>{t.lots.toLocaleString()}</td>
+                    <td style={{ padding: '6px 16px', color: '#aaa' }}>{t.openPrice.toFixed(pricePrecision(t.openPrice))}</td>
+                    <td style={{ padding: '6px 16px', color: '#aaa' }}>{t.closePrice.toFixed(pricePrecision(t.closePrice))}</td>
+                    <td style={{ padding: '6px 16px', color: '#555' }}>{fmtDateTime(t.openTime)}</td>
+                    <td style={{ padding: '6px 16px', color: '#555' }}>{fmtDateTime(t.closeTime)}</td>
+                    <td style={{ padding: '6px 16px', color: '#666' }}>{fmtDuration(t.closeTime - t.openTime)}</td>
                     <td style={{
-                      padding: '6px 10px', textAlign: 'right', fontWeight: 700,
+                      padding: '6px 16px', textAlign: 'right', fontWeight: 700,
                       color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
                     }}>
                       {t.pnl >= 0 ? '+' : ''}{sym}{fmt(t.pnl)}
