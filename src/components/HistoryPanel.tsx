@@ -236,54 +236,12 @@ export function HistoryPanel() {
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
-        {sorted.length > 0 && (
-          <div style={{
-            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px',
-            padding: '14px 16px', border: '1px solid #1e1e1e',
-            borderRadius: '4px', flexShrink: 0,
-          }}>
-            <div style={{ ...sectionTitle, gridColumn: '1 / -1' }}>■パフォーマンス分析</div>
-
-            <div>
-              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>総取引数 {stats.total}</div>
-              <SplitBar
-                aLabel={`勝ち ${stats.wins}`} aValue={stats.wins} aColor="#26a69a"
-                bLabel={`負け ${stats.losses}`} bValue={stats.losses} bColor="#ef5350"
-              />
-            </div>
-
-            <div>
-              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>ポジション</div>
-              <SplitBar
-                aLabel={`ロング ${stats.longCount}`} aValue={stats.longCount} aColor="#42a5f5"
-                bLabel={`ショート ${stats.shortCount}`} bValue={stats.shortCount} bColor="#ab47bc"
-              />
-            </div>
-
-            <div>
-              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>利益（方向別）</div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                <SignedBarRow label="ロング" value={stats.longPnl} sym={sym} maxAbs={maxAbsSidePnl} />
-                <SignedBarRow label="ショート" value={stats.shortPnl} sym={sym} maxAbs={maxAbsSidePnl} />
-              </div>
-            </div>
+        <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
+          <div style={{ ...sectionTitle, marginBottom: '10px' }}>■残高の推移</div>
+          <div style={{ height: '220px' }}>
+            <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
           </div>
-        )}
-
-        {sorted.length > 0 && (
-          <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
-            <div style={{ ...sectionTitle, marginBottom: '10px' }}>■セッション別分析</div>
-            <div style={{ color: '#555', fontSize: '11px', marginBottom: '8px' }}>エントリー時刻（JST）が属するセッション基準</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {rs.bySession.map(s => (
-                <SessionStatRow
-                  key={s.key} label={s.label} color={SESSION_COLOR[s.key]}
-                  count={s.count} pnl={s.pnl} sym={sym} maxAbs={maxAbsSessionPnl}
-                />
-              ))}
-            </div>
-          </div>
-        )}
+        </div>
 
         {sorted.length > 0 && (
           <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
@@ -337,12 +295,54 @@ export function HistoryPanel() {
           </div>
         )}
 
-        <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
-          <div style={{ ...sectionTitle, marginBottom: '10px' }}>■残高の推移</div>
-          <div style={{ height: '220px' }}>
-            <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
+        {sorted.length > 0 && (
+          <div style={{
+            display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '16px',
+            padding: '14px 16px', border: '1px solid #1e1e1e',
+            borderRadius: '4px', flexShrink: 0,
+          }}>
+            <div style={{ ...sectionTitle, gridColumn: '1 / -1' }}>■パフォーマンス分析</div>
+
+            <div>
+              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>総取引数 {stats.total}</div>
+              <SplitBar
+                aLabel={`勝ち ${stats.wins}`} aValue={stats.wins} aColor="#26a69a"
+                bLabel={`負け ${stats.losses}`} bValue={stats.losses} bColor="#ef5350"
+              />
+            </div>
+
+            <div>
+              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>ポジション</div>
+              <SplitBar
+                aLabel={`ロング ${stats.longCount}`} aValue={stats.longCount} aColor="#42a5f5"
+                bLabel={`ショート ${stats.shortCount}`} bValue={stats.shortCount} bColor="#ab47bc"
+              />
+            </div>
+
+            <div>
+              <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>利益（方向別）</div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+                <SignedBarRow label="ロング" value={stats.longPnl} sym={sym} maxAbs={maxAbsSidePnl} />
+                <SignedBarRow label="ショート" value={stats.shortPnl} sym={sym} maxAbs={maxAbsSidePnl} />
+              </div>
+            </div>
           </div>
-        </div>
+        )}
+
+        {sorted.length > 0 && (
+          <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
+            <div style={{ ...sectionTitle, marginBottom: '10px' }}>■セッション別分析</div>
+            <div style={{ color: '#555', fontSize: '11px', marginBottom: '8px' }}>エントリー時刻（JST）が属するセッション基準</div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+              {rs.bySession.map(s => (
+                <SessionStatRow
+                  key={s.key} label={s.label} color={SESSION_COLOR[s.key]}
+                  count={s.count} pnl={s.pnl} sym={sym} maxAbs={maxAbsSessionPnl}
+                />
+              ))}
+            </div>
+          </div>
+        )}
 
         <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px 0' }}>
           <div style={{ ...sectionTitle, marginBottom: '10px' }}>■取引内容一覧</div>
