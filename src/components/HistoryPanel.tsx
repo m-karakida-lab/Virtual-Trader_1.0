@@ -67,7 +67,10 @@ function SessionStatRow({
 function StatGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '12px 14px', width: 'fit-content' }}>
-      <div style={{ color: '#888', fontSize: '13px', fontWeight: 700, marginBottom: '6px' }}>{title}</div>
+      <div style={{
+        color: '#42a5f5', fontSize: '14px', fontWeight: 700, marginBottom: '8px',
+        paddingBottom: '6px', borderBottom: '1px solid #2a2a2a',
+      }}>{title}</div>
       <div>{children}</div>
     </div>
   );
