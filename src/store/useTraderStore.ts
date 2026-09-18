@@ -889,6 +889,27 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const sl = draftSL ?? undefined;
     const entryPrice = orderType === 'market' ? c.close : draftPrice;
 
+    // TP/SLは建値に対してBUY/SELLで上下が決まっている（あり得ない指定を弾く）。
+    // BUY: TPは建値より上・SLは建値より下 / SELL: TPは建値より下・SLは建値より上。
+    // リスク%モードのロット逆算がSLの絶対距離だけを見て符号を問わないため、ここで
+    // 弾かないと「SLが建値より上のBUY」のような矛盾した注文がロット計算を素通りしてしまう
+    if (entryPrice !== null) {
+      if (tp !== undefined) {
+        const tpValid = side === 'BUY' ? tp > entryPrice : tp < entryPrice;
+        if (!tpValid) {
+          set({ error: `${side} の TP は建値(${entryPrice})より${side === 'BUY' ? '上' : '下'}の価格を指定してください` });
+          return;
+        }
+      }
+      if (sl !== undefined) {
+        const slValid = side === 'BUY' ? sl < entryPrice : sl > entryPrice;
+        if (!slValid) {
+          set({ error: `${side} の SL は建値(${entryPrice})より${side === 'BUY' ? '下' : '上'}の価格を指定してください` });
+          return;
+        }
+      }
+    }
+
     // リスク%モード: 残高 × risk% ÷ |エントリー価格 - SL| からロット数を逆算する
     let useLots = lots;
     if (lotMode === 'risk') {
