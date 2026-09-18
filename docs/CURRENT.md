@@ -150,6 +150,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 十字カーソル同期effect（`crosshairSourceId`/`crosshairTime`依存）は、メイン/非メインどちらの`series.setData()`effectよりも**後ろ**で宣言すること（宣言順だけでは解決しない場合あり、下記参照）
 - `setCrosshairPosition`はsetData直後の同一コミット内で同期呼び出しすると、時刻が正しくても価格スケールの`firstValue`キャッシュが未確定でensureNotNullがnullを投げることがある。`requestAnimationFrame`で1フレーム後に呼ぶこと。メインパネルはcursorより先の未来足を`effectiveCursorRef`でクリップしてから`priceAtTime`に渡すこと（`candles`はcursor以降も含む全期間配列のため）
 - 1画面表示（`chartLayout==='1'`）中、非メイン3枠は`width:0/height:0`で非表示のままマウントされ続ける（remount回避のため）。サイズ0のペインは価格スケールの`firstValue`が恒久的にnullなので、十字カーソル同期は1画面表示中は非メイン枠でスキップすること（どれだけ待っても解決しない・同期する意味もない）
+- `timeToCoordinate`は時刻が実在かつ開示済み（setData済み）の足と完全一致しないとnullを返す。セッション帯のようにcursorより未来の時刻（NYの終了=翌7時等）を扱う描画は、`timeToX`に渡す前に開示済みの最後の足（`effectiveCursorRef`が指す時刻）へクランプすること
 - `App.tsx`のツールバー列を囲むフレックス行が`overflow:hidden`のため、`DrawToolbar.tsx`のポップアップは`position:absolute`だと画面下寄りで開いた時にmaxHeight+overflowYより先に祖先でクリップされ、スクロールバーごと消える。`position:fixed`＋`getBoundingClientRect`基準の座標計算で回避する
 - lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）とグリッド線（`layout.grid`）はSeries Primitivesの対象外でzOrder制御ができず、常に他の描画物より前面に出る。四角形・週区切り線がPrimitivesではなくDOM/canvasオーバーレイなのはこの制約を回避するため（詳細は主要機能の四角形描画の項）
 - `showFullHistory`は廃止済み。全期間スクラバーの「全体」は常に`cursor+1`、`candles.length`（未来含む全データ）は使わない
