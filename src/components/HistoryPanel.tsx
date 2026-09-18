@@ -419,7 +419,9 @@ export function HistoryPanel() {
                 <th style={{ padding: '8px 16px' }}>開始</th>
                 <th style={{ padding: '8px 16px' }}>終了</th>
                 <th style={{ padding: '8px 16px' }}>保有期間</th>
-                <th style={{ padding: '8px 16px', textAlign: 'right' }}>損益</th>
+                {/* 損益列だけ余裕を持たせて、テーブル右端が下部バーの「発注」ボタン付近まで
+                    届くようにする（他の列まで広げると元の間延びが再発するため損益列だけ） */}
+                <th style={{ padding: '8px 16px', textAlign: 'right', minWidth: '260px' }}>損益</th>
               </tr>
             </thead>
             <tbody>
