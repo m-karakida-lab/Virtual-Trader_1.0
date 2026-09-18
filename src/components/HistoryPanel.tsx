@@ -59,27 +59,24 @@ function SessionSplitBar({
   const boxStyle: React.CSSProperties = { border: '1px solid #1e1e1e', borderRadius: '4px', padding: '10px 12px' };
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-      {/* パフォーマンス分析のStatGroupと同じく、項目ごとに枠を付けて区切りをはっきりさせる */}
-      <div style={boxStyle}>
-        {/* バーが画面幅いっぱいに伸びると間延びして見づらいという指摘を受け、半分の幅に抑えた */}
-        <div style={{ width: '50%' }}>
-          <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>件数</div>
-          <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
-            {totalCount > 0 && buckets.map(b => (
-              b.count > 0 ? <div key={b.key} style={{ width: `${(b.count / totalCount) * 100}%`, backgroundColor: b.color }} /> : null
-            ))}
-          </div>
+      {/* パフォーマンス分析のStatGroupと同じく、項目ごとに枠を付けて区切りをはっきりさせる。
+          枠の幅自体をバーに合わせて絞り、枠の右端がバーの右端から離れすぎないようにする
+          （バーだけ50%に縮めても箱は全幅のままだと右側が余って間延びして見えたため） */}
+      <div style={{ ...boxStyle, width: '50%' }}>
+        <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>件数</div>
+        <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
+          {totalCount > 0 && buckets.map(b => (
+            b.count > 0 ? <div key={b.key} style={{ width: `${(b.count / totalCount) * 100}%`, backgroundColor: b.color }} /> : null
+          ))}
         </div>
       </div>
 
-      <div style={boxStyle}>
-        <div style={{ width: '50%' }}>
-          <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>利益</div>
-          <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
-            {totalPositivePnl > 0 && buckets.map(b => (
-              b.pnl > 0 ? <div key={b.key} style={{ width: `${(b.pnl / totalPositivePnl) * 100}%`, backgroundColor: b.color }} /> : null
-            ))}
-          </div>
+      <div style={{ ...boxStyle, width: '50%' }}>
+        <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>利益</div>
+        <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
+          {totalPositivePnl > 0 && buckets.map(b => (
+            b.pnl > 0 ? <div key={b.key} style={{ width: `${(b.pnl / totalPositivePnl) * 100}%`, backgroundColor: b.color }} /> : null
+          ))}
         </div>
       </div>
 
