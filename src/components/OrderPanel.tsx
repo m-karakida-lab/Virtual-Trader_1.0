@@ -132,14 +132,22 @@ export function OrderPanel() {
     if (current === undefined) return;
     const prec = pricePrecision(current);
     const round = (v: number) => Number(v.toFixed(prec));
-    if (lastOrderRatios.priceRatio !== null && ot !== 'market') {
-      setDraftPrice(round(current * (1 + lastOrderRatios.priceRatio)));
+    // tpRatio/slRatioは元々「エントリー価格からの距離」として記録している（submitOrder参照）。
+    // 指値・逆指値では実際のエントリーは現在値ではなくdraftPriceになるため、TP/SLも現在値
+    // ではなく「今回再現するエントリー価格」を基準に計算しないとRR（損益比）が保たれない。
+    // 以前は無条件に現在値を基準にしていたため、指値/逆指値でエントリーと現在値が離れている
+    // ほどRRが大きくズレる不具合になっていた（例: 1:1のつもりが1:6になる）
+    const priceRatio = lastOrderRatios.priceRatio;
+    const willUsePriceRatio = ot !== 'market' && priceRatio !== null;
+    const entryBase = willUsePriceRatio ? current * (1 + priceRatio) : current;
+    if (willUsePriceRatio) {
+      setDraftPrice(round(entryBase));
     }
     if (lastOrderRatios.tpRatio !== null) {
-      setDraftTP(round(current * (1 + lastOrderRatios.tpRatio)));
+      setDraftTP(round(entryBase * (1 + lastOrderRatios.tpRatio)));
     }
     if (lastOrderRatios.slRatio !== null) {
-      setDraftSL(round(current * (1 + lastOrderRatios.slRatio)));
+      setDraftSL(round(entryBase * (1 + lastOrderRatios.slRatio)));
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [orderPanelOpen]);
