@@ -41,25 +41,38 @@ function StatRow({ label, value }: { label: string; value: string }) {
 }
 
 // セッション別分析の1行。件数＋損益（正負で色分けした横棒）を横並びで見せる
-function SessionStatRow({
-  label, color, count, pnl, sym, maxAbs,
+// 4セッション（東京/ロンドン/NY/セッション外）が件数の取り分を奪い合う1本の横棒。
+// 個別に4本の棒を並べると「何と比べて長い/短いのか」が分かりにくいという指摘を受け、
+// SplitBar（2値）と同じ考え方を4値に拡張した。損益は符号があり幅の奪い合いに使えない
+// （マイナスをどう扱うか自明でない）ため、バーは件数の比率のみで表現し、損益は下の
+// 凡例にテキストで別途示す
+function SessionSplitBar({
+  buckets, sym,
 }: {
-  label: string; color: string; count: number; pnl: number; sym: string; maxAbs: number;
+  buckets: { key: string; label: string; color: string; count: number; pnl: number }[];
+  sym: string;
 }) {
-  const pct = maxAbs > 0 ? (Math.abs(pnl) / maxAbs) * 100 : 0;
-  const barColor = pnl >= 0 ? '#26a69a' : '#ef5350';
+  const totalCount = buckets.reduce((s, b) => s + b.count, 0);
   return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-      <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: color, flexShrink: 0 }} />
-      <span style={{ width: '76px', flexShrink: 0, fontSize: '13px', color: '#aaa' }}>{label}</span>
-      <span style={{ width: '44px', flexShrink: 0, fontSize: '12px', color: '#666', textAlign: 'right' }}>{count}件</span>
-      <div style={{ flex: 1, height: '10px', backgroundColor: '#1a1a1a', borderRadius: '5px', overflow: 'hidden' }}>
-        <div style={{ width: `${pct}%`, height: '100%', backgroundColor: barColor }} />
+    <div>
+      <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a', marginBottom: '10px' }}>
+        {totalCount > 0 && buckets.map(b => (
+          b.count > 0 ? <div key={b.key} style={{ width: `${(b.count / totalCount) * 100}%`, backgroundColor: b.color }} /> : null
+        ))}
       </div>
-      <span style={{
-        width: '110px', flexShrink: 0, textAlign: 'right', fontSize: '13px', fontWeight: 700,
-        fontVariantNumeric: 'tabular-nums', color: barColor,
-      }}>{pnl >= 0 ? '+' : ''}{sym}{fmt(pnl)}</span>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+        {buckets.map(b => (
+          <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
+            <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: b.color, flexShrink: 0 }} />
+            <span style={{ width: '76px', flexShrink: 0, color: '#aaa' }}>{b.label}</span>
+            <span style={{ width: '44px', flexShrink: 0, fontSize: '12px', color: '#666' }}>{b.count}件</span>
+            <span style={{
+              fontWeight: 700, fontVariantNumeric: 'tabular-nums',
+              color: b.pnl >= 0 ? '#26a69a' : '#ef5350',
+            }}>{b.pnl >= 0 ? '+' : ''}{sym}{fmt(b.pnl)}</span>
+          </div>
+        ))}
+      </div>
     </div>
   );
 }
@@ -186,7 +199,6 @@ export function HistoryPanel() {
 
   const stats = useMemo(() => computeStats(closedTrades), [closedTrades]);
   const rs = useMemo(() => computeTradeStats(closedTrades, initialBalance), [closedTrades, initialBalance]);
-  const maxAbsSessionPnl = Math.max(...rs.bySession.map(s => Math.abs(s.pnl)));
 
   // リスク・パフォーマンス指標セクション専用のフォーマッタ（symは通貨記号、rsはcomputeTradeStatsの結果）
   const fmtMoney = (n: number) => `${n >= 0 ? '+' : ''}${sym}${fmt(n)}`;
@@ -359,15 +371,11 @@ export function HistoryPanel() {
         {sorted.length > 0 && (
           <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
             <div style={{ ...sectionTitle, marginBottom: '10px' }}>■セッション別分析</div>
-            <div style={{ color: '#555', fontSize: '11px', marginBottom: '8px' }}>エントリー時刻（JST）が属するセッション基準</div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-              {rs.bySession.map(s => (
-                <SessionStatRow
-                  key={s.key} label={s.label} color={SESSION_COLOR[s.key]}
-                  count={s.count} pnl={s.pnl} sym={sym} maxAbs={maxAbsSessionPnl}
-                />
-              ))}
-            </div>
+            <div style={{ color: '#555', fontSize: '11px', marginBottom: '10px' }}>エントリー時刻（JST）が属するセッション基準</div>
+            <SessionSplitBar
+              buckets={rs.bySession.map(s => ({ key: s.key, label: s.label, color: SESSION_COLOR[s.key], count: s.count, pnl: s.pnl }))}
+              sym={sym}
+            />
           </div>
         )}
 
