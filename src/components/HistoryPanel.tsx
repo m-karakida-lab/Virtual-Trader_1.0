@@ -53,11 +53,21 @@ function SessionSplitBar({
   sym: string;
 }) {
   const totalCount = buckets.reduce((s, b) => s + b.count, 0);
+  // 利益バーはDirectionalPnlBarと同じ考え方: 赤字セッションは幅0（黒字セッションだけで
+  // 取り分を分け合う）。赤字の金額自体は下の凡例テキスト（赤）で示す
+  const totalPositivePnl = buckets.reduce((s, b) => s + Math.max(0, b.pnl), 0);
   return (
     <div>
+      <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>件数</div>
       <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a', marginBottom: '10px' }}>
         {totalCount > 0 && buckets.map(b => (
           b.count > 0 ? <div key={b.key} style={{ width: `${(b.count / totalCount) * 100}%`, backgroundColor: b.color }} /> : null
+        ))}
+      </div>
+      <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>利益</div>
+      <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a', marginBottom: '10px' }}>
+        {totalPositivePnl > 0 && buckets.map(b => (
+          b.pnl > 0 ? <div key={b.key} style={{ width: `${(b.pnl / totalPositivePnl) * 100}%`, backgroundColor: b.color }} /> : null
         ))}
       </div>
       <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
