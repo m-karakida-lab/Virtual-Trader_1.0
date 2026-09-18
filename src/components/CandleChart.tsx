@@ -1492,10 +1492,13 @@ export function CandleChart({
     syncWeekLines();
 
     // ── 東京/ロンドン/NYセッション帯の位置を再計算してDOMに反映 ──
-    // 全面を覆う薄い背景帯だと見づらいという指摘を受け、チャート下部（日付軸のすぐ上）の
-    // 1行だけに濃い色で描く方式に変更した。日足以上は1本のローソク足が1日分になり
-    // 表示する意味が無いため、その時間軸では隠す。週区切り線と同じくDOMオーバーレイ方式
-    const SESSION_ROW_HEIGHT = 6; // px
+    // 全面を覆う薄い背景帯だと見づらいという指摘を受け、下の全期間スクラバー（YouTubeの
+    // シークバーと同じ見た目・高さ）の少し上に、それと同じ太さの1行で濃い色で描く方式に
+    // 変更した。日足以上は1本のローソク足が1日分になり表示する意味が無いため、その時間軸
+    // では隠す。週区切り線と同じくDOMオーバーレイ方式
+    const SESSION_ROW_HEIGHT = 4; // px。下のスクラバー本体（bar、太さ4px）と揃える
+    const SCRUBBER_TRACK_HEIGHT = 20; // px。下のscrubberTrackRefの高さと揃える（判定域込み）
+    const SESSION_ROW_GAP = 6; // px。スクラバーとの間隔
     const syncSessions = () => {
       if (!chartRef.current || !sessionOverlayRef.current) return;
       const { showSessions: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
@@ -1511,6 +1514,7 @@ export function CandleChart({
         const el = document.createElement('div');
         el.style.position = 'absolute';
         el.style.height = `${SESSION_ROW_HEIGHT}px`;
+        el.style.borderRadius = '2px';
         el.style.pointerEvents = 'none';
         overlay.appendChild(el);
         els.push(el);
@@ -1521,7 +1525,7 @@ export function CandleChart({
 
       bands.forEach((band, i) => {
         const el = els[i];
-        el.style.bottom = `${bottomMargin}px`;
+        el.style.bottom = `${bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP}px`;
         const x0 = timeToX(band.start);
         const x1 = timeToX(band.end);
         if (x0 === null || x1 === null || x1 <= x0) {
