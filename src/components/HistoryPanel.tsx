@@ -56,24 +56,34 @@ function SessionSplitBar({
   // 利益バーはDirectionalPnlBarと同じ考え方: 赤字セッションは幅0（黒字セッションだけで
   // 取り分を分け合う）。赤字の金額自体は下の凡例テキスト（赤）で示す
   const totalPositivePnl = buckets.reduce((s, b) => s + Math.max(0, b.pnl), 0);
+  const boxStyle: React.CSSProperties = { border: '1px solid #1e1e1e', borderRadius: '4px', padding: '10px 12px' };
   return (
-    <div>
-      {/* バーが画面幅いっぱいに伸びると間延びして見づらいという指摘を受け、半分の幅に抑えた */}
-      <div style={{ width: '50%' }}>
-        <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>件数</div>
-        <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a', marginBottom: '10px' }}>
-          {totalCount > 0 && buckets.map(b => (
-            b.count > 0 ? <div key={b.key} style={{ width: `${(b.count / totalCount) * 100}%`, backgroundColor: b.color }} /> : null
-          ))}
-        </div>
-        <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>利益</div>
-        <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a', marginBottom: '10px' }}>
-          {totalPositivePnl > 0 && buckets.map(b => (
-            b.pnl > 0 ? <div key={b.key} style={{ width: `${(b.pnl / totalPositivePnl) * 100}%`, backgroundColor: b.color }} /> : null
-          ))}
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+      {/* パフォーマンス分析のStatGroupと同じく、項目ごとに枠を付けて区切りをはっきりさせる */}
+      <div style={boxStyle}>
+        {/* バーが画面幅いっぱいに伸びると間延びして見づらいという指摘を受け、半分の幅に抑えた */}
+        <div style={{ width: '50%' }}>
+          <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>件数</div>
+          <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
+            {totalCount > 0 && buckets.map(b => (
+              b.count > 0 ? <div key={b.key} style={{ width: `${(b.count / totalCount) * 100}%`, backgroundColor: b.color }} /> : null
+            ))}
+          </div>
         </div>
       </div>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
+
+      <div style={boxStyle}>
+        <div style={{ width: '50%' }}>
+          <div style={{ color: '#555', fontSize: '11px', marginBottom: '4px' }}>利益</div>
+          <div style={{ height: '10px', borderRadius: '5px', overflow: 'hidden', display: 'flex', backgroundColor: '#1a1a1a' }}>
+            {totalPositivePnl > 0 && buckets.map(b => (
+              b.pnl > 0 ? <div key={b.key} style={{ width: `${(b.pnl / totalPositivePnl) * 100}%`, backgroundColor: b.color }} /> : null
+            ))}
+          </div>
+        </div>
+      </div>
+
+      <div style={{ ...boxStyle, display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {buckets.map(b => (
           <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
             <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: b.color, flexShrink: 0 }} />
