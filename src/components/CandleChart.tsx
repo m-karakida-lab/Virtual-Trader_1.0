@@ -1544,8 +1544,20 @@ export function CandleChart({
         const el = els[i];
         const isActive = i === activeIdx;
         el.style.bottom = `${bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP}px`;
+        // band.endがまだ先の未来（リプレイでcursorより先＝未開示）だと、その時刻のローソク足が
+        // まだseriesにsetDataされておらずtimeToCoordinateが解決できずnullになる（timeToXの
+        // 補間フォールバックも両隣の足が未開示だと同様に失敗する）。そのため「東京・ロンドンは
+        // すぐ出るのにNY（終了が翌7時で一番長く未来にはみ出す）だけ、cursorが実際に翌7時
+        // 付近まで進まないと帯が出ない」という不具合になっていた。帯の終端をcurrentTime
+        // （このパネルで実際に開示済みの最後の足）にクランプし、開示済みの範囲までだけ
+        // 描画することで回避する（開示が進むにつれ帯が右へ伸びていく形になる）
+        if (currentTime !== undefined && band.start > currentTime) {
+          el.style.display = 'none';
+          return;
+        }
+        const clampedEnd = currentTime !== undefined ? Math.min(band.end, currentTime) : band.end;
         const x0 = timeToX(band.start);
-        const x1 = timeToX(band.end);
+        const x1 = timeToX(clampedEnd);
         if (x0 === null || x1 === null || x1 <= x0) {
           el.style.display = 'none';
           return;
