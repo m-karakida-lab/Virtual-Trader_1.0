@@ -162,9 +162,15 @@ function candleIndexAt(candles: Candle[], t: number): number {
   return idx;
 }
 
-// オープン中ポジション + 決済済みトレードからエントリー/決済マーカーを構築
+// オープン中ポジション + 決済済みトレードからエントリー/決済マーカーを構築。
+// 決済済みトレードの番号は取引履歴パネル（HistoryPanel.tsx）の#列と同じ採番方式
+// （決済順=closeTime昇順で1から）にして、チャート上のマーカーと履歴の行を突き合わせられる
+// ようにする（未決済のオープン中ポジションはまだ履歴の一覧に出ないため番号は振らない）
 function buildTradeMarkers(positions: Position[], closedTrades: ClosedTrade[], sym: string): SeriesMarker<Time>[] {
   const markers: SeriesMarker<Time>[] = [];
+
+  const tradeNoById = new Map<number, number>();
+  [...closedTrades].sort((a, b) => a.closeTime - b.closeTime).forEach((t, i) => tradeNoById.set(t.id, i + 1));
 
   for (const pos of positions) {
     const isBuy = pos.side === 'BUY';
@@ -179,19 +185,20 @@ function buildTradeMarkers(positions: Position[], closedTrades: ClosedTrade[], s
 
   for (const t of closedTrades) {
     const isBuy = t.side === 'BUY';
+    const no = tradeNoById.get(t.id);
     markers.push({
       time: t.openTime as Time,
       position: isBuy ? 'belowBar' : 'aboveBar',
       color: isBuy ? '#26a69a' : '#ef5350',
       shape: isBuy ? 'arrowUp' : 'arrowDown',
-      text: t.side,
+      text: `#${no} ${t.side}`,
     });
     markers.push({
       time: t.closeTime as Time,
       position: isBuy ? 'aboveBar' : 'belowBar',
       color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
       shape: 'circle',
-      text: `${t.pnl >= 0 ? '+' : ''}${sym}${Math.round(t.pnl).toLocaleString()}`,
+      text: `#${no} ${t.pnl >= 0 ? '+' : ''}${sym}${Math.round(t.pnl).toLocaleString()}`,
     });
   }
 
