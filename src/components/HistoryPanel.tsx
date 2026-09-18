@@ -64,6 +64,12 @@ function SessionStatRow({
   );
 }
 
+// パネル内の大見出し（■パフォーマンス分析 等）。StatGroupの見出し（カテゴリの中区分、
+// アクセント色）よりさらに一段上の階層だと分かるよう、明るい白系の色・少し大きめの文字にする
+const sectionTitle: React.CSSProperties = {
+  color: '#ccc', fontSize: '15px', fontWeight: 700,
+};
+
 function StatGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '12px 14px', width: 'fit-content' }}>
@@ -236,7 +242,7 @@ export function HistoryPanel() {
             padding: '14px 16px', border: '1px solid #1e1e1e',
             borderRadius: '4px', flexShrink: 0,
           }}>
-            <div style={{ gridColumn: '1 / -1', color: '#888', fontSize: '13px', fontWeight: 700 }}>■パフォーマンス分析</div>
+            <div style={{ ...sectionTitle, gridColumn: '1 / -1' }}>■パフォーマンス分析</div>
 
             <div>
               <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>総取引数 {stats.total}</div>
@@ -266,7 +272,7 @@ export function HistoryPanel() {
 
         {sorted.length > 0 && (
           <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
-            <div style={{ color: '#888', fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>■セッション別分析</div>
+            <div style={{ ...sectionTitle, marginBottom: '10px' }}>■セッション別分析</div>
             <div style={{ color: '#555', fontSize: '11px', marginBottom: '8px' }}>エントリー時刻（JST）が属するセッション基準</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
               {rs.bySession.map(s => (
@@ -281,7 +287,7 @@ export function HistoryPanel() {
 
         {sorted.length > 0 && (
           <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
-            <div style={{ color: '#888', fontSize: '13px', fontWeight: 700, marginBottom: '10px' }}>■リスクとパフォーマンス指標</div>
+            <div style={{ ...sectionTitle, marginBottom: '10px' }}>■リスクとパフォーマンス指標</div>
             {/* grid 2列だと箱がパネル半分の幅まで伸び、中身（ラベル+値）はその半分しか
                 使わないので右側が丸ごと空いて間延びして見えた。箱自体を中身の幅に合わせて
                 flex-wrapで並べる方式に変更（StatGroupのmaxWidth参照） */}
