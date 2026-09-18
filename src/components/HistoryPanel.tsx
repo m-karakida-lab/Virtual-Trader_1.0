@@ -80,7 +80,7 @@ function SessionSplitBar({
         </div>
       </div>
 
-      <div style={{ ...boxStyle, display: 'flex', flexDirection: 'column', gap: '6px' }}>
+      <div style={{ ...boxStyle, width: '50%', display: 'flex', flexDirection: 'column', gap: '6px' }}>
         {buckets.map(b => (
           <div key={b.key} style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '13px' }}>
             <span style={{ width: '10px', height: '10px', borderRadius: '50%', backgroundColor: b.color, flexShrink: 0 }} />
