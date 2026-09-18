@@ -159,6 +159,7 @@ export function HistoryPanel() {
   const initialBalance = useTraderStore(s => s.initialBalance);
   const quoteCurrency   = useTraderStore(s => s.quoteCurrency);
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
+  const jumpToTime = useTraderStore(s => s.jumpToTime);
   const sym = currencySymbol(quoteCurrency);
 
   const containerRef = useRef<HTMLDivElement>(null);
@@ -349,6 +350,7 @@ export function HistoryPanel() {
           <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>
             <thead>
               <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
+                <th style={{ padding: '8px 12px' }}>#</th>
                 <th style={{ padding: '8px 12px' }}>方向</th>
                 <th style={{ padding: '8px 12px' }}>ロット</th>
                 <th style={{ padding: '8px 12px' }}>エントリー</th>
@@ -361,10 +363,18 @@ export function HistoryPanel() {
             </thead>
             <tbody>
               {sorted.length === 0 ? (
-                <tr><td colSpan={8} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
+                <tr><td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
               ) : (
-                [...sorted].reverse().map(t => (
-                  <tr key={t.id} style={{ borderBottom: '1px solid #161616' }}>
+                [...sorted].reverse().map((t, i) => (
+                  <tr
+                    key={t.id}
+                    onClick={() => { jumpToTime(t.openTime); toggleHistoryPanel(); }}
+                    title="クリックでこのトレードの開始位置へチャートを移動"
+                    style={{ borderBottom: '1px solid #161616', cursor: 'pointer' }}
+                    onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#161616'; }}
+                    onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+                  >
+                    <td style={{ padding: '6px 12px', color: '#555' }}>{sorted.length - i}</td>
                     <td style={{ padding: '6px 12px', color: t.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{t.side}</td>
                     <td style={{ padding: '6px 12px', color: '#888' }}>{t.lots.toLocaleString()}</td>
                     <td style={{ padding: '6px 12px', color: '#aaa' }}>{t.openPrice.toFixed(pricePrecision(t.openPrice))}</td>
