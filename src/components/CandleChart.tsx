@@ -1491,10 +1491,11 @@ export function CandleChart({
     syncWeekLinesRef.current = syncWeekLines;
     syncWeekLines();
 
-    // ── 東京/ロンドン/NYセッション帯の位置を再計算してDOMに反映（薄い背景色の帯） ──
-    // 日足以上は1本のローソク足が1日分になり帯を表示する意味が無いため、その時間軸では隠す。
-    // 週区切り線と同じくDOMオーバーレイ方式。背景の薄い帯なので雲（zIndex:5）よりさらに
-    // 下のzIndex:4にして常に一番奥に見せる
+    // ── 東京/ロンドン/NYセッション帯の位置を再計算してDOMに反映 ──
+    // 全面を覆う薄い背景帯だと見づらいという指摘を受け、チャート下部（日付軸のすぐ上）の
+    // 1行だけに濃い色で描く方式に変更した。日足以上は1本のローソク足が1日分になり
+    // 表示する意味が無いため、その時間軸では隠す。週区切り線と同じくDOMオーバーレイ方式
+    const SESSION_ROW_HEIGHT = 6; // px
     const syncSessions = () => {
       if (!chartRef.current || !sessionOverlayRef.current) return;
       const { showSessions: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
@@ -1509,7 +1510,7 @@ export function CandleChart({
       while (els.length < bands.length) {
         const el = document.createElement('div');
         el.style.position = 'absolute';
-        el.style.top = '0';
+        el.style.height = `${SESSION_ROW_HEIGHT}px`;
         el.style.pointerEvents = 'none';
         overlay.appendChild(el);
         els.push(el);
@@ -1520,7 +1521,7 @@ export function CandleChart({
 
       bands.forEach((band, i) => {
         const el = els[i];
-        el.style.height = `calc(100% - ${bottomMargin}px)`;
+        el.style.bottom = `${bottomMargin}px`;
         const x0 = timeToX(band.start);
         const x1 = timeToX(band.end);
         if (x0 === null || x1 === null || x1 <= x0) {
@@ -4938,8 +4939,9 @@ export function CandleChart({
       {/* 週区切り線は四角形（zIndex:9）より下（zIndex:8）にして「四角形が区切り線より上」を
           維持する（区切り線自体はローソク足の下である必要はなく、常時前面表示で問題ない） */}
       <div ref={weekOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 8 }} />
-      {/* 東京/ロンドン/NYセッション帯。雲（zIndex:5）よりさらに下＝常に一番奥の薄い背景として見せる */}
-      <div ref={sessionOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 4 }} />
+      {/* 東京/ロンドン/NYセッション帯。日付軸のすぐ上に1行だけ描く方式（syncSessions参照）なので
+          週区切り線と同じ手前側のzIndexにして、ローソク足の下端に隠れないようにする */}
+      <div ref={sessionOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 8 }} />
       {/* 四角形の枠線本体は専用canvasに自前描画（syncRects、destination-outでローソク足と
           重なった部分を透明に抜く）。価格軸に被らないよう幅はトレンドライン等と揃える。
           垂直線・四角形ハンドルのオーバーレイは価格軸の領域には侵入させない。overflow:hiddenと

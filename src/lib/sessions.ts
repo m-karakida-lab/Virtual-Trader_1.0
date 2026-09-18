@@ -2,11 +2,12 @@ import type { Candle } from '../types';
 
 // 東京/ロンドン/NYの大まかな取引時間帯（JST基準、サマータイム等の年内変動は考慮しない簡易版）。
 // 足の時刻は既にJST壁時計時刻として保持されている前提（weekLines.tsと同じ約束事）。
-// 3セッションが重ならないよう境界を揃えてある（東京9-16時、ロンドン16-22時、NY22-7時）
+// 3セッションが重ならないよう境界を揃えてある（東京9-16時、ロンドン16-22時、NY22-7時）。
+// 見づらいという指摘を受けて、全面の薄い背景帯からチャート下部の1行の濃い色帯に変更した
 export const SESSIONS = [
-  { key: 'asia',   label: '東京',     color: 'rgba(255,193,7,0.06)',  startHour: 9,  endHour: 16 },
-  { key: 'london', label: 'ロンドン', color: 'rgba(76,175,80,0.06)',  startHour: 16, endHour: 22 },
-  { key: 'ny',     label: 'NY',       color: 'rgba(33,150,243,0.06)', startHour: 22, endHour: 31 },
+  { key: 'asia',   label: '東京',     color: '#ffb300', startHour: 9,  endHour: 16 },
+  { key: 'london', label: 'ロンドン', color: '#43a047', startHour: 16, endHour: 22 },
+  { key: 'ny',     label: 'NY',       color: '#1e88e5', startHour: 22, endHour: 31 },
 ] as const;
 
 export interface SessionBand {
