@@ -3,6 +3,8 @@ import { useTraderStore } from '../store/useTraderStore';
 import {
   isFileSystemAccessSupported, loadOpenHistory, addToHistory, removeFromHistory, pickFolder, pickFiles, type OpenHistoryEntry,
 } from '../lib/openHistory';
+import { captureChartArea } from '../lib/screenshot';
+import { TIMEFRAMES } from '../types';
 
 // クリックで開閉するドロップダウン（下方向に開く。Controls.tsxのMenuButtonと似ているが
 // あちらは下部バー用に上方向へ開くため、開く向きだけ違う専用の実装を持つ）
@@ -59,6 +61,15 @@ export function FileLoader() {
   const canSave     = useTraderStore(s => s.rawCsvText !== null);
   const canOverwrite = useTraderStore(s => s.rawFileHandle !== null && s.rawFileIsBundle);
   const loadedFileLabel = useTraderStore(s => s.loadedFileLabel);
+  const isLoaded    = useTraderStore(s => s.isLoaded);
+  const advanceToEnd = useTraderStore(s => s.advanceToEnd);
+  const candlesLength = useTraderStore(s => s.candles.length);
+  const cursor      = useTraderStore(s => s.cursor);
+  const symbol      = useTraderStore(s => s.symbol);
+  const chartLayout = useTraderStore(s => s.chartLayout);
+  const timeframeSec = useTraderStore(s => s.timeframeSec);
+  const atEnd = candlesLength > 0 && cursor >= candlesLength - 1;
+  const timeframeLabel = TIMEFRAMES.find(t => t.sec === timeframeSec)?.label ?? '';
 
   const supported = isFileSystemAccessSupported();
   const [history, setHistory] = useState<OpenHistoryEntry[]>([]);
@@ -184,6 +195,27 @@ export function FileLoader() {
           }}
         >💾 vtd{canOverwrite ? '上書き保存' : '保存'}</button>
       )}
+
+      <button
+        onClick={advanceToEnd}
+        disabled={!isLoaded || atEnd}
+        style={{
+          backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+          borderRadius: '3px', padding: '4px 10px', fontSize: '13px',
+          cursor: (!isLoaded || atEnd) ? 'not-allowed' : 'pointer', opacity: (!isLoaded || atEnd) ? 0.5 : 1,
+        }}
+      >チャート全表示</button>
+
+      <button
+        onClick={() => captureChartArea(`${symbol || 'chart'}_${chartLayout === '4' ? '4画面' : chartLayout === '3' ? '3画面' : timeframeLabel}`)}
+        disabled={!isLoaded}
+        title="チャート画面（価格軸・日付軸含む）をJPEGで保存"
+        style={{
+          backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+          borderRadius: '3px', padding: '4px 10px', fontSize: '13px',
+          cursor: !isLoaded ? 'not-allowed' : 'pointer', opacity: !isLoaded ? 0.5 : 1, whiteSpace: 'nowrap',
+        }}
+      >📷 キャプチャ</button>
 
       {loadingMsg && (
         <span style={{

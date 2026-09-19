@@ -1,9 +1,8 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import { TIMEFRAMES, type Position, type PendingOrder } from '../types';
+import { type Position, type PendingOrder } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
-import { captureChartArea } from '../lib/screenshot';
 import { readErrorLog, clearErrorLog } from '../lib/errorLog';
 import {
   isFileSystemAccessSupported as isErrorLogFileSupported,
@@ -270,7 +269,6 @@ export function Controls() {
   const setPositionSL = useTraderStore(s => s.setPositionSL);
   const setSpeed      = useTraderStore(s => s.setSpeed);
   const chartLayout   = useTraderStore(s => s.chartLayout);
-  const symbol        = useTraderStore(s => s.symbol);
   const setChartLayout = useTraderStore(s => s.setChartLayout);
   const quad3Pattern = useTraderStore(s => s.quad3Pattern);
   const toggleQuad3Pattern = useTraderStore(s => s.toggleQuad3Pattern);
@@ -285,7 +283,6 @@ export function Controls() {
   const orderPanelOpen = useTraderStore(s => s.orderPanelOpen);
   const setOrderPanelOpen = useTraderStore(s => s.setOrderPanelOpen);
   const clearDraft = useTraderStore(s => s.clearDraft);
-  const advanceToEnd = useTraderStore(s => s.advanceToEnd);
   const isDrawingLine = useTraderStore(s => s.isDrawingLine);
   const isDrawingVLine = useTraderStore(s => s.isDrawingVLine);
   const isMeasuring = useTraderStore(s => s.isMeasuring);
@@ -308,13 +305,10 @@ export function Controls() {
   const positions     = useTraderStore(s => s.positions);
   const pendingOrders = useTraderStore(s => s.pendingOrders);
   const candles       = useTraderStore(s => s.candles);
-  const timeframeSec  = useTraderStore(s => s.timeframeSec);
   const cursor        = useTraderStore(s => s.cursor);
   const isLoaded      = useTraderStore(s => s.isLoaded);
   const isPlaying     = useTraderStore(s => s.isPlaying);
   const speed         = useTraderStore(s => s.speed);
-
-  const timeframeLabel = TIMEFRAMES.find(t => t.sec === timeframeSec)?.label ?? '';
   // 最後の足まで進んでいる（=もう先に反応できる未来が無い）間は発注・速度変更を無効化する
   const atEnd = candles.length > 0 && cursor >= candles.length - 1;
   const sym = currencySymbol(quoteCurrency);
@@ -461,13 +455,8 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 表示モード */}
+        {/* 表示モード。チャート全表示・キャプチャは上部のファイル選択と同じ行に移動済み */}
         <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
-          <button
-            onClick={advanceToEnd}
-            disabled={!isLoaded || atEnd}
-            style={tfBtn(false, !isLoaded)}
-          >チャート全表示</button>
           <button
             onClick={fitToScreen}
             disabled={!isLoaded}
@@ -479,15 +468,6 @@ export function Controls() {
             style={tfBtn(false, !isLoaded)}
           >最新足に固定</button>
         </div>
-
-        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
-
-        <button
-          onClick={() => captureChartArea(`${symbol || 'chart'}_${chartLayout === '4' ? '4画面' : chartLayout === '3' ? '3画面' : timeframeLabel}`)}
-          disabled={!isLoaded}
-          title="チャート画面（価格軸・日付軸含む）をJPEGで保存"
-          style={{ ...tfBtn(false, !isLoaded), flexShrink: 0, whiteSpace: 'nowrap' }}
-        >📷 キャプチャ</button>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0, margin: '0 8px' }} />
 
