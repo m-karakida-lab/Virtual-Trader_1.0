@@ -3,7 +3,7 @@ import { createChart, type IChartApi, type ISeriesApi, type Time } from 'lightwe
 import { useTraderStore } from '../store/useTraderStore';
 import type { ClosedTrade } from '../types';
 import { currencySymbol } from '../lib/currency';
-import { pricePrecision } from '../lib/pips';
+import { pricePrecision, inferPipSize } from '../lib/pips';
 import { computeTradeStats } from '../lib/tradeStats';
 import { SESSIONS } from '../lib/sessions';
 
@@ -27,6 +27,12 @@ function fmtDuration(sec: number): string {
   if (hours > 0) parts.push(`${hours}時間`);
   if (mins > 0 || parts.length === 0) parts.push(`${mins}分`);
   return parts.slice(0, 2).join(' ');
+}
+
+// 獲得（損失）pips。方向（BUY/SELL）を考慮した符号付きの値幅をpip単位で表す
+function tradePips(t: ClosedTrade): number {
+  const dir = t.side === 'BUY' ? 1 : -1;
+  return ((t.closePrice - t.openPrice) * dir) / inferPipSize(t.openPrice);
 }
 
 // ラベルと値の間はspace-betweenで箱の端まで離すと、箱の横幅が広い時に間延びして見づらい
@@ -416,20 +422,21 @@ export function HistoryPanel() {
           }}>
             <thead>
               <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
-                <th style={{ padding: '8px 16px', width: '6%' }}>#</th>
-                <th style={{ padding: '8px 16px', width: '10%' }}>方向</th>
-                <th style={{ padding: '8px 16px', width: '11%' }}>ロット</th>
-                <th style={{ padding: '8px 16px', width: '11%' }}>エントリー</th>
-                <th style={{ padding: '8px 16px', width: '11%' }}>決済</th>
-                <th style={{ padding: '8px 16px', width: '13%' }}>開始</th>
-                <th style={{ padding: '8px 16px', width: '13%' }}>終了</th>
-                <th style={{ padding: '8px 16px', width: '12%' }}>保有期間</th>
-                <th style={{ padding: '8px 16px', width: '13%', textAlign: 'right' }}>損益</th>
+                <th style={{ padding: '8px 16px', width: '5%' }}>#</th>
+                <th style={{ padding: '8px 16px', width: '9%' }}>方向</th>
+                <th style={{ padding: '8px 16px', width: '10%' }}>ロット</th>
+                <th style={{ padding: '8px 16px', width: '10%' }}>エントリー</th>
+                <th style={{ padding: '8px 16px', width: '10%' }}>決済</th>
+                <th style={{ padding: '8px 16px', width: '12%' }}>開始</th>
+                <th style={{ padding: '8px 16px', width: '12%' }}>終了</th>
+                <th style={{ padding: '8px 16px', width: '10%' }}>保有期間</th>
+                <th style={{ padding: '8px 16px', width: '10%', textAlign: 'right' }}>獲得(損失)pips</th>
+                <th style={{ padding: '8px 16px', width: '12%', textAlign: 'right' }}>損益</th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 ? (
-                <tr><td colSpan={9} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
+                <tr><td colSpan={10} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
               ) : (
                 [...sorted].reverse().map((t, i) => (
                   <tr
@@ -453,6 +460,12 @@ export function HistoryPanel() {
                     <td style={{ padding: '6px 16px', color: '#555' }}>{fmtDateTime(t.openTime)}</td>
                     <td style={{ padding: '6px 16px', color: '#555' }}>{fmtDateTime(t.closeTime)}</td>
                     <td style={{ padding: '6px 16px', color: '#666' }}>{fmtDuration(t.closeTime - t.openTime)}</td>
+                    <td style={{
+                      padding: '6px 16px', textAlign: 'right', fontWeight: 700,
+                      color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
+                    }}>
+                      {t.pnl >= 0 ? '+' : ''}{tradePips(t).toFixed(1)}
+                    </td>
                     <td style={{
                       padding: '6px 16px', textAlign: 'right', fontWeight: 700,
                       color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
