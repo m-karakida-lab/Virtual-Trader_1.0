@@ -60,6 +60,9 @@ export const TIMEFRAMES = [
 
 export type TimeframeSec = typeof TIMEFRAMES[number]['sec'];
 
+// チャート画面のレイアウト: 1画面 / 3画面（左1枠+右2枠） / 4画面（2x2）
+export type ChartLayout = '1' | '3' | '4';
+
 // ── 水平線 ───────────────────────────────────────────────────────────────
 
 export type LineDash = 'solid' | 'dashed' | 'dotted';

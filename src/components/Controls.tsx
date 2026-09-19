@@ -436,6 +436,11 @@ export function Controls() {
             style={tfBtn(chartLayout === '1', !isLoaded)}
           >1画面</button>
           <button
+            onClick={() => setChartLayout('3')}
+            disabled={!isLoaded}
+            style={tfBtn(chartLayout === '3', !isLoaded)}
+          >3画面</button>
+          <button
             onClick={() => setChartLayout('4')}
             disabled={!isLoaded}
             style={tfBtn(chartLayout === '4', !isLoaded)}
@@ -466,7 +471,7 @@ export function Controls() {
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
         <button
-          onClick={() => captureChartArea(`${symbol || 'chart'}_${chartLayout === '4' ? '4画面' : timeframeLabel}`)}
+          onClick={() => captureChartArea(`${symbol || 'chart'}_${chartLayout === '4' ? '4画面' : chartLayout === '3' ? '3画面' : timeframeLabel}`)}
           disabled={!isLoaded}
           title="チャート画面（価格軸・日付軸含む）をJPEGで保存"
           style={{ ...tfBtn(false, !isLoaded), flexShrink: 0, whiteSpace: 'nowrap' }}

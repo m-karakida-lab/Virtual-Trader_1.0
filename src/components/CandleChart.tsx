@@ -335,6 +335,7 @@ export function CandleChart({
   const setTimeframe = useTraderStore(s => s.setTimeframe);
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
   const chartLayout = useTraderStore(s => s.chartLayout);
+  const preMultiLayout = useTraderStore(s => s.preMultiLayout);
   const isLoaded = useTraderStore(s => s.isLoaded);
   const dataVersion = useTraderStore(s => s.dataVersion);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
@@ -4710,7 +4711,9 @@ export function CandleChart({
   // が必ず失敗する（データや時刻の問題ではなく描画領域が無いこと自体が原因のため）。
   // どのみち見えないパネルへの同期は無意味なので、非表示時はそもそも呼ばない
   useEffect(() => {
-    if (chartLayout !== '4' && !isMain) return;
+    // 非表示パネル（1画面時の非メイン3枠、3画面時の使わない枠3）は上のコメント通り同期が無意味
+    const isHiddenPane = chartLayout === '1' || (chartLayout === '3' && slot === 3);
+    if (isHiddenPane && !isMain) return;
     if (!chartRef.current || !seriesRef.current || crosshairSourceId === mySourceId) return;
     const chart = chartRef.current;
     const series = seriesRef.current;
@@ -4738,7 +4741,7 @@ export function CandleChart({
       }
     });
     return () => cancelAnimationFrame(raf);
-  }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId, isMain, cursor, chartLayout]);
+  }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId, isMain, cursor, chartLayout, slot]);
 
   // 時間軸の切替・新規CSV読み込み時の表示位置決定。
   // ユーザーがヘッダーのドロップダウンで時間足を切り替えた直後は、pendingTimeframeSwitchRangeRef
@@ -5051,15 +5054,17 @@ export function CandleChart({
         currentTime={candles[cursor]?.time}
         chartRightMargin={chartRightMargin}
         isFullscreen={chartLayout === '1'}
+        restoreLayoutLabel={`${preMultiLayout}画面`}
         onToggleFullscreen={() => {
           const s = useTraderStore.getState();
-          if (s.chartLayout === '4') {
-            // 4画面時、非メイン枠の「全画面化」はまずその枠をメインへ昇格させてから
+          if (s.chartLayout !== '1') {
+            // マルチ画面時、非メイン枠の「全画面化」はまずその枠をメインへ昇格させてから
             // 1画面に切り替える（メイン以外の時間軸をそのまま1画面表示できるようにするため）
             if (!isMainRef.current) s.promoteSlotToMain(slotRef.current, nonMainCandlesRef.current);
             s.setChartLayout('1');
           } else {
-            s.setChartLayout('4');
+            // 1画面解除時は直前のマルチ画面レイアウト（3画面/4画面）へ戻す
+            s.setChartLayout(s.preMultiLayout);
           }
         }}
       />

@@ -19,6 +19,7 @@ function fmtCurrentTime(sec: number): string {
 export function ChartHeader({
   symbol, timeframeLabel, timeframeSec, onSelectTimeframe, disabled = false,
   isFullscreen, onToggleFullscreen, currentTime, chartRightMargin = 0,
+  restoreLayoutLabel = '4画面',
 }: {
   symbol: string;
   timeframeLabel: string;
@@ -29,6 +30,7 @@ export function ChartHeader({
   onToggleFullscreen: () => void;
   currentTime?: number;
   chartRightMargin?: number;
+  restoreLayoutLabel?: string; // 1画面解除時に戻る先のレイアウト名（ボタンのtitleに使う）
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -134,7 +136,7 @@ export function ChartHeader({
         onMouseUp={e => e.stopPropagation()}
         onClick={() => !disabled && onToggleFullscreen()}
         disabled={disabled}
-        title={isFullscreen ? '4画面表示に戻す' : 'この時間足を1画面表示にする'}
+        title={isFullscreen ? `${restoreLayoutLabel}表示に戻す` : 'この時間足を1画面表示にする'}
         style={{
           width: '28px', height: '28px', pointerEvents: 'auto',
           display: 'flex', alignItems: 'center', justifyContent: 'center',

@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnArrow, DrawnBrush, DrawnText, LineDash, LineWidth, LineSelection, MagnetMode, TextFontSize, TextBorderStyle } from '../types';
+import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, ChartLayout, DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnArrow, DrawnBrush, DrawnText, LineDash, LineWidth, LineSelection, MagnetMode, TextFontSize, TextBorderStyle } from '../types';
 import { LINE_COLORS, TIMEFRAMES } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
@@ -58,15 +58,16 @@ function saveSpeed(speed: number): void {
 // 1画面/4画面の表示レイアウトは localStorage に記憶し、次回起動時も前回の状態から始める
 const CHART_LAYOUT_STORAGE_KEY = 'vt:chartLayout';
 
-function loadSavedChartLayout(): '1' | '4' {
+function loadSavedChartLayout(): ChartLayout {
   try {
-    return localStorage.getItem(CHART_LAYOUT_STORAGE_KEY) === '1' ? '1' : '4';
+    const v = localStorage.getItem(CHART_LAYOUT_STORAGE_KEY);
+    return v === '1' || v === '3' ? v : '4';
   } catch {
     return '4';
   }
 }
 
-function saveChartLayout(layout: '1' | '4'): void {
+function saveChartLayout(layout: ChartLayout): void {
   try {
     localStorage.setItem(CHART_LAYOUT_STORAGE_KEY, layout);
   } catch {
@@ -266,8 +267,9 @@ interface TraderState {
                           // ユーザーが手動でパン/ズームしたら自動でfalseに戻す
   centerSignal: number; // centerOnTime が呼ばれるたびに増える
   centerTarget: number;  // centerOnTime の移動先（Unix秒）
-  chartLayout: '1' | '4'; // 1画面 / 4画面（時間軸別マルチチャート）
-  quadTimeframes: TimeframeSec[]; // 4画面の各枠（左上/左下/右上/右下）に表示する時間軸
+  chartLayout: ChartLayout; // 1画面 / 3画面（左1枠+右上下2枠） / 4画面（2x2、いずれも時間軸別マルチチャート）
+  preMultiLayout: '3' | '4'; // フルスクリーン(1画面)化する直前のマルチ画面レイアウト。解除時にこれへ戻す
+  quadTimeframes: TimeframeSec[]; // 4画面の各枠（左上/左下/右上/右下）に表示する時間軸。3画面時は0,1,2番のみ使用（左/右上/右下）
   quadMainSlot: number; // quadTimeframes のうち、現在メイン（操作可能）になっている枠のインデックス
   dataVersion: number; // CSV読み込みが完了するたびに増える（ミニチャートの再集計トリガ用）
   crosshairSourceId: string | null; // 4画面時、実際にマウスホバー中のパネルID（'main' またはミニ枠のslot番号文字列）
@@ -377,7 +379,7 @@ interface TraderState {
   setScrollToTradeId: (tradeId: number | null) => void;
   setOrderPanelOpen: (open: boolean) => void;
   setChartMargins: (right: number, bottom: number) => void;
-  setChartLayout: (layout: '1' | '4') => void;
+  setChartLayout: (layout: ChartLayout) => void;
   setQuadTimeframe: (slot: number, sec: TimeframeSec) => void;
   promoteSlotToMain: (slot: number, preloadedCandles?: Candle[]) => void;
   setCrosshair: (sourceId: string | null, time: number | null) => void;
@@ -604,6 +606,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   centerSignal: 0,
   centerTarget: 0,
   chartLayout: loadSavedChartLayout(),
+  preMultiLayout: loadSavedChartLayout() === '3' ? '3' : '4',
   ...loadSavedQuad(),
   dataVersion: 0,
   crosshairSourceId: null,
@@ -1407,9 +1410,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   setScrollToTradeId: (tradeId) => set({ scrollToTradeId: tradeId }),
   setOrderPanelOpen: (open) => set({ orderPanelOpen: open }),
   setChartMargins: (right: number, bottom: number) => set({ chartRightMargin: right, chartBottomMargin: bottom }),
-  setChartLayout: (layout: '1' | '4') => {
+  setChartLayout: (layout: ChartLayout) => {
+    // 3画面はslot0-2のみ表示するため、メインが枠3（4画面専用の右下枠）のままだと
+    // 3画面にメイン枠が1つも表示されなくなる。その場合は枠0へ昇格させてから切り替える
+    if (layout === '3' && get().quadMainSlot === 3) {
+      get().promoteSlotToMain(0);
+    }
     saveChartLayout(layout);
-    set({ chartLayout: layout });
+    set(layout === '1' ? { chartLayout: layout } : { chartLayout: layout, preMultiLayout: layout });
   },
 
   // 4画面のミニ枠（メインでない枠）の表示時間軸を変更。メイン枠が指定された場合は

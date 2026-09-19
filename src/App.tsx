@@ -12,11 +12,19 @@ import { initDuckDB } from './lib/duckdb';
 
 // 4画面レイアウトの枠位置は固定（左上・左下・右上・右下）。各枠に表示する時間軸は
 // ユーザーが選べる（store.quadTimeframes、インデックスがこの配列の並びに対応）
-const QUAD_POSITIONS: { row: number; col: number }[] = [
-  { row: 1, col: 1 }, // 左上
-  { row: 2, col: 1 }, // 左下
-  { row: 1, col: 2 }, // 右上
-  { row: 2, col: 2 }, // 右下
+const QUAD_POSITIONS: { row: string; col: number }[] = [
+  { row: '1', col: 1 }, // 左上
+  { row: '2', col: 1 }, // 左下
+  { row: '1', col: 2 }, // 右上
+  { row: '2', col: 2 }, // 右下
+];
+
+// 3画面レイアウトの枠位置（左1枠を縦に2段分使う + 右上下2枠）。quadTimeframes/quadMainSlotの
+// 0,1,2番をそのまま使い回す（3番はこのレイアウトでは表示しない）
+const THREE_POSITIONS: { row: string; col: number }[] = [
+  { row: '1 / 3', col: 1 }, // 左（縦通し）
+  { row: '1', col: 2 },     // 右上
+  { row: '2', col: 2 },     // 右下
 ];
 
 export default function App() {
@@ -109,24 +117,27 @@ export default function App() {
             左の描画ツールバー・下の発注/操作パネルは含めない。4画面時はこのdiv自体に4枠すべてが
             収まっているため、1回のキャプチャで自然に1枚絵になる */}
         <div id="vt-chart-capture-area" style={{ flex: 1, minWidth: 0, position: 'relative', overflow: 'hidden' }}>
-          {/* 1画面/4画面とも常にこの4枠構成のまま保つ（chartLayoutでJSXの分岐自体を
-              切り替えない）。1画面時はメイン枠だけを画面いっぱいに表示し、残り3枠は
-              width/height:0で隠すだけでマウントは維持する。以前はchartLayout==='1'の時
-              別途<CandleChart/>を単独レンダーしており、切替のたびに4枠側がまるごと
-              unmount→再mountしていた（レイアウト切替で表示位置・ズームが毎回リセット
-              されてしまうという指摘を受けて発覚）。全枠を常時マウントし続けることで
-              lightweight-chartsのチャートインスタンス自体を破棄しないようにし、
-              1画面⇔4画面を行き来しても各枠の表示状態がそのまま保たれるようにした */}
+          {/* 1画面/3画面/4画面とも常にこの4枠構成のまま保つ（chartLayoutでJSXの分岐自体を
+              切り替えない）。1画面時はメイン枠だけを画面いっぱいに表示し、3画面時は枠3を、
+              1画面時は非メイン3枠を、それぞれwidth/height:0で隠すだけでマウントは維持する。
+              以前はchartLayout==='1'の時別途<CandleChart/>を単独レンダーしており、切替の
+              たびに4枠側がまるごとunmount→再mountしていた（レイアウト切替で表示位置・ズーム
+              が毎回リセットされてしまうという指摘を受けて発覚）。全枠を常時マウントし続ける
+              ことでlightweight-chartsのチャートインスタンス自体を破棄しないようにし、
+              画面数を行き来しても各枠の表示状態がそのまま保たれるようにした */}
           <div style={{
             position: 'absolute', inset: 0,
-            display: chartLayout === '4' ? 'grid' : 'block',
+            display: chartLayout === '1' ? 'block' : 'grid',
             gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
           }}>
-            {QUAD_POSITIONS.map((pos, slot) => {
+            {QUAD_POSITIONS.map((_, slot) => {
               const isMainSlot = slot === quadMainSlot;
-              const cellStyle = chartLayout === '4'
+              const pos = chartLayout === '3' ? THREE_POSITIONS[slot] : QUAD_POSITIONS[slot];
+              // 3画面時の枠3（このレイアウトでは使わない）は1画面時の非メイン枠と同じ扱いで隠す
+              const isHiddenInThreeUp = chartLayout === '3' && slot === 3;
+              const cellStyle = (chartLayout === '4' || (chartLayout === '3' && !isHiddenInThreeUp))
                 ? { gridRow: pos.row, gridColumn: pos.col, position: 'relative' as const, minWidth: 0, minHeight: 0 }
-                : isMainSlot
+                : isMainSlot && chartLayout === '1'
                   ? { position: 'absolute' as const, inset: 0 }
                   : { position: 'absolute' as const, width: 0, height: 0, overflow: 'hidden' as const, pointerEvents: 'none' as const };
               return (
@@ -136,7 +147,7 @@ export default function App() {
                     isMain={isMainSlot}
                     timeframeSec={quadTimeframes[slot]}
                   />
-                  {/* 4画面時、全枠を細い枠線で区切りつつ、メイン枠（操作対象）だけ青で
+                  {/* マルチ画面時、全枠を細い枠線で区切りつつ、メイン枠（操作対象）だけ青で
                       一目で分かるようにする。1画面時はメイン枠しか表示されないため不要
                       （つけると常時囲われて煩わしいだけ）。セルのboxShadowで描くと
                       CandleChart側のチャート本体（不透明な背景を持つ）に上から塗りつぶされ、
@@ -144,7 +155,7 @@ export default function App() {
                       （実際に下端の一部しか出ない不具合として発覚）。CandleChartの後に
                       重ねて描く別要素にすることで、チャート本体より上のレイヤーに出るように
                       している（pointerEvents:noneでクリック等は透過させる） */}
-                  {chartLayout === '4' && (
+                  {(chartLayout === '4' || (chartLayout === '3' && !isHiddenInThreeUp)) && (
                     <div style={{
                       position: 'absolute', inset: 0,
                       boxShadow: isMainSlot
