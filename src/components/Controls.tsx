@@ -165,7 +165,7 @@ function MenuButton({
 // 追記できるようにする設定。File System Access API対応ブラウザ（Chrome/Edge）限定。
 // 非対応ブラウザ・未設定時でも、localStorageのリングバッファをその場でダウンロードする
 // フォールバックは常に使える
-function ErrorLogMenu() {
+function ErrorLogSection() {
   const [fileName, setFileName] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const supported = isErrorLogFileSupported();
@@ -211,34 +211,32 @@ function ErrorLogMenu() {
   };
 
   return (
-    <MenuButton label="🪲 ログ">
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '280px' }}>
-        {supported ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-            <span style={{ fontSize: '13px', color: '#888' }}>
-              自動追記の保存先: {fileName ? <span style={{ color: '#e0e0e0' }}>{fileName}</span> : '未設定'}
-            </span>
-            <div style={{ display: 'flex', gap: '6px' }}>
-              <button onClick={handlePick} disabled={busy} style={tfBtn(false, busy)}>
-                {fileName ? '保存先を変更...' : '保存先を選ぶ...'}
-              </button>
-              {fileName && (
-                <button onClick={handleForget} style={tfBtn(false, false)}>解除</button>
-              )}
-            </div>
-          </div>
-        ) : (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '280px' }}>
+      <span style={{ color: '#555', fontSize: '13px' }}>ログ</span>
+      {supported ? (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <span style={{ fontSize: '13px', color: '#888' }}>
-            このブラウザはファイルへの自動追記に非対応です（Chrome/Edgeのみ）。下のダウンロードのみ使えます
+            自動追記の保存先: {fileName ? <span style={{ color: '#e0e0e0' }}>{fileName}</span> : '未設定'}
           </span>
-        )}
-        <span style={{ height: '1px', backgroundColor: '#2a2a2a' }} />
-        <div style={{ display: 'flex', gap: '6px' }}>
-          <button onClick={handleOpen} style={tfBtn(false, false)}>ログファイルを開く</button>
-          <button onClick={handleClear} style={tfBtn(false, false)}>ログをクリア</button>
+          <div style={{ display: 'flex', gap: '6px' }}>
+            <button onClick={handlePick} disabled={busy} style={tfBtn(false, busy)}>
+              {fileName ? '保存先を変更...' : '保存先を選ぶ...'}
+            </button>
+            {fileName && (
+              <button onClick={handleForget} style={tfBtn(false, false)}>解除</button>
+            )}
+          </div>
         </div>
+      ) : (
+        <span style={{ fontSize: '13px', color: '#888' }}>
+          このブラウザはファイルへの自動追記に非対応です（Chrome/Edgeのみ）。下のダウンロードのみ使えます
+        </span>
+      )}
+      <div style={{ display: 'flex', gap: '6px' }}>
+        <button onClick={handleOpen} style={tfBtn(false, false)}>ログファイルを開く</button>
+        <button onClick={handleClear} style={tfBtn(false, false)}>ログをクリア</button>
       </div>
-    </MenuButton>
+    </div>
   );
 }
 
@@ -390,7 +388,7 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 設定（メニュー）。頻繁には使わない初期残高設定・インジケータ表示切替をここにまとめる */}
+        {/* 設定（メニュー）。頻繁には使わない初期残高設定・インジケータ表示切替・ログをここにまとめる */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton label="⚙ 設定">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
@@ -439,6 +437,10 @@ export function Controls() {
                   </span>
                 )}
               </div>
+
+              <div style={{ borderTop: '1px solid #2a2a2a' }} />
+
+              <ErrorLogSection />
             </div>
           </MenuButton>
         </div>
@@ -544,10 +546,6 @@ export function Controls() {
           </MenuButton>
         </div>
 
-        {/* エラーログの保存先（メニュー）。isLoadedに関わらず常に使える設定なのでdisabled指定なし */}
-        <div style={{ padding: '0 8px', flexShrink: 0 }}>
-          <ErrorLogMenu />
-        </div>
 
         {/* 速度（再生・1コマ送り/戻りはチャート上のフロートボタンへ） */}
         <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px', gap: '4px', flexShrink: 0 }}>
