@@ -5048,6 +5048,8 @@ export function CandleChart({
           if (isMain) setTimeframe(sec); else setQuadTimeframe(slot, sec);
         }}
         disabled={!isLoaded}
+        currentTime={candles[cursor]?.time}
+        chartRightMargin={chartRightMargin}
         isFullscreen={chartLayout === '1'}
         onToggleFullscreen={() => {
           const s = useTraderStore.getState();

@@ -2,11 +2,23 @@ import { useEffect, useRef, useState } from 'react';
 import { CHART_FONT_FAMILY } from '../lib/chartTheme';
 import { TIMEFRAMES, type TimeframeSec } from '../types';
 
+// Unix秒（UTC）→ "YYYY/MM/DD HH:mm"。現在時刻表示用
+function fmtCurrentTime(sec: number): string {
+  const d = new Date(sec * 1000);
+  const y = d.getUTCFullYear();
+  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
+  const day = String(d.getUTCDate()).padStart(2, '0');
+  const hh = String(d.getUTCHours()).padStart(2, '0');
+  const mm = String(d.getUTCMinutes()).padStart(2, '0');
+  return `${y}/${mo}/${day} ${hh}:${mm}`;
+}
+
 // TradingView風のパネルヘッダー（左上の「シンボル + 時間足」表示 + 全画面切替）。
-// onSelectTimeframe を渡すと時間足部分がクリックで開くドロップダウンになる
+// onSelectTimeframe を渡すと時間足部分がクリックで開くドロップダウンになる。
+// currentTime（リプレイ中の現在足時刻・Unix秒）を渡すと同じ行の右側に日付時刻を表示する
 export function ChartHeader({
   symbol, timeframeLabel, timeframeSec, onSelectTimeframe, disabled = false,
-  isFullscreen, onToggleFullscreen,
+  isFullscreen, onToggleFullscreen, currentTime, chartRightMargin = 0,
 }: {
   symbol: string;
   timeframeLabel: string;
@@ -15,6 +27,8 @@ export function ChartHeader({
   disabled?: boolean;
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
+  currentTime?: number;
+  chartRightMargin?: number;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -29,6 +43,22 @@ export function ChartHeader({
   }, [open]);
 
   return (
+    <>
+    {currentTime !== undefined && (
+      <div style={{
+        position: 'absolute', top: 8, right: chartRightMargin + 10, zIndex: 12,
+        pointerEvents: 'none', fontFamily: CHART_FONT_FAMILY,
+      }}>
+        <div style={{
+          background: 'linear-gradient(rgba(255,255,255,0.12), rgba(255,255,255,0.12)), #0d0d0d',
+          borderRadius: '8px', padding: '4px 8px',
+          color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontWeight: 600,
+          fontVariantNumeric: 'tabular-nums',
+        }}>
+          日付：{fmtCurrentTime(currentTime)}
+        </div>
+      </div>
+    )}
     <div style={{
       // z-index: lightweight-charts が自前で挿入する内部canvasもz-index:2を使うため、
       // 同値だとDOM順序次第でチャート側が上に来てクリックを奪ってしまう。
@@ -128,6 +158,7 @@ export function ChartHeader({
         )}
       </button>
     </div>
+    </>
   );
 }
 
