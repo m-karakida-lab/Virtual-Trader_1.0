@@ -255,6 +255,8 @@ export function HistoryPanel() {
       // lastValueVisibleとは別に独立して出るため、自前の現在値ラベルと重なって二重表示に
       // なっていた。このミニチャートではクロスヘアでの価格読み取りは不要なのでラベルだけ消す
       crosshair: { horzLine: { labelVisible: false } },
+      // 価格軸の目盛りラベルも自前の現在値ラベルと同じカンマ区切り表記に揃える
+      localization: { priceFormatter: (price: number) => fmt(price) },
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight,
     });
@@ -278,10 +280,16 @@ export function HistoryPanel() {
     line.style.pointerEvents = 'none';
     line.style.zIndex = '5';
     line.style.display = 'none';
+    // 価格軸の目盛りラベルと同じY位置にたまたま重なると、自前ラベルの隙間から標準ラベルの
+    // 文字が透けて見えてしまっていた（右端揃えのwidth自動＝文字ぶんの幅しか無く、目盛り
+    // ラベルの方が横幅が広いとはみ出す）。幅を価格軸カラムの実測幅（chart.priceScale('right')
+    // .width()）に固定し、その列を完全に覆い隠すようにする
     const label = document.createElement('div');
     label.style.position = 'absolute';
     label.style.transform = 'translateY(-50%)';
     label.style.right = '0';
+    label.style.boxSizing = 'border-box';
+    label.style.textAlign = 'right';
     label.style.backgroundColor = '#42a5f5';
     label.style.color = '#0d0d0d';
     label.style.fontSize = '11px';
@@ -311,6 +319,9 @@ export function HistoryPanel() {
       el.style.top = `${y}px`;
       lab.style.display = 'block';
       lab.style.top = `${y}px`;
+      // 価格軸の目盛りラベル列を完全に覆う幅にする（最低でもパディング込みの文字幅は確保）
+      const axisWidth = chart.priceScale('right').width();
+      lab.style.width = `${Math.max(axisWidth, 40)}px`;
       lab.textContent = fmt(p.value);
     };
     syncLastValueLineRef.current = syncLastValueLine;
