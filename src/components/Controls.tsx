@@ -162,16 +162,18 @@ function MenuButton({
 
 // ── 設定メニュー内の1項目（見出し + 内容）。区切り線・余白を統一する ──────────
 function SettingsSection({
-  title, children, last = false,
+  icon, title, children, last = false,
 }: {
-  title: string; children: React.ReactNode; last?: boolean;
+  icon: string; title: string; children: React.ReactNode; last?: boolean;
 }) {
   return (
     <div style={{
       display: 'flex', flexDirection: 'column', gap: '8px',
       padding: '10px 0', borderBottom: last ? 'none' : '1px solid #2a2a2a',
     }}>
-      <span style={{ color: '#888', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px' }}>{title}</span>
+      <span style={{ display: 'flex', alignItems: 'center', gap: '6px', color: '#42a5f5', fontSize: '15px', fontWeight: 700 }}>
+        <span>{icon}</span>{title}
+      </span>
       {children}
     </div>
   );
@@ -526,7 +528,7 @@ export function Controls() {
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton label="⚙ 設定">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '380px' }}>
-              <SettingsSection title="初期残高">
+              <SettingsSection icon="💰" title="初期残高">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <input
                     type="number"
@@ -548,7 +550,7 @@ export function Controls() {
                 </div>
               </SettingsSection>
 
-              <SettingsSection title="インジケータ">
+              <SettingsSection icon="📊" title="インジケータ">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
                   <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
                   <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
@@ -572,7 +574,7 @@ export function Controls() {
                 )}
               </SettingsSection>
 
-              <SettingsSection title="ログ" last>
+              <SettingsSection icon="🪲" title="ログ" last>
                 <ErrorLogSection />
               </SettingsSection>
             </div>
