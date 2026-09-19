@@ -251,6 +251,10 @@ export function HistoryPanel() {
       grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } },
       rightPriceScale: { borderColor: '#1e1e1e' },
       timeScale: { borderColor: '#1e1e1e', timeVisible: true, secondsVisible: false },
+      // 標準クロスヘアの価格軸ラベル（水平線に付く価格バッジ）も、priceLineVisible/
+      // lastValueVisibleとは別に独立して出るため、自前の現在値ラベルと重なって二重表示に
+      // なっていた。このミニチャートではクロスヘアでの価格読み取りは不要なのでラベルだけ消す
+      crosshair: { horzLine: { labelVisible: false } },
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight,
     });
