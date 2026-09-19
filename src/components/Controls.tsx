@@ -386,8 +386,6 @@ export function Controls() {
           </div>
         </div>
 
-        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
-
         {/* 発注ボタン。パネル本体は再生ボタン(FloatingControls)・パレット(PalettePanel)と
             同じ、チャート上に独立して浮かぶドラッグ可能なパネル（OrderPanel.tsx）を開閉する
             だけのトグル。以前はこの場所にドロップダウンとして直接出していたが、項目が多く
