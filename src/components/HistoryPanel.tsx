@@ -256,7 +256,9 @@ export function HistoryPanel() {
     });
     // 標準の最終値価格ライン（priceLineVisible）はチャート全幅に横線を引いてしまい短く
     // できないため無効化し、下のsyncLastValueLineで自前の短い線に差し替える
-    const series = chart.addLineSeries({ color: '#42a5f5', lineWidth: 2, priceLineVisible: false });
+    // priceLineVisible（線+ラベル）とlastValueVisible（価格軸側のラベルのみ）は別オプション。
+    // 前者だけ消しても後者の標準ラベルが価格軸に居座り、自前ラベルと二重表示になっていた
+    const series = chart.addLineSeries({ color: '#42a5f5', lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
     chartRef.current = chart;
     seriesRef.current = series;
 
