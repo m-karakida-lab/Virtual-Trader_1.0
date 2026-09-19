@@ -272,6 +272,8 @@ export function Controls() {
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const symbol        = useTraderStore(s => s.symbol);
   const setChartLayout = useTraderStore(s => s.setChartLayout);
+  const quad3Pattern = useTraderStore(s => s.quad3Pattern);
+  const toggleQuad3Pattern = useTraderStore(s => s.toggleQuad3Pattern);
   const toggleEMA     = useTraderStore(s => s.toggleEMA);
   const toggleSMA     = useTraderStore(s => s.toggleSMA);
   const toggleBB      = useTraderStore(s => s.toggleBB);
@@ -436,6 +438,12 @@ export function Controls() {
             disabled={!isLoaded}
             style={tfBtn(chartLayout === '3', !isLoaded)}
           >3画面</button>
+          <button
+            onClick={toggleQuad3Pattern}
+            disabled={!isLoaded}
+            title={quad3Pattern === 'left' ? '3画面の配置を「上1枠+下2枠」に切替' : '3画面の配置を「左1枠+右2枠」に切替'}
+            style={tfBtn(false, !isLoaded)}
+          >⇄</button>
           <button
             onClick={() => setChartLayout('4')}
             disabled={!isLoaded}

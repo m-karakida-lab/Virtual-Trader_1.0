@@ -12,19 +12,24 @@ import { initDuckDB } from './lib/duckdb';
 
 // 4画面レイアウトの枠位置は固定（左上・左下・右上・右下）。各枠に表示する時間軸は
 // ユーザーが選べる（store.quad4Timeframes、インデックスがこの配列の並びに対応）
-const QUAD_POSITIONS: { row: string; col: number }[] = [
-  { row: '1', col: 1 }, // 左上
-  { row: '2', col: 1 }, // 左下
-  { row: '1', col: 2 }, // 右上
-  { row: '2', col: 2 }, // 右下
+const QUAD_POSITIONS: { row: string; col: string }[] = [
+  { row: '1', col: '1' }, // 左上
+  { row: '2', col: '1' }, // 左下
+  { row: '1', col: '2' }, // 右上
+  { row: '2', col: '2' }, // 右下
 ];
 
-// 3画面レイアウトの枠位置（左1枠を縦に2段分使う + 右上下2枠）。store.quad3Timeframesの
-// 0,1,2番に対応（4画面用のquad4Timeframesとは完全に別管理）
-const THREE_POSITIONS: { row: string; col: number }[] = [
-  { row: '1 / 3', col: 1 }, // 左（縦通し）
-  { row: '1', col: 2 },     // 右上
-  { row: '2', col: 2 },     // 右下
+// 3画面レイアウトの枠位置。枠0は常に「大きい方の枠」、枠1/2は残り2枠（store.quad3Timeframesの
+// 0,1,2番に対応、4画面用のquad4Timeframesとは完全に別管理）。パターンはstore.quad3Patternで選ぶ
+const THREE_POSITIONS_LEFT: { row: string; col: string }[] = [
+  { row: '1 / 3', col: '1' }, // 左（縦通し）
+  { row: '1', col: '2' },     // 右上
+  { row: '2', col: '2' },     // 右下
+];
+const THREE_POSITIONS_TOP: { row: string; col: string }[] = [
+  { row: '1', col: '1 / 3' }, // 上（横通し）
+  { row: '2', col: '1' },     // 下左
+  { row: '2', col: '2' },     // 下右
 ];
 
 export default function App() {
@@ -38,6 +43,7 @@ export default function App() {
   const quad4MainSlot  = useTraderStore(s => s.quad4MainSlot);
   const quad3Timeframes = useTraderStore(s => s.quad3Timeframes);
   const quad3MainSlot  = useTraderStore(s => s.quad3MainSlot);
+  const quad3Pattern  = useTraderStore(s => s.quad3Pattern);
   const loadFiles  = useTraderStore(s => s.loadFiles);
 
   // 1画面表示中は直前のマルチ画面レイアウト（preMultiLayout）が実質的にアクティブな方。
@@ -146,7 +152,8 @@ export default function App() {
               const timeframeSec = activeQuadLayout === '3'
                 ? (slot < 3 ? quad3Timeframes[slot] : quad4Timeframes[slot])
                 : quad4Timeframes[slot];
-              const pos = chartLayout === '3' ? THREE_POSITIONS[slot] : QUAD_POSITIONS[slot];
+              const threePositions = quad3Pattern === 'top' ? THREE_POSITIONS_TOP : THREE_POSITIONS_LEFT;
+              const pos = chartLayout === '3' ? threePositions[slot] : QUAD_POSITIONS[slot];
               // 3画面時の枠3（このレイアウトでは使わない）は1画面時の非メイン枠と同じ扱いで隠す
               const isHiddenInThreeUp = chartLayout === '3' && slot === 3;
               const cellStyle = (chartLayout === '4' || (chartLayout === '3' && !isHiddenInThreeUp))

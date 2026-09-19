@@ -74,6 +74,26 @@ function saveChartLayout(layout: ChartLayout): void {
   }
 }
 
+// 3画面の枠配置パターン。'left'=左1枠（縦通し）+右上下2枠、'top'=上1枠（横通し）+下左右2枠。
+// どちらのパターンでも枠0が「大きい方の枠」を指す（quad3Timeframes/quad3MainSlotはパターン間で共有）
+const QUAD3_PATTERN_STORAGE_KEY = 'vt:quad3pattern';
+
+function loadSavedQuad3Pattern(): 'left' | 'top' {
+  try {
+    return localStorage.getItem(QUAD3_PATTERN_STORAGE_KEY) === 'top' ? 'top' : 'left';
+  } catch {
+    return 'left';
+  }
+}
+
+function saveQuad3Pattern(pattern: 'left' | 'top'): void {
+  try {
+    localStorage.setItem(QUAD3_PATTERN_STORAGE_KEY, pattern);
+  } catch {
+    // localStorage が使えない場合は無視
+  }
+}
+
 // マグネットの強さ（弱/強）は localStorage に記憶する。ON/OFF自体は他の描画ツールと
 // 同じく起動のたびOFFに戻るが、「弱/強のどちらを使うか」は毎回選び直したくないため
 const MAGNET_STRENGTH_STORAGE_KEY = 'vt:magnetStrength';
@@ -285,8 +305,9 @@ interface TraderState {
   // 3画面と4画面は各枠の時間軸・メイン枠を完全に別管理し、切り替えてもお互いの状態を保つ
   quad4Timeframes: TimeframeSec[]; // 4画面の各枠（左上/左下/右上/右下）に表示する時間軸
   quad4MainSlot: number; // quad4Timeframes のうち、現在メイン（操作可能）になっている枠のインデックス
-  quad3Timeframes: TimeframeSec[]; // 3画面の各枠（左/右上/右下）に表示する時間軸
+  quad3Timeframes: TimeframeSec[]; // 3画面の各枠（大きい枠/小さい枠2つ）に表示する時間軸。枠位置の意味はquad3Patternで変わる
   quad3MainSlot: number; // quad3Timeframes のうち、現在メイン（操作可能）になっている枠のインデックス
+  quad3Pattern: 'left' | 'top'; // 3画面の枠配置。left=左1枠(縦通し)+右上下2枠、top=上1枠(横通し)+下左右2枠
   dataVersion: number; // CSV読み込みが完了するたびに増える（ミニチャートの再集計トリガ用）
   crosshairSourceId: string | null; // 4画面時、実際にマウスホバー中のパネルID（'main' またはミニ枠のslot番号文字列）
   crosshairTime: number | null; // ↑のパネルで十字カーソルが指している時刻（Unix秒）。他パネルはこの時刻に同期表示する
@@ -396,6 +417,7 @@ interface TraderState {
   setOrderPanelOpen: (open: boolean) => void;
   setChartMargins: (right: number, bottom: number) => void;
   setChartLayout: (layout: ChartLayout) => void;
+  toggleQuad3Pattern: () => void;
   setQuadTimeframe: (slot: number, sec: TimeframeSec) => void;
   promoteSlotToMain: (slot: number, preloadedCandles?: Candle[]) => void;
   setCrosshair: (sourceId: string | null, time: number | null) => void;
@@ -627,6 +649,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   quad4MainSlot: initialQuadState.quad4.mainSlot,
   quad3Timeframes: initialQuadState.quad3.timeframes,
   quad3MainSlot: initialQuadState.quad3.mainSlot,
+  quad3Pattern: loadSavedQuad3Pattern(),
   timeframeSec: initialQuadState.timeframeSec,
   dataVersion: 0,
   crosshairSourceId: null,
@@ -1461,6 +1484,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       const sec = targetActive === '3' ? quad3Timeframes[quad3MainSlot] : quad4Timeframes[quad4MainSlot];
       void get().setTimeframe(sec);
     }
+  },
+
+  // 3画面の枠配置パターンを切替（左1枠+右2枠 ⇔ 上1枠+下2枠）。quad3Timeframes/quad3MainSlotは
+  // パターン間で共有しているため、切替は見た目の配置が変わるだけでメイン枠・時間軸は保たれる
+  toggleQuad3Pattern: () => {
+    const next = get().quad3Pattern === 'left' ? 'top' : 'left';
+    saveQuad3Pattern(next);
+    set({ quad3Pattern: next });
   },
 
   // 3画面/4画面のミニ枠（メインでない枠）の表示時間軸を変更。メイン枠が指定された場合は
