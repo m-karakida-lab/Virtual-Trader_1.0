@@ -11,7 +11,7 @@ import { useTraderStore } from './store/useTraderStore';
 import { initDuckDB } from './lib/duckdb';
 
 // 4画面レイアウトの枠位置は固定（左上・左下・右上・右下）。各枠に表示する時間軸は
-// ユーザーが選べる（store.quadTimeframes、インデックスがこの配列の並びに対応）
+// ユーザーが選べる（store.quad4Timeframes、インデックスがこの配列の並びに対応）
 const QUAD_POSITIONS: { row: string; col: number }[] = [
   { row: '1', col: 1 }, // 左上
   { row: '2', col: 1 }, // 左下
@@ -19,8 +19,8 @@ const QUAD_POSITIONS: { row: string; col: number }[] = [
   { row: '2', col: 2 }, // 右下
 ];
 
-// 3画面レイアウトの枠位置（左1枠を縦に2段分使う + 右上下2枠）。quadTimeframes/quadMainSlotの
-// 0,1,2番をそのまま使い回す（3番はこのレイアウトでは表示しない）
+// 3画面レイアウトの枠位置（左1枠を縦に2段分使う + 右上下2枠）。store.quad3Timeframesの
+// 0,1,2番に対応（4画面用のquad4Timeframesとは完全に別管理）
 const THREE_POSITIONS: { row: string; col: number }[] = [
   { row: '1 / 3', col: 1 }, // 左（縦通し）
   { row: '1', col: 2 },     // 右上
@@ -33,9 +33,16 @@ export default function App() {
   const isLoaded   = useTraderStore(s => s.isLoaded);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
   const chartLayout   = useTraderStore(s => s.chartLayout);
-  const quadTimeframes = useTraderStore(s => s.quadTimeframes);
-  const quadMainSlot  = useTraderStore(s => s.quadMainSlot);
+  const preMultiLayout = useTraderStore(s => s.preMultiLayout);
+  const quad4Timeframes = useTraderStore(s => s.quad4Timeframes);
+  const quad4MainSlot  = useTraderStore(s => s.quad4MainSlot);
+  const quad3Timeframes = useTraderStore(s => s.quad3Timeframes);
+  const quad3MainSlot  = useTraderStore(s => s.quad3MainSlot);
   const loadFiles  = useTraderStore(s => s.loadFiles);
+
+  // 1画面表示中は直前のマルチ画面レイアウト（preMultiLayout）が実質的にアクティブな方。
+  // 3画面と4画面は完全に別管理のため、どちらの枠設定を見るかはここで一度だけ決める
+  const activeQuadLayout = chartLayout === '1' ? preMultiLayout : chartLayout;
 
   // 画面表示時点で DuckDB WASM を先読み（ファイル選択前に初期化を済ませる）
   useEffect(() => { initDuckDB().catch(() => {}); }, []);
@@ -131,7 +138,14 @@ export default function App() {
             gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
           }}>
             {QUAD_POSITIONS.map((_, slot) => {
-              const isMainSlot = slot === quadMainSlot;
+              // 3画面と4画面は各枠の時間軸・メイン枠を別管理しているため、どちらの状態を
+              // 見るかはactiveQuadLayout（1画面中は直前のマルチ画面レイアウト）で判定する
+              const isMainSlot = activeQuadLayout === '3' ? slot === quad3MainSlot : slot === quad4MainSlot;
+              // 3画面時の枠3にはquad3Timeframesの対応が無い（このレイアウトでは使わないため）。
+              // 常に非表示になる枠なので値そのものは何でもよく、quad4側の値を流用するだけ
+              const timeframeSec = activeQuadLayout === '3'
+                ? (slot < 3 ? quad3Timeframes[slot] : quad4Timeframes[slot])
+                : quad4Timeframes[slot];
               const pos = chartLayout === '3' ? THREE_POSITIONS[slot] : QUAD_POSITIONS[slot];
               // 3画面時の枠3（このレイアウトでは使わない）は1画面時の非メイン枠と同じ扱いで隠す
               const isHiddenInThreeUp = chartLayout === '3' && slot === 3;
@@ -145,7 +159,7 @@ export default function App() {
                   <CandleChart
                     slot={slot}
                     isMain={isMainSlot}
-                    timeframeSec={quadTimeframes[slot]}
+                    timeframeSec={timeframeSec}
                   />
                   {/* マルチ画面時、全枠を細い枠線で区切りつつ、メイン枠（操作対象）だけ青で
                       一目で分かるようにする。1画面時はメイン枠しか表示されないため不要

@@ -217,10 +217,11 @@ function buildTradeMarkers(positions: Position[], closedTrades: ClosedTrade[], s
 // が実際に反応する」という単純な形にする
 let clipboard: LineSelection | null = null;
 
-// slot/isMain/timeframeSecは4画面レイアウトで複数インスタンスとして使うためのprops。
+// slot/isMain/timeframeSecは3画面/4画面レイアウトで複数インスタンスとして使うためのprops。
 // 省略時（1画面時）は今まで通り「唯一のメインパネル」として振る舞う（isMain=true, slot=0）。
-// isMain=falseの時、timeframeSecは自分が表示すべき時間軸（quadTimeframes[slot]）を指す
-// （省略時はグローバルのメイン時間足にフォールバックするが、非メインでは常に渡される想定）
+// isMain=falseの時、timeframeSecは自分が表示すべき時間軸（App.tsx側でquad3/quad4
+// Timeframes[slot]から計算して渡す）を指す（省略時はグローバルのメイン時間足に
+// フォールバックするが、非メインでは常に渡される想定）
 export function CandleChart({
   slot = 0,
   isMain = true,

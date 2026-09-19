@@ -7,7 +7,6 @@ import { splitVtdBundle, buildVtdBundle } from '../lib/vtd';
 import { writeToHandle } from '../lib/openHistory';
 
 const DEFAULT_INITIAL_BALANCE = 1_000_000;
-const DEFAULT_TIMEFRAME: TimeframeSec = 900; // 15m
 
 // 水平線・垂直線・四角形のUndo用スナップショット。lines/vlines/rectsはどの操作でも
 // 必ず新しい配列を作る（他要素をmutateしない）ため、参照をそのまま保持するだけでよい
@@ -121,43 +120,57 @@ function saveLineLabels(showHLinePriceLabel: boolean, showVLineDateLabel: boolea
   }
 }
 
-// 4画面レイアウトの「どの枠にどの時間軸を表示するか」（枠の位置=左上/左下/右上/右下は固定、
-// 中身の時間軸だけユーザーが選べる）。デフォルトは 左上15m・左下1H・右上4H・右下1D
-const QUAD_STORAGE_KEY = 'vt:quad';
-const DEFAULT_QUAD_TIMEFRAMES: TimeframeSec[] = [900, 3600, 14400, 86400];
-const QUAD_SLOT_COUNT = DEFAULT_QUAD_TIMEFRAMES.length;
+// 3画面/4画面レイアウトの「どの枠にどの時間軸を表示するか」（枠の位置は固定、中身の時間軸と
+// メイン枠だけユーザーが選べる）は、3画面と4画面で完全に別管理（vt:quad3 / vt:quad4）。
+// 切り替えてもお互いの状態に影響しない。デフォルトは共に 15m・1H・4H(・1D)
+const QUAD4_STORAGE_KEY = 'vt:quad4';
+const QUAD3_STORAGE_KEY = 'vt:quad3';
+const DEFAULT_QUAD4_TIMEFRAMES: TimeframeSec[] = [900, 3600, 14400, 86400]; // 左上/左下/右上/右下
+const DEFAULT_QUAD3_TIMEFRAMES: TimeframeSec[] = [900, 3600, 14400]; // 左（縦通し）/右上/右下
 
 function isTimeframeSec(v: unknown): v is TimeframeSec {
   return typeof v === 'number' && TIMEFRAMES.some(tf => tf.sec === v);
 }
 
-function loadSavedQuad(): { quadTimeframes: TimeframeSec[]; quadMainSlot: number; timeframeSec: TimeframeSec } {
+function loadSavedQuad(key: string, defaults: TimeframeSec[]): { timeframes: TimeframeSec[]; mainSlot: number } {
   try {
-    const raw = localStorage.getItem(QUAD_STORAGE_KEY);
+    const raw = localStorage.getItem(key);
     if (!raw) throw new Error('no saved quad');
     const parsed = JSON.parse(raw);
-    const tfs = parsed.quadTimeframes;
-    if (!Array.isArray(tfs) || tfs.length !== QUAD_SLOT_COUNT || !tfs.every(isTimeframeSec)) {
-      throw new Error('invalid quadTimeframes');
+    const tfs = parsed.timeframes;
+    if (!Array.isArray(tfs) || tfs.length !== defaults.length || !tfs.every(isTimeframeSec)) {
+      throw new Error('invalid timeframes');
     }
-    const slot = Number(parsed.quadMainSlot);
-    if (!Number.isInteger(slot) || slot < 0 || slot >= QUAD_SLOT_COUNT) throw new Error('invalid quadMainSlot');
-    // メイン枠（quadMainSlot）が保持する時間軸を、起動時のメイン時間軸（timeframeSec）として
-    // そのまま引き継ぐ（`setTimeframe`が呼ばれるたびquadTimeframes[quadMainSlot]も更新して
-    // 保存しているため、ここには前回終了時点の実際のメイン時間軸が入っている）
-    return { quadTimeframes: tfs, quadMainSlot: slot, timeframeSec: tfs[slot] };
+    const slot = Number(parsed.mainSlot);
+    if (!Number.isInteger(slot) || slot < 0 || slot >= defaults.length) throw new Error('invalid mainSlot');
+    return { timeframes: tfs, mainSlot: slot };
   } catch {
-    return { quadTimeframes: DEFAULT_QUAD_TIMEFRAMES, quadMainSlot: 0, timeframeSec: DEFAULT_TIMEFRAME };
+    return { timeframes: defaults, mainSlot: 0 };
   }
 }
 
-function saveQuad(quadTimeframes: TimeframeSec[], quadMainSlot: number): void {
+function saveQuad(key: string, timeframes: TimeframeSec[], mainSlot: number): void {
   try {
-    localStorage.setItem(QUAD_STORAGE_KEY, JSON.stringify({ quadTimeframes, quadMainSlot }));
+    localStorage.setItem(key, JSON.stringify({ timeframes, mainSlot }));
   } catch {
     // localStorage が使えない場合は無視
   }
 }
+
+// 起動時に必要な3画面/4画面の状態をまとめて読み込む。preMultiLayoutは1画面のままlocalStorageに
+// 保存されていた場合に直前のマルチ画面レイアウトを復元できないため、その時は4画面を既定にする
+// （preMultiLayout自体を1画面時は更新しない仕様と同じ簡略化）
+function loadInitialQuadState() {
+  const chartLayout = loadSavedChartLayout();
+  const quad4 = loadSavedQuad(QUAD4_STORAGE_KEY, DEFAULT_QUAD4_TIMEFRAMES);
+  const quad3 = loadSavedQuad(QUAD3_STORAGE_KEY, DEFAULT_QUAD3_TIMEFRAMES);
+  const preMultiLayout: '3' | '4' = chartLayout === '3' ? '3' : '4';
+  const active = chartLayout === '1' ? preMultiLayout : chartLayout;
+  const timeframeSec = active === '3' ? quad3.timeframes[quad3.mainSlot] : quad4.timeframes[quad4.mainSlot];
+  return { chartLayout, preMultiLayout, quad4, quad3, timeframeSec, active };
+}
+
+const initialQuadState = loadInitialQuadState();
 
 interface TraderState {
   isLoaded: boolean;
@@ -269,8 +282,11 @@ interface TraderState {
   centerTarget: number;  // centerOnTime の移動先（Unix秒）
   chartLayout: ChartLayout; // 1画面 / 3画面（左1枠+右上下2枠） / 4画面（2x2、いずれも時間軸別マルチチャート）
   preMultiLayout: '3' | '4'; // フルスクリーン(1画面)化する直前のマルチ画面レイアウト。解除時にこれへ戻す
-  quadTimeframes: TimeframeSec[]; // 4画面の各枠（左上/左下/右上/右下）に表示する時間軸。3画面時は0,1,2番のみ使用（左/右上/右下）
-  quadMainSlot: number; // quadTimeframes のうち、現在メイン（操作可能）になっている枠のインデックス
+  // 3画面と4画面は各枠の時間軸・メイン枠を完全に別管理し、切り替えてもお互いの状態を保つ
+  quad4Timeframes: TimeframeSec[]; // 4画面の各枠（左上/左下/右上/右下）に表示する時間軸
+  quad4MainSlot: number; // quad4Timeframes のうち、現在メイン（操作可能）になっている枠のインデックス
+  quad3Timeframes: TimeframeSec[]; // 3画面の各枠（左/右上/右下）に表示する時間軸
+  quad3MainSlot: number; // quad3Timeframes のうち、現在メイン（操作可能）になっている枠のインデックス
   dataVersion: number; // CSV読み込みが完了するたびに増える（ミニチャートの再集計トリガ用）
   crosshairSourceId: string | null; // 4画面時、実際にマウスホバー中のパネルID（'main' またはミニ枠のslot番号文字列）
   crosshairTime: number | null; // ↑のパネルで十字カーソルが指している時刻（Unix秒）。他パネルはこの時刻に同期表示する
@@ -605,16 +621,19 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   followLatest: false,
   centerSignal: 0,
   centerTarget: 0,
-  chartLayout: loadSavedChartLayout(),
-  preMultiLayout: loadSavedChartLayout() === '3' ? '3' : '4',
-  ...loadSavedQuad(),
+  chartLayout: initialQuadState.chartLayout,
+  preMultiLayout: initialQuadState.preMultiLayout,
+  quad4Timeframes: initialQuadState.quad4.timeframes,
+  quad4MainSlot: initialQuadState.quad4.mainSlot,
+  quad3Timeframes: initialQuadState.quad3.timeframes,
+  quad3MainSlot: initialQuadState.quad3.mainSlot,
+  timeframeSec: initialQuadState.timeframeSec,
   dataVersion: 0,
   crosshairSourceId: null,
   crosshairTime: null,
   // 起動直後はメイン枠にキーボードショートカットが効くようにしておく
-  // （実際にどこかのパネルをクリックした時点でそちらに切り替わる。loadSavedQuad()は
-  // localStorage読み取り+JSONパースだけの軽い処理なので2回呼んでも実害は無い）
-  activePanelSlot: loadSavedQuad().quadMainSlot,
+  // （実際にどこかのパネルをクリックした時点でそちらに切り替わる）
+  activePanelSlot: initialQuadState.active === '3' ? initialQuadState.quad3.mainSlot : initialQuadState.quad4.mainSlot,
 
   loadFiles: async (files: FileList | File[], fileHandle?: FileSystemFileHandle) => {
     const fileArray = Array.from(files);
@@ -729,8 +748,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
 
   setTimeframe: async (sec: TimeframeSec, preloadedCandles?: Candle[]) => {
-    const { isLoaded, isLoading, timeframeSec, candles, cursor, quadTimeframes, quadMainSlot } = get();
+    const {
+      isLoaded, isLoading, timeframeSec, candles, cursor, chartLayout, preMultiLayout,
+      quad3Timeframes, quad3MainSlot, quad4Timeframes, quad4MainSlot,
+    } = get();
     if (!isLoaded || isLoading || sec === timeframeSec) return;
+    // 1画面表示中はpreMultiLayoutが指す方（直前に表示していたマルチ画面レイアウト）を更新する
+    const activeQuad = (chartLayout === '1' ? preMultiLayout : chartLayout) === '3' ? '3' : '4';
 
     // 現在の足の終了時刻（＝閉じている範囲の境界）を保持し、新しい時間軸でも
     // その時点までに閉じている足だけを選ぶ（MiniChartの先出し防止条件と揃える。
@@ -746,16 +770,27 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         }
       }
 
-      // メインが表示されている枠（quadMainSlot）の時間軸も、メイン切替に追従させる
-      const newQuadTimeframes = quadTimeframes.slice();
-      newQuadTimeframes[quadMainSlot] = sec;
-      saveQuad(newQuadTimeframes, quadMainSlot);
-
-      set({
-        candles: newCandles, timeframeSec: sec, cursor: newCursor,
-        quadTimeframes: newQuadTimeframes,
-        isLoading: false, loadingMsg: '', isPlaying: false,
-      });
+      // メインが表示されている枠（3画面/4画面どちらか、現在アクティブな方のmainSlot）の
+      // 時間軸も、メイン切替に追従させる
+      if (activeQuad === '3') {
+        const next = quad3Timeframes.slice();
+        next[quad3MainSlot] = sec;
+        saveQuad(QUAD3_STORAGE_KEY, next, quad3MainSlot);
+        set({
+          candles: newCandles, timeframeSec: sec, cursor: newCursor,
+          quad3Timeframes: next,
+          isLoading: false, loadingMsg: '', isPlaying: false,
+        });
+      } else {
+        const next = quad4Timeframes.slice();
+        next[quad4MainSlot] = sec;
+        saveQuad(QUAD4_STORAGE_KEY, next, quad4MainSlot);
+        set({
+          candles: newCandles, timeframeSec: sec, cursor: newCursor,
+          quad4Timeframes: next,
+          isLoading: false, loadingMsg: '', isPlaying: false,
+        });
+      }
     };
 
     // 4画面でパネルを昇格させる時、その枠（非メインのCandleChartインスタンス）が既に
@@ -1411,32 +1446,57 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   setOrderPanelOpen: (open) => set({ orderPanelOpen: open }),
   setChartMargins: (right: number, bottom: number) => set({ chartRightMargin: right, chartBottomMargin: bottom }),
   setChartLayout: (layout: ChartLayout) => {
-    // 3画面はslot0-2のみ表示するため、メインが枠3（4画面専用の右下枠）のままだと
-    // 3画面にメイン枠が1つも表示されなくなる。その場合は枠0へ昇格させてから切り替える
-    if (layout === '3' && get().quadMainSlot === 3) {
-      get().promoteSlotToMain(0);
-    }
+    const before = get();
+    const currentActive = before.chartLayout === '1' ? before.preMultiLayout : before.chartLayout;
+    const targetActive = layout === '1' ? before.preMultiLayout : layout;
+
     saveChartLayout(layout);
     set(layout === '1' ? { chartLayout: layout } : { chartLayout: layout, preMultiLayout: layout });
+
+    // 3画面と4画面は完全に別管理（各々のメイン枠・時間軸を独立して記憶）なので、
+    // 表示中のマルチ画面レイアウトが実際に切り替わる時だけ、切替先が最後に使っていた
+    // メイン時間軸へ実データも切り替える（1画面⇔同じレイアウトの往復では何もしない）
+    if (targetActive !== currentActive) {
+      const { quad3Timeframes, quad3MainSlot, quad4Timeframes, quad4MainSlot } = get();
+      const sec = targetActive === '3' ? quad3Timeframes[quad3MainSlot] : quad4Timeframes[quad4MainSlot];
+      void get().setTimeframe(sec);
+    }
   },
 
-  // 4画面のミニ枠（メインでない枠）の表示時間軸を変更。メイン枠が指定された場合は
-  // 通常のメイン時間軸切替として扱う（setTimeframeに委譲、データ再取得を伴うため）
+  // 3画面/4画面のミニ枠（メインでない枠）の表示時間軸を変更。メイン枠が指定された場合は
+  // 通常のメイン時間軸切替として扱う（setTimeframeに委譲、データ再取得を伴うため）。
+  // どちらの画面数の状態を操作するかは呼び出し時点のchartLayoutで判定する
+  // （非メイン枠のクリックはマルチ画面表示中にしか起きないため、常に'3'か'4'のはず）
   setQuadTimeframe: (slot: number, sec: TimeframeSec) => {
-    const { quadTimeframes, quadMainSlot } = get();
-    if (slot === quadMainSlot) { void get().setTimeframe(sec); return; }
-    const next = quadTimeframes.slice();
-    next[slot] = sec;
-    saveQuad(next, quadMainSlot);
-    set({ quadTimeframes: next });
+    const { chartLayout, quad3Timeframes, quad3MainSlot, quad4Timeframes, quad4MainSlot } = get();
+    if (chartLayout === '3') {
+      if (slot === quad3MainSlot) { void get().setTimeframe(sec); return; }
+      const next = quad3Timeframes.slice();
+      next[slot] = sec;
+      saveQuad(QUAD3_STORAGE_KEY, next, quad3MainSlot);
+      set({ quad3Timeframes: next });
+    } else {
+      if (slot === quad4MainSlot) { void get().setTimeframe(sec); return; }
+      const next = quad4Timeframes.slice();
+      next[slot] = sec;
+      saveQuad(QUAD4_STORAGE_KEY, next, quad4MainSlot);
+      set({ quad4Timeframes: next });
+    }
   },
 
-  // ミニ枠をクリックしてメイン（操作可能パネル）に昇格。枠の時間軸をそのままメインに引き継ぐ
+  // ミニ枠をクリックしてメイン（操作可能パネル）に昇格。枠の時間軸をそのままメインに引き継ぐ。
+  // setQuadTimeframeと同じく、呼び出し時点のchartLayout（'3'か'4'のはず）で対象を判定する
   promoteSlotToMain: (slot: number, preloadedCandles?: Candle[]) => {
-    const { quadTimeframes } = get();
-    set({ quadMainSlot: slot });
-    saveQuad(quadTimeframes, slot);
-    void get().setTimeframe(quadTimeframes[slot], preloadedCandles);
+    const { chartLayout, quad3Timeframes, quad4Timeframes } = get();
+    if (chartLayout === '3') {
+      set({ quad3MainSlot: slot });
+      saveQuad(QUAD3_STORAGE_KEY, quad3Timeframes, slot);
+      void get().setTimeframe(quad3Timeframes[slot], preloadedCandles);
+    } else {
+      set({ quad4MainSlot: slot });
+      saveQuad(QUAD4_STORAGE_KEY, quad4Timeframes, slot);
+      void get().setTimeframe(quad4Timeframes[slot], preloadedCandles);
+    }
   },
 
   // 4画面時、十字カーソルの同期表示用。実マウス操作しているパネル（sourceId）と時刻を共有し、
