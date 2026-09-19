@@ -290,6 +290,10 @@ interface TraderState {
   showSessions: boolean; // 東京/ロンドン/NYの取引時間帯を背景帯で表示するインジケータ
   overlaysHidden: boolean; // インジケータ・描画物（線/図形等）を一括で非表示にするトグル。データは消さない
   showHistoryPanel: boolean; // 取引履歴・損益グラフのパネル表示
+  // チャート上のエントリー/決済マーカー（トレード履歴）を時間足ごとに表示/非表示。
+  // キーは時間足(sec)、値がfalseのものだけ非表示（未登録=表示）。時間足単位で管理する
+  // ため、同じ時間足を複数パネルで表示していれば連動し、パネル自体の位置には紐付かない
+  tradeMarkersVisible: Partial<Record<TimeframeSec, boolean>>;
   scrollToTradeId: number | null; // チャート上のトレードマーカーをクリックした時、取引履歴パネル側でこのidの行までスクロール＋ハイライトする（一度使ったらnullに戻す）
   orderPanelOpen: boolean; // 発注パネル（独立フローティング、OrderPanel.tsx）の開閉
   chartRightMargin: number;  // チャート右側の価格軸の実測幅(px)。フロートパネルの配置クランプ用
@@ -412,6 +416,7 @@ interface TraderState {
   toggleSessions: () => void;
   advanceToEnd: () => void;
   toggleHistoryPanel: () => void;
+  toggleTradeMarkersForTimeframe: (sec: TimeframeSec) => void;
   openHistoryForTrade: (tradeId: number) => void;
   setScrollToTradeId: (tradeId: number | null) => void;
   setOrderPanelOpen: (open: boolean) => void;
@@ -634,6 +639,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   showWeekLines: true,
   showSessions: true,
   showHistoryPanel: false,
+  tradeMarkersVisible: {},
   scrollToTradeId: null,
   orderPanelOpen: false,
   chartRightMargin: 60,
@@ -1464,6 +1470,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     });
   },
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),
+  toggleTradeMarkersForTimeframe: (sec) => set(s => {
+    const currentlyVisible = s.tradeMarkersVisible[sec] !== false; // 未登録＝表示がデフォルト
+    return { tradeMarkersVisible: { ...s.tradeMarkersVisible, [sec]: !currentlyVisible } };
+  }),
   openHistoryForTrade: (tradeId) => set({ showHistoryPanel: true, scrollToTradeId: tradeId }),
   setScrollToTradeId: (tradeId) => set({ scrollToTradeId: tradeId }),
   setOrderPanelOpen: (open) => set({ orderPanelOpen: open }),

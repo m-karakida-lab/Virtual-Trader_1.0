@@ -19,7 +19,7 @@ function fmtCurrentTime(sec: number): string {
 export function ChartHeader({
   symbol, timeframeLabel, timeframeSec, onSelectTimeframe, disabled = false,
   isFullscreen, onToggleFullscreen, currentTime, chartRightMargin = 0,
-  restoreLayoutLabel = '4画面',
+  restoreLayoutLabel = '4画面', tradeMarkersVisible, onToggleTradeMarkers,
 }: {
   symbol: string;
   timeframeLabel: string;
@@ -31,6 +31,8 @@ export function ChartHeader({
   currentTime?: number;
   chartRightMargin?: number;
   restoreLayoutLabel?: string; // 1画面解除時に戻る先のレイアウト名（ボタンのtitleに使う）
+  tradeMarkersVisible?: boolean; // このパネルの時間足でトレード履歴マーカーを表示中か
+  onToggleTradeMarkers?: () => void; // 省略時はトレード履歴の表示/非表示ボタン自体を出さない
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -131,6 +133,23 @@ export function ChartHeader({
           }}>{timeframeLabel}<ChevronDown color="rgba(255,255,255,0.6)" /></span>
         )}
       </div>
+      {onToggleTradeMarkers && (
+        <button
+          onMouseDown={e => e.stopPropagation()}
+          onMouseUp={e => e.stopPropagation()}
+          onClick={() => !disabled && onToggleTradeMarkers()}
+          disabled={disabled}
+          title={tradeMarkersVisible ? 'この時間足のトレード履歴を非表示にする' : 'この時間足のトレード履歴を表示する'}
+          style={{
+            width: '28px', height: '28px', pointerEvents: 'auto',
+            display: 'flex', alignItems: 'center', justifyContent: 'center',
+            background: 'linear-gradient(rgba(255,255,255,0.12), rgba(255,255,255,0.12)), #0d0d0d',
+            border: 'none', borderRadius: '8px',
+            color: tradeMarkersVisible ? 'rgba(255,255,255,0.75)' : 'rgba(255,255,255,0.3)',
+            cursor: disabled ? 'default' : 'pointer', padding: 0, fontSize: '14px',
+          }}
+        >🏷</button>
+      )}
       <button
         onMouseDown={e => e.stopPropagation()}
         onMouseUp={e => e.stopPropagation()}

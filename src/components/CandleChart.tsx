@@ -341,6 +341,8 @@ export function CandleChart({
   const dataVersion = useTraderStore(s => s.dataVersion);
   const showWeekLines = useTraderStore(s => s.showWeekLines);
   const showSessions = useTraderStore(s => s.showSessions);
+  const tradeMarkersVisibleMap = useTraderStore(s => s.tradeMarkersVisible);
+  const toggleTradeMarkersForTimeframe = useTraderStore(s => s.toggleTradeMarkersForTimeframe);
   const fitSignal  = useTraderStore(s => s.fitSignal);
   const scrollToLatestSignal = useTraderStore(s => s.scrollToLatestSignal);
   const followLatest = useTraderStore(s => s.followLatest);
@@ -358,6 +360,8 @@ export function CandleChart({
   // isMain=trueの時はグローバルのメイン時間足（リプレイ/約定判定の正）と常に一致する
   const timeframeSec = isMain ? mainTimeframeSec : (timeframeSecProp ?? mainTimeframeSec);
   const timeframeLabel = TIMEFRAMES.find(tf => tf.sec === timeframeSec)?.label ?? '';
+  // このパネルの時間足でトレード履歴マーカーを表示するか（時間足単位の設定、未登録=表示）
+  const tradeMarkersVisible = tradeMarkersVisibleMap[timeframeSec] !== false;
 
   // isMain=falseの時、このインスタンス専用に自前集計した足データ（MiniChart.tsxと同じ方式）。
   // isMain=trueの時は使わない（グローバルのcandlesをそのまま使う）
@@ -4323,10 +4327,12 @@ export function CandleChart({
     syncCloudRef.current();
   }, [showCloud, overlaysHidden]);
 
-  // エントリー / 決済マーカー
+  // エントリー / 決済マーカー（トレード履歴）。時間足ごとにtradeMarkersVisibleで表示/非表示を切替
   useEffect(() => {
-    seriesRef.current?.setMarkers(buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)));
-  }, [positions, closedTrades, quoteCurrency]);
+    seriesRef.current?.setMarkers(
+      tradeMarkersVisible ? buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)) : []
+    );
+  }, [positions, closedTrades, quoteCurrency, tradeMarkersVisible]);
 
   // 1画面⇔4画面のレイアウト切替はパネルのCSSサイズだけを変える（ResizeObserver任せ）ため、
   // 環境によってはResizeObserverの発火が遅れる/信頼できないことがある（自動テスト環境で
@@ -5066,6 +5072,8 @@ export function CandleChart({
         chartRightMargin={chartRightMargin}
         isFullscreen={chartLayout === '1'}
         restoreLayoutLabel={`${preMultiLayout}画面`}
+        tradeMarkersVisible={tradeMarkersVisible}
+        onToggleTradeMarkers={() => toggleTradeMarkersForTimeframe(timeframeSec)}
         onToggleFullscreen={() => {
           const s = useTraderStore.getState();
           if (s.chartLayout !== '1') {
