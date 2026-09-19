@@ -296,7 +296,7 @@ export function HistoryPanel() {
     label.style.color = '#0d0d0d';
     label.style.fontSize = '11px';
     label.style.fontWeight = '700';
-    label.style.padding = '1px 4px';
+    label.style.padding = '1px 4px 1px 12px';
     label.style.borderRadius = '2px';
     label.style.pointerEvents = 'none';
     label.style.zIndex = '6';
