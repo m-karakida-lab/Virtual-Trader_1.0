@@ -388,62 +388,25 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 設定（メニュー）。頻繁には使わない初期残高設定・インジケータ表示切替・ログをここにまとめる */}
+        {/* 発注ボタン。パネル本体は再生ボタン(FloatingControls)・パレット(PalettePanel)と
+            同じ、チャート上に独立して浮かぶドラッグ可能なパネル（OrderPanel.tsx）を開閉する
+            だけのトグル。以前はこの場所にドロップダウンとして直接出していたが、項目が多く
+            ゴチャゴチャして見づらいという指摘を受けて独立パネル化した */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
-          <MenuButton label="⚙ 設定">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ color: '#555', fontSize: '13px' }}>初期残高</span>
-                <input
-                  type="number"
-                  value={initialBalance}
-                  onChange={e => setInitialBalance(Number(e.target.value))}
-                  min={0}
-                  step={10000}
-                  style={{
-                    backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-                    borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                />
-                <button
-                  onClick={resetAccount}
-                  disabled={!isLoaded}
-                  style={tfBtn(false, !isLoaded)}
-                >リセット</button>
-              </div>
-
-              <div style={{ borderTop: '1px solid #2a2a2a' }} />
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: '340px' }}>
-                <span style={{ color: '#555', fontSize: '13px' }}>インジケータ</span>
-                <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
-                <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
-                <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
-                <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
-                <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
-                <button onClick={toggleSessions} disabled={!isLoaded} style={tfBtn(showSessions, !isLoaded)}>セッション</button>
-                {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingArrow || isDrawingBrush || isDrawingText) && (
-                  <span style={{ color: '#42a5f5', fontSize: '14px' }}>
-                    {isDrawingLine && 'クリックで配置...'}
-                    {isDrawingVLine && 'クリックで配置...'}
-                    {isMeasuring && 'ドラッグで計測...'}
-                    {isDrawingRect && 'ドラッグで描画...'}
-                    {isDrawingTrendLine && 'ドラッグで描画...'}
-                    {isDrawingArrow && 'ドラッグで描画...'}
-                    {isDrawingBrush && 'ドラッグで描画...'}
-                    {isDrawingText && 'クリックで配置...'}
-                    （左のアイコンで再度クリックすると解除）
-                  </span>
-                )}
-              </div>
-
-              <div style={{ borderTop: '1px solid #2a2a2a' }} />
-
-              <ErrorLogSection />
-            </div>
-          </MenuButton>
+          <button
+            onClick={() => {
+              // 発注ボタンの再クリックでパネルを閉じる時は、価格/TP/SLの仮入力（前回比率の
+              // 再現分含む）もクリアする（クリアボタンと同じ動作）。開く時はそのまま
+              // （パネルを開いた瞬間に前回比率の仮入力が別途走る）
+              if (orderPanelOpen) clearDraft();
+              setOrderPanelOpen(!orderPanelOpen);
+            }}
+            disabled={!isLoaded}
+            style={tfBtn(orderPanelOpen, !isLoaded)}
+          >発注</button>
         </div>
+
+        <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
@@ -483,26 +446,6 @@ export function Controls() {
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
-
-        {/* 発注ボタン。パネル本体は再生ボタン(FloatingControls)・パレット(PalettePanel)と
-            同じ、チャート上に独立して浮かぶドラッグ可能なパネル（OrderPanel.tsx）を開閉する
-            だけのトグル。以前はこの場所にドロップダウンとして直接出していたが、項目が多く
-            ゴチャゴチャして見づらいという指摘を受けて独立パネル化した */}
-        <div style={{ padding: '0 8px', flexShrink: 0 }}>
-          <button
-            onClick={() => {
-              // 発注ボタンの再クリックでパネルを閉じる時は、価格/TP/SLの仮入力（前回比率の
-              // 再現分含む）もクリアする（クリアボタンと同じ動作）。開く時はそのまま
-              // （パネルを開いた瞬間に前回比率の仮入力が別途走る）
-              if (orderPanelOpen) clearDraft();
-              setOrderPanelOpen(!orderPanelOpen);
-            }}
-            disabled={!isLoaded}
-            style={tfBtn(orderPanelOpen, !isLoaded)}
-          >発注</button>
-        </div>
-
-        <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
 
         <button
           onClick={() => captureChartArea(`${symbol || 'chart'}_${chartLayout === '4' ? '4画面' : timeframeLabel}`)}
@@ -558,6 +501,66 @@ export function Controls() {
             disabled={atEnd}
             style={{ width: '72px', accentColor: '#444' }}
           />
+        </div>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
+
+        {/* 設定（メニュー）。頻繁には使わない初期残高設定・インジケータ表示切替・ログをここにまとめる。
+            他の操作系ボタンと混ざらないよう最右端に固定する */}
+        <div style={{ padding: '0 8px', flexShrink: 0 }}>
+          <MenuButton label="⚙ 設定">
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ color: '#555', fontSize: '13px' }}>初期残高</span>
+                <input
+                  type="number"
+                  value={initialBalance}
+                  onChange={e => setInitialBalance(Number(e.target.value))}
+                  min={0}
+                  step={10000}
+                  style={{
+                    backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+                    borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                />
+                <button
+                  onClick={resetAccount}
+                  disabled={!isLoaded}
+                  style={tfBtn(false, !isLoaded)}
+                >リセット</button>
+              </div>
+
+              <div style={{ borderTop: '1px solid #2a2a2a' }} />
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: '340px' }}>
+                <span style={{ color: '#555', fontSize: '13px' }}>インジケータ</span>
+                <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
+                <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
+                <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
+                <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
+                <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
+                <button onClick={toggleSessions} disabled={!isLoaded} style={tfBtn(showSessions, !isLoaded)}>セッション</button>
+                {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingArrow || isDrawingBrush || isDrawingText) && (
+                  <span style={{ color: '#42a5f5', fontSize: '14px' }}>
+                    {isDrawingLine && 'クリックで配置...'}
+                    {isDrawingVLine && 'クリックで配置...'}
+                    {isMeasuring && 'ドラッグで計測...'}
+                    {isDrawingRect && 'ドラッグで描画...'}
+                    {isDrawingTrendLine && 'ドラッグで描画...'}
+                    {isDrawingArrow && 'ドラッグで描画...'}
+                    {isDrawingBrush && 'ドラッグで描画...'}
+                    {isDrawingText && 'クリックで配置...'}
+                    （左のアイコンで再度クリックすると解除）
+                  </span>
+                )}
+              </div>
+
+              <div style={{ borderTop: '1px solid #2a2a2a' }} />
+
+              <ErrorLogSection />
+            </div>
+          </MenuButton>
         </div>
 
       </div>
