@@ -396,8 +396,16 @@ export function Controls() {
       {/* ── メイン行（常に最下部・固定）───────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0', padding: '6px 0' }}>
 
-        {/* 口座情報（残高のみ。含み損益・時刻はPositionRow一覧や別箇所で確認できるためここでは出さない） */}
-        <div style={{ flex: 1, padding: '0 16px', display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+        {/* 口座情報（残高のみ。含み損益・時刻はPositionRow一覧や別箇所で確認できるためここでは出さない）。
+            クリックで取引履歴パネルへも飛べるようにする（「履歴」ボタンと同じトグル動作） */}
+        <div
+          onClick={() => isLoaded && toggleHistoryPanel()}
+          title="クリックで取引履歴を表示"
+          style={{
+            flex: 1, padding: '0 16px', display: 'flex', flexDirection: 'column', gap: '4px',
+            overflow: 'hidden', cursor: isLoaded ? 'pointer' : 'default',
+          }}
+        >
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', lineHeight: 1.2 }}>
             <span style={{ color: '#555', fontSize: '16px' }}>残高</span>
             <span style={{ color: '#e0e0e0', fontSize: '20px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
