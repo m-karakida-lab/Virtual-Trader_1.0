@@ -219,10 +219,18 @@ export function HistoryPanel() {
   const sym = currencySymbol(quoteCurrency);
 
   const containerRef = useRef<HTMLDivElement>(null);
+  const chartWrapRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
   const [highlightedTradeId, setHighlightedTradeId] = useState<number | null>(null);
+  // lightweight-charts標準の最終値価格ライン（priceLineVisible）はチャート全幅に横線を引く
+  // 仕様で短くできないため無効化し、自前のDOMオーバーレイで「現在値〜価格軸のラベル」の
+  // 区間だけの短い線を描く（過去側には線を伸ばさない、という要望に対応）
+  const lastValueLineRef = useRef<HTMLDivElement | null>(null);
+  const lastValueLabelRef = useRef<HTMLDivElement | null>(null);
+  const lastPointRef = useRef<{ time: number; value: number } | null>(null);
+  const syncLastValueLineRef = useRef<() => void>(() => {});
 
   const sorted = [...closedTrades].sort((a, b) => a.closeTime - b.closeTime);
 
@@ -237,7 +245,7 @@ export function HistoryPanel() {
 
   // チャート初期化（マウント時1回のみ）
   useEffect(() => {
-    if (!containerRef.current) return;
+    if (!containerRef.current || !chartWrapRef.current) return;
     const chart = createChart(containerRef.current, {
       layout: { background: { color: '#0d0d0d' }, textColor: '#888', fontSize: 12 },
       grid: { vertLines: { color: '#1a1a1a' }, horzLines: { color: '#1a1a1a' } },
@@ -246,18 +254,67 @@ export function HistoryPanel() {
       width: containerRef.current.clientWidth,
       height: containerRef.current.clientHeight,
     });
-    const series = chart.addLineSeries({ color: '#42a5f5', lineWidth: 2 });
+    // 標準の最終値価格ライン（priceLineVisible）はチャート全幅に横線を引いてしまい短く
+    // できないため無効化し、下のsyncLastValueLineで自前の短い線に差し替える
+    const series = chart.addLineSeries({ color: '#42a5f5', lineWidth: 2, priceLineVisible: false });
     chartRef.current = chart;
     seriesRef.current = series;
+
+    const line = document.createElement('div');
+    line.style.position = 'absolute';
+    line.style.height = '0';
+    line.style.borderTop = '1px dashed #42a5f5';
+    line.style.pointerEvents = 'none';
+    line.style.display = 'none';
+    const label = document.createElement('div');
+    label.style.position = 'absolute';
+    label.style.transform = 'translateY(-50%)';
+    label.style.right = '0';
+    label.style.backgroundColor = '#42a5f5';
+    label.style.color = '#0d0d0d';
+    label.style.fontSize = '11px';
+    label.style.fontWeight = '700';
+    label.style.padding = '1px 4px';
+    label.style.borderRadius = '2px';
+    label.style.pointerEvents = 'none';
+    label.style.display = 'none';
+    chartWrapRef.current.appendChild(line);
+    chartWrapRef.current.appendChild(label);
+    lastValueLineRef.current = line;
+    lastValueLabelRef.current = label;
+
+    const syncLastValueLine = () => {
+      const el = lastValueLineRef.current, lab = lastValueLabelRef.current, p = lastPointRef.current;
+      if (!el || !lab || !p) return;
+      const x = chart.timeScale().timeToCoordinate(p.time as Time);
+      const y = series.priceToCoordinate(p.value);
+      if (x === null || y === null) { el.style.display = 'none'; lab.style.display = 'none'; return; }
+      el.style.display = 'block';
+      el.style.left = `${x}px`;
+      el.style.right = '0';
+      el.style.top = `${y}px`;
+      lab.style.display = 'block';
+      lab.style.top = `${y}px`;
+      lab.textContent = fmt(p.value);
+    };
+    syncLastValueLineRef.current = syncLastValueLine;
+    chart.timeScale().subscribeVisibleTimeRangeChange(syncLastValueLine);
 
     const handleResize = () => {
       if (!containerRef.current) return;
       chart.applyOptions({ width: containerRef.current.clientWidth, height: containerRef.current.clientHeight });
+      syncLastValueLine();
     };
     const ro = new ResizeObserver(handleResize);
     ro.observe(containerRef.current);
 
-    return () => { ro.disconnect(); chart.remove(); };
+    return () => {
+      ro.disconnect();
+      chart.timeScale().unsubscribeVisibleTimeRangeChange(syncLastValueLine);
+      chart.remove();
+      line.remove();
+      label.remove();
+    };
   }, []);
 
   // エクイティカーブの再描画
@@ -274,6 +331,10 @@ export function HistoryPanel() {
     }
     seriesRef.current.setData(data);
     chartRef.current?.timeScale().fitContent();
+    lastPointRef.current = data.length > 0 ? { time: data[data.length - 1].time as number, value: data[data.length - 1].value } : null;
+    // setData/fitContent直後はレイアウトが未確定でtimeToCoordinate/priceToCoordinateが
+    // 古い座標を返すことがある（他のチャートと同じ既知の挙動）。rAFで1フレーム後に再同期する
+    requestAnimationFrame(() => syncLastValueLineRef.current());
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closedTrades, initialBalance]);
 
@@ -309,7 +370,7 @@ export function HistoryPanel() {
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
         <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
           <div style={{ ...sectionTitle, marginBottom: '10px' }}>■残高の推移</div>
-          <div style={{ height: '220px' }}>
+          <div ref={chartWrapRef} style={{ height: '220px', position: 'relative' }}>
             <div ref={containerRef} style={{ width: '100%', height: '100%' }} />
           </div>
         </div>
