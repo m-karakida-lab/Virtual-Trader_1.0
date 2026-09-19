@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { useTraderStore, selectUnrealizedPnL } from '../store/useTraderStore';
+import { useTraderStore } from '../store/useTraderStore';
 import { TIMEFRAMES, type Position, type PendingOrder } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
@@ -295,7 +295,6 @@ export function Controls() {
   const isLoaded      = useTraderStore(s => s.isLoaded);
   const isPlaying     = useTraderStore(s => s.isPlaying);
   const speed         = useTraderStore(s => s.speed);
-  const totalPnl      = useTraderStore(selectUnrealizedPnL);
 
   const timeframeLabel = TIMEFRAMES.find(t => t.sec === timeframeSec)?.label ?? '';
   // 最後の足まで進んでいる（=もう先に反応できる未来が無い）間は発注・速度変更を無効化する
@@ -309,15 +308,6 @@ export function Controls() {
     const pnl = current ? (current.close - pos.openPrice) * pos.lots * dir : 0;
     return [pos.id, pnl];
   }));
-
-  const timeStr = current ? (() => {
-    const d = new Date(current.time * 1000);
-    const M = d.getUTCMonth() + 1;
-    const D = d.getUTCDate();
-    const hh = String(d.getUTCHours()).padStart(2, '0');
-    const mm = String(d.getUTCMinutes()).padStart(2, '0');
-    return `${M}/${D} ${hh}:${mm}`;
-  })() : '—';
 
   const [jumpDate, setJumpDate] = useState('');
   const handleJump = () => {
@@ -388,7 +378,7 @@ export function Controls() {
       {/* ── メイン行（常に最下部・固定）───────────────────────────── */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '0', height: '72px' }}>
 
-        {/* 口座情報 */}
+        {/* 口座情報（残高のみ。含み損益・時刻はPositionRow一覧や別箇所で確認できるためここでは出さない） */}
         <div style={{ flex: 1, padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
             <span style={{ color: '#555', fontSize: '16px' }}>残高</span>
@@ -396,36 +386,34 @@ export function Controls() {
               {sym}{fmt(balance)}
             </span>
           </div>
-          <div style={{ display: 'flex', gap: '12px' }}>
-            <span style={{ color: pnlColor(totalPnl), fontSize: '17px', fontVariantNumeric: 'tabular-nums' }}>
-              {positions.length === 0 ? <span style={{ color: '#333' }}>含み損益: —</span> : `含み ${fmtp(totalPnl, sym)}`}
-            </span>
-            <span style={{ color: '#2a2a2a', fontSize: '16px' }}>{timeStr} · {timeframeLabel}</span>
-          </div>
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 初期残高設定 */}
-        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', padding: '0 8px', flexShrink: 0 }}>
-          <span style={{ color: '#555', fontSize: '13px' }}>初期残高</span>
-          <input
-            type="number"
-            value={initialBalance}
-            onChange={e => setInitialBalance(Number(e.target.value))}
-            min={0}
-            step={10000}
-            style={{
-              backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-              borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
-              fontVariantNumeric: 'tabular-nums',
-            }}
-          />
-          <button
-            onClick={resetAccount}
-            disabled={!isLoaded}
-            style={tfBtn(false, !isLoaded)}
-          >リセット</button>
+        {/* 設定（メニュー）。頻繁には使わない初期残高設定をここにまとめる */}
+        <div style={{ padding: '0 8px', flexShrink: 0 }}>
+          <MenuButton label="⚙ 設定">
+            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+              <span style={{ color: '#555', fontSize: '13px' }}>初期残高</span>
+              <input
+                type="number"
+                value={initialBalance}
+                onChange={e => setInitialBalance(Number(e.target.value))}
+                min={0}
+                step={10000}
+                style={{
+                  backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+                  borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
+                  fontVariantNumeric: 'tabular-nums',
+                }}
+              />
+              <button
+                onClick={resetAccount}
+                disabled={!isLoaded}
+                style={tfBtn(false, !isLoaded)}
+              >リセット</button>
+            </div>
+          </MenuButton>
         </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
