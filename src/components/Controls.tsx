@@ -396,7 +396,7 @@ export function Controls() {
 
         {/* 口座情報（残高のみ。含み損益・時刻はPositionRow一覧や別箇所で確認できるためここでは出さない） */}
         <div style={{ flex: 1, padding: '0 16px', display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
+          <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px', lineHeight: 1.2 }}>
             <span style={{ color: '#555', fontSize: '16px' }}>残高</span>
             <span style={{ color: '#e0e0e0', fontSize: '20px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
               {sym}{fmt(balance)}
@@ -592,7 +592,7 @@ export const tfBtn = (active: boolean, disabled: boolean): React.CSSProperties =
   color: disabled ? '#333' : active ? '#e0e0e0' : '#666',
   border: active ? '1px solid #3a3a3a' : '1px solid #222',
   borderRadius: '3px',
-  padding: '6px 10px',
+  padding: '3px 10px',
   cursor: disabled ? 'not-allowed' : 'pointer',
   fontSize: '15px',
   fontWeight: 700,
