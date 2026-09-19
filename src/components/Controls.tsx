@@ -404,7 +404,9 @@ export function Controls() {
           >発注</button>
         </div>
 
-        <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
+        <div style={{ padding: '0 8px', flexShrink: 0 }}>
+          <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
+        </div>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
