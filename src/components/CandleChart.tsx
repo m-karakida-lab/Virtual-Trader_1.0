@@ -344,6 +344,7 @@ export function CandleChart({
   const fitSignal  = useTraderStore(s => s.fitSignal);
   const scrollToLatestSignal = useTraderStore(s => s.scrollToLatestSignal);
   const followLatest = useTraderStore(s => s.followLatest);
+  const isPlaying = useTraderStore(s => s.isPlaying);
   const centerSignal = useTraderStore(s => s.centerSignal);
   const centerTarget = useTraderStore(s => s.centerTarget);
   const crosshairSourceId = useTraderStore(s => s.crosshairSourceId);
@@ -423,6 +424,9 @@ export function CandleChart({
   // マウント時1回だけのeffectはpropsをクロージャで固定するため、非メインパネルの
   // ヘッダードロップダウンで時間軸を変えてもここが古い値のまま——他のref同様に同期する
   const timeframeSecRef = useRef(timeframeSec);
+  // 再生中かどうか。カーソル変化時のデータ同期effect（isStep判定に使うためisPlaying自体は
+  // depsに入れられない）から最新値を読むためのref
+  const isPlayingRef = useRef(isPlaying);
   useEffect(() => {
     isMainRef.current = isMain;
     slotRef.current = slot;
@@ -431,7 +435,8 @@ export function CandleChart({
     timeframeSecRef.current = timeframeSec;
     displayCandlesRef.current = displayCandles;
     effectiveCursorRef.current = isMain ? cursor : displayCandles.length - 1;
-  }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec]);
+    isPlayingRef.current = isPlaying;
+  }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec, isPlaying]);
   // 非メイン時、クリック（ドラッグでない）でメインへ昇格させるための始点記録
   const nonMainMouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
   // 非メイン時、新しいデータセットに切り替わった時だけ画面フィットするための直前値記憶
@@ -4539,9 +4544,14 @@ export function CandleChart({
       recomputeBBFull(candles, cursor);
       recomputeCloudFull(candles, cursor);
     }
-    // 価格軸ドラッグ等で autoScale が無効化されたままだと、再生中にローソク足が
-    // 上下にはみ出ても追従しなくなる。毎ステップ明示的に再有効化して縦も自動追従させる
-    chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+    // 価格軸ドラッグ等で autoScale が無効化されたままだと、連続再生中にローソク足が
+    // 上下にはみ出ても追従しなくなるため、再生中（isPlaying）だけ毎ステップ明示的に
+    // 再有効化して縦も自動追従させる。「1コマ進む」等の手動ステップでは、ユーザーが
+    // ドラッグ等で調整した価格軸の拡大率・位置をそのまま維持したいという要望があるため
+    // ここでは触らない（再有効化するとその都度リセットされてしまう）
+    if (isPlayingRef.current) {
+      chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
+    }
     // 可視範囲確定後に再同期（範囲変更イベントに頼らず確実に揃える）
     syncVLinesRef.current();
     syncRectsRef.current();
