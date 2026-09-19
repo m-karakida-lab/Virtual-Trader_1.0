@@ -428,13 +428,9 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* チャートレイアウト */}
+        {/* チャートレイアウト。1画面への切替はここでは行わず、各パネルヘッダー左上の
+            全画面ボタン（ChartHeader）でそのパネルを1画面化する導線に一本化している */}
         <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
-          <button
-            onClick={() => setChartLayout('1')}
-            disabled={!isLoaded}
-            style={tfBtn(chartLayout === '1', !isLoaded)}
-          >1画面</button>
           <button
             onClick={() => setChartLayout('3')}
             disabled={!isLoaded}
