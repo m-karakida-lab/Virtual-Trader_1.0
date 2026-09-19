@@ -392,10 +392,10 @@ export function Controls() {
       )}
 
       {/* ── メイン行（常に最下部・固定）───────────────────────────── */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '0', height: '72px' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '0', padding: '6px 0' }}>
 
         {/* 口座情報（残高のみ。含み損益・時刻はPositionRow一覧や別箇所で確認できるためここでは出さない） */}
-        <div style={{ flex: 1, padding: '10px 16px', display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
+        <div style={{ flex: 1, padding: '0 16px', display: 'flex', flexDirection: 'column', gap: '4px', overflow: 'hidden' }}>
           <div style={{ display: 'flex', alignItems: 'baseline', gap: '8px' }}>
             <span style={{ color: '#555', fontSize: '16px' }}>残高</span>
             <span style={{ color: '#e0e0e0', fontSize: '20px', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>
@@ -469,7 +469,7 @@ export function Controls() {
           onClick={() => captureChartArea(`${symbol || 'chart'}_${chartLayout === '4' ? '4画面' : timeframeLabel}`)}
           disabled={!isLoaded}
           title="チャート画面（価格軸・日付軸含む）をJPEGで保存"
-          style={tfBtn(false, !isLoaded)}
+          style={{ ...tfBtn(false, !isLoaded), flexShrink: 0, whiteSpace: 'nowrap' }}
         >📷 キャプチャ</button>
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0, margin: '0 8px' }} />
