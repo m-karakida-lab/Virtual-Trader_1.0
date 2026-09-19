@@ -289,7 +289,9 @@ export function HistoryPanel() {
     label.style.transform = 'translateY(-50%)';
     label.style.right = '0';
     label.style.boxSizing = 'border-box';
-    label.style.textAlign = 'right';
+    // lightweight-charts標準の目盛りラベルは左揃え（数字の左端が軸カラム内で揃う）なので、
+    // 自前ラベルも右揃えではなく左揃えにしてインデントを合わせる
+    label.style.textAlign = 'left';
     label.style.backgroundColor = '#42a5f5';
     label.style.color = '#0d0d0d';
     label.style.fontSize = '11px';
