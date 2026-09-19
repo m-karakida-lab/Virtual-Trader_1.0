@@ -64,7 +64,9 @@ export function FloatingControls() {
       position: 'absolute',
       ...(pos
         ? { left: `${pos.x}px`, top: `${pos.y}px` }
-        : { right: `${24 + chartRightMargin}px`, bottom: `${24 + chartBottomMargin}px` }),
+        // 初期位置（ドラッグ未操作時）はセッション行（下からbottomMargin+26px〜+30pxに
+        // 表示される薄い色帯）と被らないよう、下端の余白を24pxから40pxに広げてある
+        : { right: `${24 + chartRightMargin}px`, bottom: `${40 + chartBottomMargin}px` }),
       zIndex: 40,
       display: 'flex', flexDirection: 'column', alignItems: 'center',
       backgroundColor: 'rgba(13,13,13,0.92)', border: '1px solid #2a2a2a',
