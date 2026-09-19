@@ -390,28 +390,55 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 設定（メニュー）。頻繁には使わない初期残高設定をここにまとめる */}
+        {/* 設定（メニュー）。頻繁には使わない初期残高設定・インジケータ表示切替をここにまとめる */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton label="⚙ 設定">
-            <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-              <span style={{ color: '#555', fontSize: '13px' }}>初期残高</span>
-              <input
-                type="number"
-                value={initialBalance}
-                onChange={e => setInitialBalance(Number(e.target.value))}
-                min={0}
-                step={10000}
-                style={{
-                  backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-                  borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
-                  fontVariantNumeric: 'tabular-nums',
-                }}
-              />
-              <button
-                onClick={resetAccount}
-                disabled={!isLoaded}
-                style={tfBtn(false, !isLoaded)}
-              >リセット</button>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                <span style={{ color: '#555', fontSize: '13px' }}>初期残高</span>
+                <input
+                  type="number"
+                  value={initialBalance}
+                  onChange={e => setInitialBalance(Number(e.target.value))}
+                  min={0}
+                  step={10000}
+                  style={{
+                    backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+                    borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
+                    fontVariantNumeric: 'tabular-nums',
+                  }}
+                />
+                <button
+                  onClick={resetAccount}
+                  disabled={!isLoaded}
+                  style={tfBtn(false, !isLoaded)}
+                >リセット</button>
+              </div>
+
+              <div style={{ borderTop: '1px solid #2a2a2a' }} />
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: '340px' }}>
+                <span style={{ color: '#555', fontSize: '13px' }}>インジケータ</span>
+                <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
+                <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
+                <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
+                <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
+                <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
+                <button onClick={toggleSessions} disabled={!isLoaded} style={tfBtn(showSessions, !isLoaded)}>セッション</button>
+                {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingArrow || isDrawingBrush || isDrawingText) && (
+                  <span style={{ color: '#42a5f5', fontSize: '14px' }}>
+                    {isDrawingLine && 'クリックで配置...'}
+                    {isDrawingVLine && 'クリックで配置...'}
+                    {isMeasuring && 'ドラッグで計測...'}
+                    {isDrawingRect && 'ドラッグで描画...'}
+                    {isDrawingTrendLine && 'ドラッグで描画...'}
+                    {isDrawingArrow && 'ドラッグで描画...'}
+                    {isDrawingBrush && 'ドラッグで描画...'}
+                    {isDrawingText && 'クリックで配置...'}
+                    （左のアイコンで再度クリックすると解除）
+                  </span>
+                )}
+              </div>
             </div>
           </MenuButton>
         </div>
@@ -471,38 +498,6 @@ export function Controls() {
             disabled={!isLoaded}
             style={tfBtn(orderPanelOpen, !isLoaded)}
           >発注</button>
-        </div>
-
-        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
-
-        {/* インジケータ（メニュー）。描画物の一覧/削除はDrawToolbar（画面左のパネル）側が担う */}
-        <div style={{ padding: '0 8px', flexShrink: 0 }}>
-          <MenuButton
-            label="インジケータ"
-            disabled={!isLoaded}
-          >
-            <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: '340px' }}>
-              <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
-              <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
-              <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
-              <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
-              <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
-              <button onClick={toggleSessions} disabled={!isLoaded} style={tfBtn(showSessions, !isLoaded)}>セッション</button>
-              {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingArrow || isDrawingBrush || isDrawingText) && (
-                <span style={{ color: '#42a5f5', fontSize: '14px' }}>
-                  {isDrawingLine && 'クリックで配置...'}
-                  {isDrawingVLine && 'クリックで配置...'}
-                  {isMeasuring && 'ドラッグで計測...'}
-                  {isDrawingRect && 'ドラッグで描画...'}
-                  {isDrawingTrendLine && 'ドラッグで描画...'}
-                  {isDrawingArrow && 'ドラッグで描画...'}
-                  {isDrawingBrush && 'ドラッグで描画...'}
-                  {isDrawingText && 'クリックで配置...'}
-                  （左のアイコンで再度クリックすると解除）
-                </span>
-              )}
-            </div>
-          </MenuButton>
         </div>
 
         <button onClick={toggleHistoryPanel} disabled={!isLoaded} style={tfBtn(showHistoryPanel, !isLoaded)}>履歴</button>
