@@ -261,10 +261,13 @@ export function HistoryPanel() {
     seriesRef.current = series;
 
     const line = document.createElement('div');
+    // border-top（点線）だと表示されない環境があったため、確実に見えるbackgroundColor塗り
+    // つぶしの1px高さ帯に変更。z-indexも明示してチャート本体のcanvasより確実に手前にする
     line.style.position = 'absolute';
-    line.style.height = '0';
-    line.style.borderTop = '1px dashed #42a5f5';
+    line.style.height = '2px';
+    line.style.backgroundColor = '#42a5f5';
     line.style.pointerEvents = 'none';
+    line.style.zIndex = '5';
     line.style.display = 'none';
     const label = document.createElement('div');
     label.style.position = 'absolute';
@@ -277,6 +280,7 @@ export function HistoryPanel() {
     label.style.padding = '1px 4px';
     label.style.borderRadius = '2px';
     label.style.pointerEvents = 'none';
+    label.style.zIndex = '6';
     label.style.display = 'none';
     chartWrapRef.current.appendChild(line);
     chartWrapRef.current.appendChild(label);
@@ -295,7 +299,7 @@ export function HistoryPanel() {
       el.style.display = 'block';
       el.style.left = `${x}px`;
       el.style.width = `${Math.max(0, wrapWidth - x)}px`;
-      el.style.top = `${y}px`;
+      el.style.top = `${y - 1}px`;
       lab.style.display = 'block';
       lab.style.top = `${y}px`;
       lab.textContent = fmt(p.value);
