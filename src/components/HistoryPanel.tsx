@@ -285,13 +285,16 @@ export function HistoryPanel() {
 
     const syncLastValueLine = () => {
       const el = lastValueLineRef.current, lab = lastValueLabelRef.current, p = lastPointRef.current;
-      if (!el || !lab || !p) return;
+      if (!el || !lab || !p || !chartWrapRef.current) return;
       const x = chart.timeScale().timeToCoordinate(p.time as Time);
       const y = series.priceToCoordinate(p.value);
       if (x === null || y === null) { el.style.display = 'none'; lab.style.display = 'none'; return; }
+      // right:0（残りをrightで埋める）だと、親のレイアウトが未確定なタイミングで幅が
+      // 意図せず潰れて見えなくなることがあったため、幅を実測して明示的に指定する
+      const wrapWidth = chartWrapRef.current.clientWidth;
       el.style.display = 'block';
       el.style.left = `${x}px`;
-      el.style.right = '0';
+      el.style.width = `${Math.max(0, wrapWidth - x)}px`;
       el.style.top = `${y}px`;
       lab.style.display = 'block';
       lab.style.top = `${y}px`;
@@ -332,9 +335,14 @@ export function HistoryPanel() {
     seriesRef.current.setData(data);
     chartRef.current?.timeScale().fitContent();
     lastPointRef.current = data.length > 0 ? { time: data[data.length - 1].time as number, value: data[data.length - 1].value } : null;
+    syncLastValueLineRef.current();
     // setData/fitContent直後はレイアウトが未確定でtimeToCoordinate/priceToCoordinateが
-    // 古い座標を返すことがある（他のチャートと同じ既知の挙動）。rAFで1フレーム後に再同期する
-    requestAnimationFrame(() => syncLastValueLineRef.current());
+    // 古い座標を返すことがある（他のチャートと同じ既知の挙動）。1フレームだけでも足りない
+    // ことがあるため2フレーム後まで念のため再同期する
+    requestAnimationFrame(() => {
+      syncLastValueLineRef.current();
+      requestAnimationFrame(() => syncLastValueLineRef.current());
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [closedTrades, initialBalance]);
 
