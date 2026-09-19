@@ -1550,12 +1550,17 @@ export function CandleChart({
         // すぐ出るのにNY（終了が翌7時で一番長く未来にはみ出す）だけ、cursorが実際に翌7時
         // 付近まで進まないと帯が出ない」という不具合になっていた。帯の終端をcurrentTime
         // （このパネルで実際に開示済みの最後の足）にクランプし、開示済みの範囲までだけ
-        // 描画することで回避する（開示が進むにつれ帯が右へ伸びていく形になる）
+        // 描画することで回避する（開示が進むにつれ帯が右へ伸びていく形になる）。
+        // クランプ先はcurrentTime（開示済み最後の足の"開始"時刻）ではなく、その足の"終わり"
+        // （+timeframeSec）にすること。開始時刻のままだと、セッション開始のちょうどその足に
+        // cursorが来た瞬間はband.start===currentTimeでクランプ後の帯幅が0になり、次の足まで
+        // 進むまで帯が出ない（1H足で1時間分遅れて表示される）不具合になっていた
         if (currentTime !== undefined && band.start > currentTime) {
           el.style.display = 'none';
           return;
         }
-        const clampedEnd = currentTime !== undefined ? Math.min(band.end, currentTime) : band.end;
+        const revealedEnd = currentTime !== undefined ? currentTime + timeframeSecRef.current : undefined;
+        const clampedEnd = revealedEnd !== undefined ? Math.min(band.end, revealedEnd) : band.end;
         const x0 = timeToX(band.start);
         const x1 = timeToX(clampedEnd);
         if (x0 === null || x1 === null || x1 <= x0) {
