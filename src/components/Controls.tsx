@@ -508,26 +508,23 @@ export function Controls() {
         </div>
 
 
-        {/* 速度（再生・1コマ送り/戻りはチャート上のフロートボタンへ） */}
-        <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', padding: '0 12px', gap: '4px', flexShrink: 0 }}>
-          <span style={{ color: '#555', fontSize: '14px' }}>
-            速度 <span style={{ color: '#777', fontVariantNumeric: 'tabular-nums' }}>{speed}x</span>
-          </span>
-          <input
-            type="range" min={1} max={20} step={1} value={speed}
-            onChange={e => setSpeed(Number(e.target.value))}
-            disabled={atEnd}
-            style={{ width: '72px', accentColor: '#444' }}
-          />
-        </div>
-
-        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
-
-        {/* 設定（メニュー）。頻繁には使わない初期残高設定・インジケータ表示切替・ログをここにまとめる。
-            他の操作系ボタンと混ざらないよう最右端に固定する */}
+        {/* 設定（メニュー）。頻繁には使わない初期残高設定・インジケータ表示切替・ログ・
+            再生速度をここにまとめる。他の操作系ボタンと混ざらないよう最右端に固定する */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton label="⚙ 設定">
             <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '380px' }}>
+              <SettingsSection icon="⏱" title="速度">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+                  <input
+                    type="range" min={1} max={20} step={1} value={speed}
+                    onChange={e => setSpeed(Number(e.target.value))}
+                    disabled={atEnd}
+                    style={{ width: '120px', accentColor: '#444' }}
+                  />
+                  <span style={{ color: '#888', fontSize: '14px', fontVariantNumeric: 'tabular-nums' }}>{speed}x</span>
+                </div>
+              </SettingsSection>
+
               <SettingsSection icon="💰" title="初期残高">
                 <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <input
