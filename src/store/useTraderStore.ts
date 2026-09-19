@@ -152,6 +152,18 @@ function isTimeframeSec(v: unknown): v is TimeframeSec {
   return typeof v === 'number' && TIMEFRAMES.some(tf => tf.sec === v);
 }
 
+// vtd読込時、保存されていた再生位置（足の時刻）に最も近いcursorを求める。
+// candles[i].time <= targetTime を満たす最大のiを二分探索で返す（無ければ0）
+function findCursorForTime(candles: Candle[], targetTime: number): number {
+  let lo = 0, hi = candles.length - 1, ans = 0;
+  while (lo <= hi) {
+    const mid = (lo + hi) >> 1;
+    if (candles[mid].time <= targetTime) { ans = mid; lo = mid + 1; }
+    else hi = mid - 1;
+  }
+  return ans;
+}
+
 function loadSavedQuad(key: string, defaults: TimeframeSec[]): { timeframes: TimeframeSec[]; mainSlot: number } {
   try {
     const raw = localStorage.getItem(key);
@@ -704,8 +716,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       // 「初期残高＋復元した取引の損益合計」にして、履歴と矛盾しない値にする
       const restoredTrades = drawings?.closedTrades ?? [];
       const restoredBalance = newInitialBalance + restoredTrades.reduce((sum, t) => sum + t.pnl, 0);
+      // 保存されていた再生位置（足の時刻）を、今回読み込んだ時間軸のcandlesに引き直す。
+      // 未保存（旧形式のファイルや素のCSV）は従来通り先頭から
+      const restoredCursor = drawings?.cursorTime !== undefined && candles.length > 0
+        ? findCursorForTime(candles, drawings.cursorTime)
+        : 0;
       set({
-        candles, cursor: 0, isLoaded: true,
+        candles, cursor: restoredCursor, isLoaded: true,
         isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,
         balance: restoredBalance, initialBalance: newInitialBalance,
         positions: [], pendingOrders: [], nextOrderId: 1,
@@ -750,9 +767,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // 中身だけvtdになり、しかも表示は「.vtdに保存しました」で紛らわしかった）。
   // 素のCSVの初回保存は必ずダウンロード（新しい.vtdファイルとして書き出す）に倒す
   saveChartFile: async () => {
-    const { rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects, trendLines, arrows, brushes, texts, closedTrades } = get();
+    const { rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects, trendLines, arrows, brushes, texts, closedTrades, candles, cursor } = get();
     if (rawCsvText === null) return;
-    const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects, trendLines, arrows, brushes, texts, closedTrades });
+    const cursorTime = candles[cursor]?.time;
+    const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects, trendLines, arrows, brushes, texts, closedTrades, cursorTime });
 
     if (rawFileHandle !== null && rawFileIsBundle) {
       try {

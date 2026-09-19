@@ -20,6 +20,10 @@ export interface VtdDrawings {
   // 決済済み取引履歴（チャート上のエントリー/決済マーカー）。建玉中のポジション・未約定注文・
   // 残高/初期残高等は「その時点のCSV+描画だけを純粋に保つ」方針により対象外（ユーザーと合意済み）
   closedTrades: ClosedTrade[];
+  // 保存時点で表示していた最新足（リプレイのcursorが指す足）のUnix秒。読み込み時の時間軸が
+  // 保存時と異なっていても復元できるよう、配列インデックスではなく時刻そのものを保存する。
+  // 未指定（旧形式のファイル）の場合は従来通り先頭（cursor:0）から始める
+  cursorTime?: number;
 }
 
 export function splitVtdBundle(text: string): { csvText: string; drawings: VtdDrawings | null } {
@@ -39,6 +43,8 @@ export function splitVtdBundle(text: string): { csvText: string; drawings: VtdDr
       texts: Array.isArray(parsed.texts) ? parsed.texts : [],
       // 取引履歴保存より前のファイルには無いため空配列にフォールバックする
       closedTrades: Array.isArray(parsed.closedTrades) ? parsed.closedTrades : [],
+      // 再生位置保存より前のファイルには無いためundefinedのまま（呼び出し側でcursor:0にフォールバック）
+      cursorTime: typeof parsed.cursorTime === 'number' ? parsed.cursorTime : undefined,
     };
     return { csvText, drawings };
   } catch {
