@@ -263,9 +263,12 @@ export function HistoryPanel() {
     const line = document.createElement('div');
     // border-top（点線）だと表示されない環境があったため、確実に見えるbackgroundColor塗り
     // つぶしの1px高さ帯に変更。z-indexも明示してチャート本体のcanvasより確実に手前にする
+    // グラフ本体と同じ色の実線だと目立ちすぎるため、繰り返しグラデーションで点線に見せる
+    // （border-top方式は表示されない環境があったため使わない。backgroundColor塗りつぶしの
+    // 発展形として、背景を交互の色/透明の帯にするだけで済み同じ理由で確実に描画される）
     line.style.position = 'absolute';
-    line.style.height = '2px';
-    line.style.backgroundColor = '#42a5f5';
+    line.style.height = '1px';
+    line.style.backgroundImage = 'repeating-linear-gradient(to right, #42a5f5 0, #42a5f5 4px, transparent 4px, transparent 8px)';
     line.style.pointerEvents = 'none';
     line.style.zIndex = '5';
     line.style.display = 'none';
@@ -299,7 +302,7 @@ export function HistoryPanel() {
       el.style.display = 'block';
       el.style.left = `${x}px`;
       el.style.width = `${Math.max(0, wrapWidth - x)}px`;
-      el.style.top = `${y - 1}px`;
+      el.style.top = `${y}px`;
       lab.style.display = 'block';
       lab.style.top = `${y}px`;
       lab.textContent = fmt(p.value);
