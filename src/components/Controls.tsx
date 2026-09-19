@@ -160,6 +160,23 @@ function MenuButton({
   );
 }
 
+// ── 設定メニュー内の1項目（見出し + 内容）。区切り線・余白を統一する ──────────
+function SettingsSection({
+  title, children, last = false,
+}: {
+  title: string; children: React.ReactNode; last?: boolean;
+}) {
+  return (
+    <div style={{
+      display: 'flex', flexDirection: 'column', gap: '8px',
+      padding: '10px 0', borderBottom: last ? 'none' : '1px solid #2a2a2a',
+    }}>
+      <span style={{ color: '#888', fontSize: '12px', fontWeight: 700, letterSpacing: '0.5px' }}>{title}</span>
+      {children}
+    </div>
+  );
+}
+
 // ── エラーログの保存先設定（メニュー） ──────────────────────────────────────
 // 問題が起きた時に後から調査できるよう、エラーログ（errorLog.ts）を実ファイルへも
 // 追記できるようにする設定。File System Access API対応ブラウザ（Chrome/Edge）限定。
@@ -211,8 +228,7 @@ function ErrorLogSection() {
   };
 
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', minWidth: '280px' }}>
-      <span style={{ color: '#555', fontSize: '13px' }}>ログ</span>
+    <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
       {supported ? (
         <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
           <span style={{ fontSize: '13px', color: '#888' }}>
@@ -509,40 +525,40 @@ export function Controls() {
             他の操作系ボタンと混ざらないよう最右端に固定する */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <MenuButton label="⚙ 設定">
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '10px' }}>
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                <span style={{ color: '#555', fontSize: '13px' }}>初期残高</span>
-                <input
-                  type="number"
-                  value={initialBalance}
-                  onChange={e => setInitialBalance(Number(e.target.value))}
-                  min={0}
-                  step={10000}
-                  style={{
-                    backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-                    borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
-                    fontVariantNumeric: 'tabular-nums',
-                  }}
-                />
-                <button
-                  onClick={resetAccount}
-                  disabled={!isLoaded}
-                  style={tfBtn(false, !isLoaded)}
-                >リセット</button>
-              </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '4px', minWidth: '380px' }}>
+              <SettingsSection title="初期残高">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <input
+                    type="number"
+                    value={initialBalance}
+                    onChange={e => setInitialBalance(Number(e.target.value))}
+                    min={0}
+                    step={10000}
+                    style={{
+                      backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+                      borderRadius: '3px', padding: '6px 8px', fontSize: '14px', width: '110px',
+                      fontVariantNumeric: 'tabular-nums',
+                    }}
+                  />
+                  <button
+                    onClick={resetAccount}
+                    disabled={!isLoaded}
+                    style={tfBtn(false, !isLoaded)}
+                  >リセット</button>
+                </div>
+              </SettingsSection>
 
-              <div style={{ borderTop: '1px solid #2a2a2a' }} />
-
-              <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap', minWidth: '340px' }}>
-                <span style={{ color: '#555', fontSize: '13px' }}>インジケータ</span>
-                <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
-                <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
-                <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
-                <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
-                <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
-                <button onClick={toggleSessions} disabled={!isLoaded} style={tfBtn(showSessions, !isLoaded)}>セッション</button>
+              <SettingsSection title="インジケータ">
+                <div style={{ display: 'flex', alignItems: 'center', gap: '6px', flexWrap: 'wrap' }}>
+                  <button onClick={toggleEMA} disabled={!isLoaded} style={tfBtn(showEMA, !isLoaded)}>EMA200</button>
+                  <button onClick={toggleSMA} disabled={!isLoaded} style={tfBtn(showSMA, !isLoaded)}>SMA14</button>
+                  <button onClick={toggleBB} disabled={!isLoaded} style={tfBtn(showBB, !isLoaded)}>BB(20, ±1σ/±2σ)</button>
+                  <button onClick={toggleCloud} disabled={!isLoaded} style={tfBtn(showCloud, !isLoaded)}>雲</button>
+                  <button onClick={toggleWeekLines} disabled={!isLoaded} style={tfBtn(showWeekLines, !isLoaded)}>区間区切り</button>
+                  <button onClick={toggleSessions} disabled={!isLoaded} style={tfBtn(showSessions, !isLoaded)}>セッション</button>
+                </div>
                 {(isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingArrow || isDrawingBrush || isDrawingText) && (
-                  <span style={{ color: '#42a5f5', fontSize: '14px' }}>
+                  <span style={{ color: '#42a5f5', fontSize: '13px' }}>
                     {isDrawingLine && 'クリックで配置...'}
                     {isDrawingVLine && 'クリックで配置...'}
                     {isMeasuring && 'ドラッグで計測...'}
@@ -554,11 +570,11 @@ export function Controls() {
                     （左のアイコンで再度クリックすると解除）
                   </span>
                 )}
-              </div>
+              </SettingsSection>
 
-              <div style={{ borderTop: '1px solid #2a2a2a' }} />
-
-              <ErrorLogSection />
+              <SettingsSection title="ログ" last>
+                <ErrorLogSection />
+              </SettingsSection>
             </div>
           </MenuButton>
         </div>
