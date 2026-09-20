@@ -187,6 +187,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 保存ビュー復元（`relativeViewToLogicalRange`）のspanは全期間本数でクランプするが、位置は`cursor`/`lastIdx`（revealされている本数）基準で右オフセットするため、リプレイ序盤でrevealが少ないと`from`が負（実データの無い過去側）にはみ出し、軸日付が実データとずれ小数の足が右端に押し込まれて見える。`to`固定・`from`を0未満にクランプして回避（`CandleChart.tsx`のメイン/非メイン両方の分岐）
 - 非メイン（4画面の他3枠）はデータセット変更時に1回フィットするだけで以降は自動で進まない設計だったため、「最新足に固定」の継続追従effect（`followLatest`）をfollowLatestトグルに関わらず非メインは常時有効にした（メインは従来通りトグル依存）。この継続追従effectは非メインのsetData/初回フィットeffectより**必ず後ろ**で宣言すること——先に置くと、データセット変更直後にまだ`series.setData()`前（＝可視範囲がデフォルトの空状態）のタイミングで`followAnchorRef`を誤って捕捉してしまい、以降ずっとそのパネルにロウソク足が表示されなくなる
 - フロートパネルの位置クランプは`chart.priceScale('right').width()`/`chart.timeScale().height()`の実測値をstore経由で共有
+- 非メインの形成中バケット探索は`candles[cursor].time`（メイン現在足の開始時刻）ではなく`nonMainCursorEnd`（終了時刻）を基準にすること。非メインがメインより細かい時間足の場合、開始時刻基準だとclosed側より過去のバケットを見つけてしまい、lightweight-charts側の`setData`が「data must be asc ordered by time」で丸ごとクラッシュする
 - `setTimeframe`のカーソル復元は新しい足の**終了時刻**で比較すること（`newCandles[i].time + sec <= currentClose`、開始時刻だけだと先出しになる）
 - `FloatingControls`は`offsetParent`基準でクランプ
 - `CandleChart`のルート`<div>`は`width/height:100%`を明示すること（CSS grid内のラッパー経由のため自動では伸びない）

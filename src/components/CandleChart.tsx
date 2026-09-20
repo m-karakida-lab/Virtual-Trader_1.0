@@ -387,18 +387,26 @@ export function CandleChart({
     // 中身が変わり続けるべきものなので安定化の対象外にする）
     const curTime = candles[cursor]?.time;
     if (curTime === undefined || nonMainCandles.length === 0) return closed;
-    // バケット開始時刻はnonMainCandles自身から引く。ここでfloor(curTime/timeframeSec)を
+    // バケット位置の探索基準はcurTime（メイン現在足の開始時刻）ではなくnonMainCursorEnd
+    // （＝メイン現在足の終了時刻、closedのフィルタ基準と同じ）を使うこと。非メインが
+    // メインより細かい時間足の場合、curTimeはメイン現在足の「開始」でしかなく、closed
+    // 側は既にそれより後（メイン現在足の終了）までのバケットを含んでいるため、curTime
+    // 基準で探すとclosedの最後より過去のバケットを見つけてしまい、setData時に
+    // 「data must be asc ordered by time」で丸ごとクラッシュする不具合を実際に踏んだ
+    const searchTime = nonMainCursorEnd ?? curTime;
+    // バケット開始時刻はnonMainCandles自身から引く。ここでfloor(time/timeframeSec)を
     // 独自に計算し直すと、queryCandlesのブローカー時間バケット境界＋JST表示ズレ（不変
     // 条件/地雷を参照）と食い違い、実在しない境界で足を切ってしまう不具合を踏む
     let lo = 0, hi = nonMainCandles.length - 1, bi = -1;
     while (lo <= hi) {
       const mid = (lo + hi) >> 1;
-      if (nonMainCandles[mid].time <= curTime) { bi = mid; lo = mid + 1; } else hi = mid - 1;
+      if (nonMainCandles[mid].time <= searchTime) { bi = mid; lo = mid + 1; } else hi = mid - 1;
     }
     if (bi < 0) return closed;
     const bucketStart = nonMainCandles[bi].time;
-    // 既にclosed側でこのバケットが確定済みとして入っているなら二重追加しない
-    if (closed.length > 0 && closed[closed.length - 1].time === bucketStart) return closed;
+    // 既にclosed側に含まれている（＝確定済み）バケットなら追加しない。念のため
+    // 「closedの最後より過去」も弾く（時系列逆転によるsetDataクラッシュの保険）
+    if (closed.length > 0 && bucketStart <= closed[closed.length - 1].time) return closed;
     // nonMainCandles側の値はCSV全期間（未来分も含む）から集計済みのため使えない
     // （先出し防止）。メインの確定済み足（0..cursor）からこのバケット範囲だけを
     // 自前で再集計する
