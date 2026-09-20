@@ -225,6 +225,11 @@ interface TraderState {
   rawFileIsBundle: boolean; // rawFileHandleが指すファイルが既にvtdバンドル（マーカー入り）だったか。
                              // falseなら素のCSVを開いた直後で、上書きすると元データが壊れるため直接書き込みを許可しない
   loadedFileLabel: string; // ファイル選択欄の代わりに表示するラベル（バンドル検出時は.vtd表記に正規化、複数ファイルは件数表示）
+  // 手動で「上書き保存」を1回成功させた後だけtrueになる（自動保存はこれをトリガーに開始する。
+  // ファイルを開いただけの状態では自動で書き込みを始めない、というユーザーとの合意に基づくガード）。
+  // 新しいファイルを読み込むとfalseに戻る。localStorageには永続化しない
+  autoSaveArmed: boolean;
+  lastSavedBundleText: string | null; // 直近の保存内容。自動保存は前回保存時から変化が無ければ書き込みをスキップする
   lots: number;          // 発注ロット数（固定モード時に使用）
   lotMode: 'fixed' | 'risk'; // ロット指定方法
   riskPercent: number;       // リスクモード時: 残高に対する許容損失の割合（%）
@@ -338,6 +343,7 @@ interface TraderState {
   resetAccount: () => void;
   loadFiles: (files: FileList | File[], fileHandle?: FileSystemFileHandle) => Promise<void>;
   saveChartFile: () => Promise<void>;
+  autoSaveTick: () => Promise<void>; // 定期タイマー（App.tsx）から呼ばれる。armed/差分の判定含め自己完結
   setTimeframe: (sec: TimeframeSec, preloadedCandles?: Candle[]) => Promise<void>;
   advance: () => boolean;
   stepBack: () => boolean;
@@ -589,6 +595,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   rawCsvText: null,
   rawFileHandle: null,
   rawFileIsBundle: false,
+  autoSaveArmed: false,
+  lastSavedBundleText: null,
   loadedFileLabel: '選択されていません',
   lots: 10_000,
   lotMode: 'risk',
@@ -742,6 +750,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         // drawings!==null は、開いたファイル自体が既にvtdバンドル（マーカー入り）だったことを意味する。
         // 素のCSVを開いただけの場合はfalseにし、上書き保存で元データを壊さないようにする
         rawFileIsBundle: fileArray.length === 1 && drawings !== null,
+        // 新しいファイルを開いたら自動保存は必ず未武装に戻す（手動で上書き保存するまで始めない）
+        autoSaveArmed: false,
+        lastSavedBundleText: null,
         // ファイル選択欄はOS/ブラウザ標準のファイル名表示に頼らず、この文字列を自前で出す。
         // バンドル（描画データ入り）と分かっているものは、実際の拡張子に関わらず.vtd表記に揃える
         loadedFileLabel: fileArray.length === 1
@@ -775,7 +786,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     if (rawFileHandle !== null && rawFileIsBundle) {
       try {
         await writeToHandle(rawFileHandle, bundle);
-        set({ loadingMsg: `✓ ${loadedFileLabel} に上書き保存しました` });
+        // 手動での上書き保存が1回成功した時点で自動保存を武装する（ユーザーとの合意通り、
+        // ファイルを開いただけでは自動保存を始めない）
+        set({ loadingMsg: `✓ ${loadedFileLabel} に上書き保存しました`, autoSaveArmed: true, lastSavedBundleText: bundle });
         setTimeout(() => {
           if (get().loadingMsg.startsWith('✓')) set({ loadingMsg: '' });
         }, 4000);
@@ -792,6 +805,26 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     a.download = loadedFileLabel.replace(/\.(csv|vtd)$/i, '') + '.vtd';
     a.click();
     URL.revokeObjectURL(url);
+  },
+
+  // 上書き保存が1回成功した後、定期タイマー（App.tsx）から呼ばれる自動保存。
+  // 武装前・上書き対象が無い・前回保存から中身が変わっていない場合は何もしない
+  autoSaveTick: async () => {
+    const { autoSaveArmed, rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects, trendLines, arrows, brushes, texts, closedTrades, candles, cursor, lastSavedBundleText } = get();
+    if (!autoSaveArmed || rawCsvText === null || rawFileHandle === null || !rawFileIsBundle) return;
+    const cursorTime = candles[cursor]?.time;
+    const bundle = buildVtdBundle(rawCsvText, { lines, vlines, rects, trendLines, arrows, brushes, texts, closedTrades, cursorTime });
+    if (bundle === lastSavedBundleText) return; // 前回保存時から変化なし
+    try {
+      await writeToHandle(rawFileHandle, bundle);
+      set({ lastSavedBundleText: bundle, loadingMsg: `✓ ${loadedFileLabel} に自動保存しました` });
+      setTimeout(() => {
+        if (get().loadingMsg.startsWith('✓')) set({ loadingMsg: '' });
+      }, 4000);
+    } catch (e) {
+      // 自動保存の失敗はエラーバナーで気付ける程度に留め、armedは維持する（次回のtickで再試行）
+      set({ error: `自動保存に失敗しました: ${String(e)}` });
+    }
   },
 
   setTimeframe: async (sec: TimeframeSec, preloadedCandles?: Candle[]) => {

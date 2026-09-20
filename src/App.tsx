@@ -53,6 +53,15 @@ export default function App() {
   // 画面表示時点で DuckDB WASM を先読み（ファイル選択前に初期化を済ませる）
   useEffect(() => { initDuckDB().catch(() => {}); }, []);
 
+  // vtdの自動保存タイマー（10分ごと）。手動で「上書き保存」を1回成功させるまでは
+  // store側のautoSaveArmedがfalseのため実質no-op、前回保存から変化が無い時もスキップされる
+  useEffect(() => {
+    const id = setInterval(() => {
+      void useTraderStore.getState().autoSaveTick();
+    }, 10 * 60 * 1000);
+    return () => clearInterval(id);
+  }, []);
+
   // 画面全体へのCSV/vtdファイルのドラッグ&ドロップ読み込み。子要素をまたぐたびに
   // dragenter/dragleaveが発火するため、カウンタで「本当に画面外に出たか」を判定する
   const [isDragOver, setIsDragOver] = useState(false);
