@@ -3,10 +3,9 @@ import {
   createChart, LineStyle, CrosshairMode,
   type IChartApi, type ISeriesApi, type CandlestickSeriesOptions,
   type Time, type UTCTimestamp, type CandlestickData, type LineData, type IPriceLine,
-  type SeriesMarker,
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
-import type { Candle, Position, ClosedTrade, LineSelection, TimeframeSec, DrawnLine } from '../types';
+import type { Candle, LineSelection, TimeframeSec, DrawnLine } from '../types';
 import { TIMEFRAMES } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
@@ -162,49 +161,6 @@ function candleIndexAt(candles: Candle[], t: number): number {
   return idx;
 }
 
-// オープン中ポジション + 決済済みトレードからエントリー/決済マーカーを構築。
-// 決済済みトレードの番号は取引履歴パネル（HistoryPanel.tsx）の#列と同じ採番方式
-// （決済順=closeTime昇順で1から）にして、チャート上のマーカーと履歴の行を突き合わせられる
-// ようにする（未決済のオープン中ポジションはまだ履歴の一覧に出ないため番号は振らない）
-function buildTradeMarkers(positions: Position[], closedTrades: ClosedTrade[], sym: string): SeriesMarker<Time>[] {
-  const markers: SeriesMarker<Time>[] = [];
-
-  const tradeNoById = new Map<number, number>();
-  [...closedTrades].sort((a, b) => a.closeTime - b.closeTime).forEach((t, i) => tradeNoById.set(t.id, i + 1));
-
-  for (const pos of positions) {
-    const isBuy = pos.side === 'BUY';
-    markers.push({
-      time: pos.openTime as Time,
-      position: isBuy ? 'belowBar' : 'aboveBar',
-      color: isBuy ? '#26a69a' : '#ef5350',
-      shape: isBuy ? 'arrowUp' : 'arrowDown',
-      text: pos.side,
-    });
-  }
-
-  for (const t of closedTrades) {
-    const isBuy = t.side === 'BUY';
-    const no = tradeNoById.get(t.id);
-    markers.push({
-      time: t.openTime as Time,
-      position: isBuy ? 'belowBar' : 'aboveBar',
-      color: isBuy ? '#26a69a' : '#ef5350',
-      shape: isBuy ? 'arrowUp' : 'arrowDown',
-      text: `#${no} ${t.side}`,
-    });
-    markers.push({
-      time: t.closeTime as Time,
-      position: isBuy ? 'aboveBar' : 'belowBar',
-      color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
-      shape: 'circle',
-      text: `#${no} ${t.pnl >= 0 ? '+' : ''}${sym}${Math.round(t.pnl).toLocaleString()}`,
-    });
-  }
-
-  markers.sort((a, b) => (a.time as number) - (b.time as number));
-  return markers;
-}
 
 // 水平線を指定の時間足パネルで表示すべきか。hiddenTimeframesは1H/4H/1D/1W/MNのみを個別に
 // 保持でき、5m/15mは単独指定できないため1H(3600)がOFFかどうかに連動させる
@@ -289,6 +245,13 @@ export function CandleChart({
   const sessionBandsRef = useRef<SessionBand[]>([]);
   const sessionMarkerElRef = useRef<HTMLDivElement | null>(null);
   const syncSessionsRef = useRef<() => void>(() => {});
+  // トレード履歴マーカー（エントリー/決済）。ローソク足・インジケータと重ならないよう
+  // セッション帯と同じ下部の専用行にDOM要素で描く（以前はlightweight-charts標準の
+  // シリーズマーカーで足の高安のすぐ外側に描いており、密集すると価格やインジケータと
+  // 重なって見づらいという指摘を受けて撤去した）
+  const tradeMarkerOverlayRef = useRef<HTMLDivElement>(null);
+  const tradeMarkerElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const syncTradeMarkersRef = useRef<() => void>(() => {});
   const measureOverlayRef = useRef<HTMLDivElement>(null);
   const measureBoxRef = useRef<HTMLDivElement>(null);
   const measureMidLineRef = useRef<HTMLDivElement>(null);
@@ -1628,6 +1591,94 @@ export function CandleChart({
     syncSessionsRef.current = syncSessions;
     syncSessions();
 
+    // トレード履歴マーカー（エントリー/決済）をローソク足・インジケータと重ならない
+    // 専用行にDOM要素で描く。セッション帯のすぐ上（セッション非表示時はスクラバーの
+    // すぐ上）に積む。番号ラベル付きの小さいタグで、クリックで取引履歴の該当行へ飛べる
+    // （以前のcanvas描画+近似当たり判定は不要になったため撤去した）
+    const TRADE_MARKER_ROW_GAP = 6; // px。下の行（セッション帯 or スクラバー）との間隔
+    const syncTradeMarkers = () => {
+      if (!chartRef.current || !tradeMarkerOverlayRef.current) return;
+      const overlay = tradeMarkerOverlayRef.current;
+      const {
+        positions: allPositions, closedTrades: allClosedTrades, quoteCurrency: qc,
+        tradeMarkersVisible: visibleMap, showSessions: sessionsOn, chartBottomMargin: bottomMargin,
+      } = useTraderStore.getState();
+      const tf = timeframeSecRef.current;
+      const visible = visibleMap[tf] !== false;
+      overlay.style.display = visible ? 'block' : 'none';
+      if (!visible) return;
+
+      const sym = currencySymbol(qc);
+      const tradeNoById = new Map<number, number>();
+      [...allClosedTrades].sort((a, b) => a.closeTime - b.closeTime).forEach((t, i) => tradeNoById.set(t.id, i + 1));
+
+      type Mark = { key: string; time: number; color: string; text: string; tradeId: number | null };
+      const marks: Mark[] = [];
+      for (const pos of allPositions) {
+        const isBuy = pos.side === 'BUY';
+        marks.push({
+          key: `open-${pos.id}`, time: pos.openTime,
+          color: isBuy ? '#26a69a' : '#ef5350', text: pos.side, tradeId: null,
+        });
+      }
+      for (const t of allClosedTrades) {
+        const isBuy = t.side === 'BUY';
+        const no = tradeNoById.get(t.id);
+        marks.push({
+          key: `entry-${t.id}`, time: t.openTime,
+          color: isBuy ? '#26a69a' : '#ef5350', text: `#${no}`, tradeId: t.id,
+        });
+        marks.push({
+          key: `exit-${t.id}`, time: t.closeTime,
+          color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
+          text: `#${no} ${t.pnl >= 0 ? '+' : ''}${sym}${Math.round(t.pnl).toLocaleString()}`,
+          tradeId: t.id,
+        });
+      }
+
+      const els = tradeMarkerElsRef.current;
+      const nextKeys = new Set(marks.map(m => m.key));
+      for (const [key, el] of els) {
+        if (!nextKeys.has(key)) { el.remove(); els.delete(key); }
+      }
+
+      // セッション帯が出ている時はその上に、出ていない時はスクラバーのすぐ上に積む
+      const sessionsVisible = sessionsOn && tf < 86400;
+      const rowBottom = bottomMargin + SCRUBBER_TRACK_HEIGHT + TRADE_MARKER_ROW_GAP
+        + (sessionsVisible ? SESSION_ROW_HEIGHT + SESSION_ROW_GAP : 0);
+
+      for (const m of marks) {
+        let el = els.get(m.key);
+        if (!el) {
+          el = document.createElement('div');
+          el.style.position = 'absolute';
+          el.style.transform = 'translateX(-50%)';
+          el.style.whiteSpace = 'nowrap';
+          el.style.fontSize = '10px';
+          el.style.fontWeight = '700';
+          el.style.padding = '1px 4px';
+          el.style.borderRadius = '2px';
+          el.style.pointerEvents = m.tradeId !== null ? 'auto' : 'none';
+          if (m.tradeId !== null) {
+            el.style.cursor = 'pointer';
+            el.onclick = () => useTraderStore.getState().openHistoryForTrade(m.tradeId!);
+          }
+          overlay.appendChild(el);
+          els.set(m.key, el);
+        }
+        const x = timeToX(m.time);
+        if (x === null) { el.style.display = 'none'; continue; }
+        el.style.display = 'block';
+        el.style.left = `${x}px`;
+        el.style.bottom = `${rowBottom}px`;
+        el.style.backgroundColor = m.color;
+        el.style.color = '#0d0d0d';
+        el.textContent = m.text;
+      }
+    };
+    syncTradeMarkersRef.current = syncTradeMarkers;
+    syncTradeMarkers();
+
     // ── 発注パネルの draft 価格から リスクリワード（TP/SL比率）をプレビュー ──
     const RR_BOX_WIDTH = 70; // px
 
@@ -1895,12 +1946,6 @@ export function CandleChart({
         return;
       }
 
-      // どの特殊モードでもない通常クリック: #N付きのトレードマーカー（エントリー矢印/決済円）を
-      // 押したら取引履歴パネルを開いて該当行までスクロールする（当たり判定はhitTestTradeMarkerAtTime
-      // 共通関数、findHLineNear付近で定義。マウスホバー時のカーソル変更と同じロジックを使う）
-      if (param.time === undefined) return;
-      const hitId = hitTestTradeMarkerAtTime(param.time as number, param.point.y);
-      if (hitId !== null) useTraderStore.getState().openHistoryForTrade(hitId);
     });
 
     // ── 四角形（ドラッグで描画） ──────────────────────────────────
@@ -2152,52 +2197,6 @@ export function CandleChart({
         if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return line.id;
       }
       return null;
-    };
-
-    // 指定時刻の足にあるトレードマーカー（エントリー矢印/決済丸）のうち、clickYに一番近い
-    // ものを返す（当たり判定はTOL_PX以内）。マウスホバー時のカーソル変更（pointer表示）と
-    // 実際のクリック時のジャンプ処理（chart.subscribeClick）の両方から呼ぶ共通ロジック。
-    // マーカーはSeries Primitivesではなく専用canvasへの直接描画でDOM要素を持たないため、
-    // 高値/安値からの距離で近似的に判定する（正確な描画オフセットは取得できない）。
-    // トレードのopenTime/closeTimeは元の時間軸（実際に約定した分単位の時刻）そのものだが、
-    // 4H/1D等の上位時間軸パネルではclickTimeはそのパネル自身の足の開始時刻（例: 4H足の
-    // キリの良い時刻）になり、ほぼ一致しない。以前は完全一致(===)で判定しており、上位
-    // 時間軸パネルではほぼ絶対に当たらずクリックを拾えなかった（1H等ではopenTime/closeTime
-    // がたまたま足の開始時刻と一致しやすく動いて見えた）。この足の区間
-    // [clickTime, clickTime+timeframeSec) に収まっているかで判定するよう修正した
-    const hitTestTradeMarkerAtTime = (clickTime: number, clickY: number): number | null => {
-      if (!seriesRef.current) return null;
-      const candle = displayCandlesRef.current.find(c => c.time === clickTime);
-      if (!candle) return null;
-      const highY = seriesRef.current.priceToCoordinate(candle.high);
-      const lowY = seriesRef.current.priceToCoordinate(candle.low);
-      if (highY === null || lowY === null) return null;
-      const TOL_PX = 45;
-      const barEnd = clickTime + timeframeSecRef.current;
-      const { closedTrades: allClosedTrades } = useTraderStore.getState();
-      let bestId: number | null = null;
-      let bestDist = Infinity;
-      for (const t of allClosedTrades) {
-        const isBuy = t.side === 'BUY';
-        if (t.openTime >= clickTime && t.openTime < barEnd) {
-          // エントリー矢印: BUYはbelowBar（安値の下）、SELLはaboveBar（高値の上）
-          const dist = isBuy ? clickY - lowY : highY - clickY;
-          if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
-        }
-        if (t.closeTime >= clickTime && t.closeTime < barEnd) {
-          // 決済丸: エントリーと逆側（BUYはaboveBar、SELLはbelowBar）
-          const dist = isBuy ? highY - clickY : clickY - lowY;
-          if (dist >= -5 && dist <= TOL_PX && dist < bestDist) { bestId = t.id; bestDist = dist; }
-        }
-      }
-      return bestId;
-    };
-
-    const findTradeMarkerNear = (x: number, y: number): number | null => {
-      if (!chartRef.current) return null;
-      const t = chartRef.current.timeScale().coordinateToTime(x);
-      if (t === null) return null;
-      return hitTestTradeMarkerAtTime(t as number, y);
     };
 
     const findPriceTargetNear = (y: number): DragTarget | null => {
@@ -3381,10 +3380,7 @@ export function CandleChart({
         // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
         // 当たらなかった場合にのみカーソルを変える（mousedown側の優先順位と揃える）
         const hlineId = findHLineNear(y);
-        if (hlineId !== null) { container.style.cursor = 'ns-resize'; return; }
-        // トレードマーカー（#N）の上ではクリックで履歴へ飛べることが分かるようpointerにする
-        const tradeMarkerId = findTradeMarkerNear(x, y);
-        container.style.cursor = tradeMarkerId !== null ? 'pointer' : 'default';
+        container.style.cursor = hlineId !== null ? 'ns-resize' : 'default';
       }
     };
 
@@ -3986,6 +3982,8 @@ export function CandleChart({
       textElsRef.current.clear();
       weekLineElsRef.current.forEach(el => el.remove());
       weekLineElsRef.current = [];
+      tradeMarkerElsRef.current.forEach(el => el.remove());
+      tradeMarkerElsRef.current.clear();
       chart.remove();
       // chart.remove() で価格ラインも破棄されるため、次のマウント（StrictModeの
       // 二重実行や、4画面でのメインパネル切替による再マウント）で古い IPriceLine を
@@ -4305,10 +4303,12 @@ export function CandleChart({
   useEffect(() => {
     sessionBandsRef.current = computeSessionBands(displayCandles);
     syncSessionsRef.current();
+    syncTradeMarkersRef.current();
   }, [displayCandles, timeframeSec]);
 
   useEffect(() => {
     syncSessionsRef.current();
+    syncTradeMarkersRef.current();
   }, [showSessions]);
 
   // EMA 表示 ON/OFF。overlaysHidden中はvisibleを触らず色だけ透明にする
@@ -4341,11 +4341,10 @@ export function CandleChart({
     syncCloudRef.current();
   }, [showCloud, overlaysHidden]);
 
-  // エントリー / 決済マーカー（トレード履歴）。時間足ごとにtradeMarkersVisibleで表示/非表示を切替
+  // エントリー / 決済マーカー（トレード履歴）。専用行のDOM要素をsyncTradeMarkersRefで再同期する
+  // （時間足ごとの表示/非表示はsyncTradeMarkers内でtradeMarkersVisible mapを直接読んで判定）
   useEffect(() => {
-    seriesRef.current?.setMarkers(
-      tradeMarkersVisible ? buildTradeMarkers(positions, closedTrades, currencySymbol(quoteCurrency)) : []
-    );
+    syncTradeMarkersRef.current();
   }, [positions, closedTrades, quoteCurrency, tradeMarkersVisible]);
 
   // 1画面⇔4画面のレイアウト切替はパネルのCSSサイズだけを変える（ResizeObserver任せ）ため、
@@ -4412,6 +4411,7 @@ export function CandleChart({
         syncTextsRef.current();
         syncWeekLinesRef.current();
         syncSessionsRef.current();
+        syncTradeMarkersRef.current();
       });
     });
     return () => {
@@ -4499,6 +4499,7 @@ export function CandleChart({
       syncTextsRef.current();
       syncWeekLinesRef.current();
       syncSessionsRef.current();
+      syncTradeMarkersRef.current();
     });
     return () => cancelAnimationFrame(raf);
   }, [scrollToLatestSignal]);
@@ -4526,6 +4527,7 @@ export function CandleChart({
       syncTextsRef.current();
       syncWeekLinesRef.current();
       syncSessionsRef.current();
+      syncTradeMarkersRef.current();
     });
     return () => cancelAnimationFrame(raf);
   }, [followLatest, cursor, nonMainVisible]);
@@ -4581,6 +4583,7 @@ export function CandleChart({
     syncTextsRef.current();
     syncWeekLinesRef.current();
     syncSessionsRef.current();
+    syncTradeMarkersRef.current();
 
     syncScrubberRef.current();
 
@@ -4599,6 +4602,7 @@ export function CandleChart({
       syncTextsRef.current();
       syncWeekLinesRef.current();
       syncSessionsRef.current();
+      syncTradeMarkersRef.current();
 
       syncCloudRef.current();
       syncScrubberRef.current();
@@ -4644,6 +4648,7 @@ export function CandleChart({
     syncTextsRef.current();
     syncWeekLinesRef.current();
     syncSessionsRef.current();
+    syncTradeMarkersRef.current();
     // 新しいデータセットに切り替わった時だけ画面フィットする（CandleChart側の
     // 通常のフィット処理はcursor基準のためここでは自前でMiniChart.tsxと同じ判定を行う）。
     // ただし「メインだった枠が今まさに降格した直後」は、この枠は既にメインとして
@@ -4715,6 +4720,7 @@ export function CandleChart({
       syncTextsRef.current();
       syncWeekLinesRef.current();
       syncSessionsRef.current();
+      syncTradeMarkersRef.current();
     });
     return () => cancelAnimationFrame(raf);
   }, [isMain, nonMainVisible, nonMainCandles, timeframeSec]);
@@ -4865,6 +4871,7 @@ export function CandleChart({
       syncTextsRef.current();
       syncWeekLinesRef.current();
       syncSessionsRef.current();
+      syncTradeMarkersRef.current();
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -4905,6 +4912,7 @@ export function CandleChart({
       syncTextsRef.current();
       syncWeekLinesRef.current();
       syncSessionsRef.current();
+      syncTradeMarkersRef.current();
     });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5110,6 +5118,10 @@ export function CandleChart({
       {/* 東京/ロンドン/NYセッション帯。日付軸のすぐ上に1行だけ描く方式（syncSessions参照）なので
           週区切り線と同じ手前側のzIndexにして、ローソク足の下端に隠れないようにする */}
       <div ref={sessionOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 8 }} />
+      {/* トレード履歴マーカー（エントリー/決済）。セッション帯と同じ下部の専用行にDOM要素で描き、
+          ローソク足・インジケータと重ならないようにする（syncTradeMarkers参照）。個々のタグは
+          クリック可能なのでコンテナ自体はpointerEvents:noneのまま子要素だけautoにしている */}
+      <div ref={tradeMarkerOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 8 }} />
       {/* 四角形の枠線本体は専用canvasに自前描画（syncRects、destination-outでローソク足と
           重なった部分を透明に抜く）。価格軸に被らないよう幅はトレンドライン等と揃える。
           垂直線・四角形ハンドルのオーバーレイは価格軸の領域には侵入させない。overflow:hiddenと
