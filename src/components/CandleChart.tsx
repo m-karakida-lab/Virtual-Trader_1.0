@@ -1915,8 +1915,11 @@ export function CandleChart({
     // したが、series.update()で足を1本追加するだけでも（明示的にsetVisibleLogicalRangeを
     // 呼んでいなくても）このイベントが飛ぶため、範囲変更イベントではなくホイール（ズーム）と
     // ドラッグ（パン）というユーザー操作そのものを直接検知する方式を採る
+    // 非メインパネルは「最新足に固定」トグルに関わらず常時追従がデフォルト（下の
+    // followLatest継続追従effect参照）。メインは従来通りfollowLatestトグル依存のまま
+    const isFollowActiveNow = () => (isMainRef.current ? useTraderStore.getState().followLatest : true);
     const captureFollowAnchorFromCurrentView = () => {
-      if (!useTraderStore.getState().followLatest || !chartRef.current) return;
+      if (!isFollowActiveNow() || !chartRef.current) return;
       const lastIdx = effectiveCursorRef.current;
       if (lastIdx < 0) return;
       const range = chartRef.current.timeScale().getVisibleLogicalRange();
@@ -4543,34 +4546,6 @@ export function CandleChart({
     return () => cancelAnimationFrame(raf);
   }, [scrollToLatestSignal]);
 
-  // 「最新足に固定」の継続追従（followLatest）。リプレイ再生中も最新足を右寄せ位置に
-  // 保ち続けたい、という要望を受けて追加。「押した瞬間だけ移動して、再生を続けると
-  // 画面外に出て行ってしまう」という不具合として報告された——ボタンは元々ワンショットの
-  // ジャンプ（scrollToLatestSignal）でしかなく、以降の新しい足には追従していなかった。
-  // メインはcursor、非メインはnonMainVisible（＝displayCandles、どちらもeffective
-  // CursorRefに反映済み）が変わるたびに実行する。ユーザーがこのパネルを手動でパン/ズーム
-  // した場合は、追従自体は止めず、captureFollowAnchorFromCurrentView（上の方のmousedown/
-  // wheelハンドラ）がfollowAnchorRefをその操作後の位置に上書きするので、以降はその新しい
-  // 位置を保ったまま追従を続ける（他のパネルは自分のfollowAnchorRefのまま無関係に追従継続）
-  useEffect(() => {
-    if (!followLatest) { followAnchorRef.current = null; return; }
-    if (!chartRef.current) return;
-    applyLatestViewRef.current(false);
-    const raf = requestAnimationFrame(() => {
-      syncCloudRef.current();
-      syncVLinesRef.current();
-      syncRectsRef.current();
-      syncTrendLinesRef.current();
-      syncArrowsRef.current();
-      syncBrushesRef.current();
-      syncTextsRef.current();
-      syncWeekLinesRef.current();
-      syncSessionsRef.current();
-      syncTradeMarkersRef.current();
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [followLatest, cursor, nonMainVisible]);
-
   // リプレイモード: カーソル変化時にデータ更新（ローソク足 + EMA200）。
   // このステップ最適化（.update()による差分更新）はグローバルcandlesが1本ずつ
   // 増える前提に依存しており、非メイン（自前集計・別時間軸）には成立しないためメイン限定
@@ -4766,6 +4741,45 @@ export function CandleChart({
     });
     return () => cancelAnimationFrame(raf);
   }, [isMain, nonMainVisible, nonMainCandles, timeframeSec]);
+
+  // 「最新足に固定」の継続追従（followLatest）。リプレイ再生中も最新足を右寄せ位置に
+  // 保ち続けたい、という要望を受けて追加。「押した瞬間だけ移動して、再生を続けると
+  // 画面外に出て行ってしまう」という不具合として報告された——ボタンは元々ワンショットの
+  // ジャンプ（scrollToLatestSignal）でしかなく、以降の新しい足には追従していなかった。
+  // メインはcursor、非メインはnonMainVisible（＝displayCandles、どちらもeffective
+  // CursorRefに反映済み）が変わるたびに実行する。ユーザーがこのパネルを手動でパン/ズーム
+  // した場合は、追従自体は止めず、captureFollowAnchorFromCurrentView（上の方のmousedown/
+  // wheelハンドラ）がfollowAnchorRefをその操作後の位置に上書きするので、以降はその新しい
+  // 位置を保ったまま追従を続ける（他のパネルは自分のfollowAnchorRefのまま無関係に追従継続）。
+  // 非メイン（4画面の他3枠）はfollowLatestトグルに関わらず常時この追従を行う——非メインは
+  // データセット変更時に1回フィットするだけで以降は自動で進まず、メイン（1H等）だけが
+  // リプレイの進行に合わせて表示され4H/1D等がほぼ置いてけぼりになる不具合として発覚した。
+  // メインは従来通りfollowLatestトグル依存のまま（.update()によるネイティブ追従が既にある）。
+  // 非メインのsetData/初回フィットeffect（直前）より必ず後ろで宣言すること——先に置くと、
+  // データセット変更直後にこのeffectが先に走ってしまい、まだseries.setData()前（＝chartの
+  // 可視範囲がデフォルトの空状態）のタイミングでfollowAnchorRefを捕捉してしまう。一度
+  // 捕捉されたfollowAnchorRefはnullに戻らない限り使い回されるため、この不正な初期値が
+  // そのパネルの追従位置としてリプレイ中ずっと使われ続け、ロウソク足が表示されない
+  // 不具合になっていた（実際に4画面中1枠だけロウソク足が全く表示されない不具合として発覚）
+  useEffect(() => {
+    const active = isMainRef.current ? followLatest : true;
+    if (!active) { followAnchorRef.current = null; return; }
+    if (!chartRef.current) return;
+    applyLatestViewRef.current(false);
+    const raf = requestAnimationFrame(() => {
+      syncCloudRef.current();
+      syncVLinesRef.current();
+      syncRectsRef.current();
+      syncTrendLinesRef.current();
+      syncArrowsRef.current();
+      syncBrushesRef.current();
+      syncTextsRef.current();
+      syncWeekLinesRef.current();
+      syncSessionsRef.current();
+      syncTradeMarkersRef.current();
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [followLatest, cursor, nonMainVisible, isMain]);
 
   // 4画面時、他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）。
   // 上のメイン/非メインどちらのsetData effectよりも後ろで宣言すること——Reactは同一

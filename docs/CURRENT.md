@@ -52,7 +52,7 @@
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁）
 - チャート全表示: `cursor`を最後の足まで進める（`advanceToEnd`、通過範囲の注文約定・TP/SL判定も一括処理）。末尾にいる間は発注パネル・速度スライダーを無効化
 - 表示をリセット: 時間軸ズームを`resetTimeScale()`でデフォルトに戻し価格軸を`autoScale:true`に戻す。画面中心の足の位置は変えない
-- 最新足に固定（`followLatest`）: 各パネルの縮尺を維持したまま最新足を右オフセット位置に表示し続ける。組み込み`scrollToRealTime()`は使わず`setVisibleLogicalRange`で自前計算。頭打ち基準はCSV全期間本数（`candles.length`/`nonMainCandles.length`）。メインパネルの最新本数基準は`Math.min(cursor, candles.length-1)`。1枠で手動パン/ズームするとそのパネルの`followAnchorRef`だけ更新され他パネルは影響を受けない。ボタン押下時は全パネルの`followAnchorRef`をリセット
+- 最新足に固定（`followLatest`）: 各パネルの縮尺を維持したまま最新足を右オフセット位置に表示し続ける。組み込み`scrollToRealTime()`は使わず`setVisibleLogicalRange`で自前計算。頭打ち基準はCSV全期間本数（`candles.length`/`nonMainCandles.length`）。メインパネルの最新本数基準は`Math.min(cursor, candles.length-1)`。1枠で手動パン/ズームするとそのパネルの`followAnchorRef`だけ更新され他パネルは影響を受けない。ボタン押下時は全パネルの`followAnchorRef`をリセット。非メイン（4画面の他3枠）は`followLatest`トグルの状態に関わらず常時この追従を行う（メインのみトグル依存）——非メインでないと自動で最新足へ進まず、4H/1D等がリプレイの進行に置いてけぼりになるため
 - 日付ジャンプ（📅ボタン）: 日付のみ指定、常にその日00:00へジャンプ。縮尺維持で中心移動。「移動」は過去日付でも`cursor`を戻さず表示位置のみ移動、未来日付は`cursor`も進め通過範囲の約定判定を行う。「巻き戻し」は指定日付を新しい最新足にする（`cursor`をそのまま指定日付へ戻し、それより先の足を隠す。約定済みの注文・決済は取り消さない）
 - 画面キャプチャ: 「📷 キャプチャ」ボタンでチャート領域（`#vt-chart-capture-area`）をJPEGダウンロード（`src/lib/screenshot.ts`、`html-to-image`の`toJpeg`、`pixelRatio:1`/`quality:0.5`）。フローティング操作パネルは`EXCLUDED_IDS`で除外
 - 全期間スクラバー: チャート下端の細いシークバー（メインパネルのみ）。つまみドラッグで平行移動、余白クリックでその位置へジャンプ。`setVisibleLogicalRange`を直接呼びstore/cursorには触れない
@@ -185,6 +185,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - フォルダを開いた履歴はChrome/Edgeのみ対応（File System Access API）。Safari/Firefoxはフォールバックし履歴機能自体出ない
 - 履歴の`FileSystemDirectoryHandle`は`startIn`の起点としてのみ使う（中身は読まない）。フルパスは取得不可能な仕様のため表示名はフォルダ名止まり
 - 保存ビュー復元（`relativeViewToLogicalRange`）のspanは全期間本数でクランプするが、位置は`cursor`/`lastIdx`（revealされている本数）基準で右オフセットするため、リプレイ序盤でrevealが少ないと`from`が負（実データの無い過去側）にはみ出し、軸日付が実データとずれ小数の足が右端に押し込まれて見える。`to`固定・`from`を0未満にクランプして回避（`CandleChart.tsx`のメイン/非メイン両方の分岐）
+- 非メイン（4画面の他3枠）はデータセット変更時に1回フィットするだけで以降は自動で進まない設計だったため、「最新足に固定」の継続追従effect（`followLatest`）をfollowLatestトグルに関わらず非メインは常時有効にした（メインは従来通りトグル依存）。この継続追従effectは非メインのsetData/初回フィットeffectより**必ず後ろ**で宣言すること——先に置くと、データセット変更直後にまだ`series.setData()`前（＝可視範囲がデフォルトの空状態）のタイミングで`followAnchorRef`を誤って捕捉してしまい、以降ずっとそのパネルにロウソク足が表示されなくなる
 - フロートパネルの位置クランプは`chart.priceScale('right').width()`/`chart.timeScale().height()`の実測値をstore経由で共有
 - `setTimeframe`のカーソル復元は新しい足の**終了時刻**で比較すること（`newCandles[i].time + sec <= currentClose`、開始時刻だけだと先出しになる）
 - `FloatingControls`は`offsetParent`基準でクランプ
