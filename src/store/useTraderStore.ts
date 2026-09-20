@@ -230,6 +230,7 @@ interface TraderState {
   // 新しいファイルを読み込むとfalseに戻る。localStorageには永続化しない
   autoSaveArmed: boolean;
   lastSavedBundleText: string | null; // 直近の保存内容。自動保存は前回保存時から変化が無ければ書き込みをスキップする
+  lastSavedAt: number | null; // 直近の保存（手動上書き/自動どちらも）が成功したUnixミリ秒。UIの「最終保存」表示用
   lots: number;          // 発注ロット数（固定モード時に使用）
   lotMode: 'fixed' | 'risk'; // ロット指定方法
   riskPercent: number;       // リスクモード時: 残高に対する許容損失の割合（%）
@@ -597,6 +598,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   rawFileIsBundle: false,
   autoSaveArmed: false,
   lastSavedBundleText: null,
+  lastSavedAt: null,
   loadedFileLabel: '選択されていません',
   lots: 10_000,
   lotMode: 'risk',
@@ -753,6 +755,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         // 新しいファイルを開いたら自動保存は必ず未武装に戻す（手動で上書き保存するまで始めない）
         autoSaveArmed: false,
         lastSavedBundleText: null,
+        lastSavedAt: null,
         // ファイル選択欄はOS/ブラウザ標準のファイル名表示に頼らず、この文字列を自前で出す。
         // バンドル（描画データ入り）と分かっているものは、実際の拡張子に関わらず.vtd表記に揃える
         loadedFileLabel: fileArray.length === 1
@@ -788,7 +791,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         await writeToHandle(rawFileHandle, bundle);
         // 手動での上書き保存が1回成功した時点で自動保存を武装する（ユーザーとの合意通り、
         // ファイルを開いただけでは自動保存を始めない）
-        set({ loadingMsg: `✓ ${loadedFileLabel} に上書き保存しました`, autoSaveArmed: true, lastSavedBundleText: bundle });
+        set({ loadingMsg: `✓ ${loadedFileLabel} に上書き保存しました`, autoSaveArmed: true, lastSavedBundleText: bundle, lastSavedAt: Date.now() });
         setTimeout(() => {
           if (get().loadingMsg.startsWith('✓')) set({ loadingMsg: '' });
         }, 4000);
@@ -817,7 +820,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     if (bundle === lastSavedBundleText) return; // 前回保存時から変化なし
     try {
       await writeToHandle(rawFileHandle, bundle);
-      set({ lastSavedBundleText: bundle, loadingMsg: `✓ ${loadedFileLabel} に自動保存しました` });
+      set({ lastSavedBundleText: bundle, lastSavedAt: Date.now(), loadingMsg: `✓ ${loadedFileLabel} に自動保存しました` });
       setTimeout(() => {
         if (get().loadingMsg.startsWith('✓')) set({ loadingMsg: '' });
       }, 4000);
