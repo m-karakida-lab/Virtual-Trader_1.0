@@ -262,9 +262,9 @@ export function PalettePanel() {
                     }}
                     title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
                     style={{
-                      backgroundColor: isOn ? '#2a2a2a' : '#161616',
-                      color: isOn ? '#e0e0e0' : '#666',
-                      border: isOn ? '2px solid #42a5f5' : '1px solid #222',
+                      backgroundColor: isOn ? '#202020' : '#161616',
+                      color: isOn ? '#ccc' : '#666',
+                      border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
                       borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
                     }}
                   >{opt.label}</button>
