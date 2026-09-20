@@ -6,10 +6,9 @@ const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
 const DASH_OPTIONS: { v: LineDash; label: string }[] = [
   { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
 ];
-// 水平線の表示範囲。選んだ足「以下」（より短い足）にも自動的に表示される
-// （例: 4Hを選ぶと4H/1H/15m/5mに出るが1D/1W/MNには出ない）。nullは全時間足で表示（デフォルト）
-const HLINE_MAX_TF_OPTIONS: { v: TimeframeSec | null; label: string }[] = [
-  { v: null, label: '全時間足' },
+// 水平線の表示時間足。個別にON/OFFでき、デフォルトは全部ON（全時間足で表示）。
+// 1HをOFFにすると5m/15mも連動して非表示になる（5m/15mは単独指定不可）
+const HLINE_TF_OPTIONS: { v: TimeframeSec; label: string }[] = [
   { v: 3600, label: '1H' },
   { v: 14400, label: '4H' },
   { v: 86400, label: '1D' },
@@ -49,10 +48,10 @@ export function PalettePanel() {
   const setBrushDraft = useTraderStore(s => s.setBrushDraft);
   const setTextDraft = useTraderStore(s => s.setTextDraft);
   const updateLine = useTraderStore(s => s.updateLine);
-  // 水平線を選択編集中の時だけ使う、表示する時間足の上限設定（新規配置前のarmed状態には
-  // 対応しない＝常に「全時間足」で配置し、必要なら配置後にここで絞り込む運用にしている）
-  const selectedHLineMaxTf = useTraderStore(s =>
-    selected?.kind === 'h' ? (s.lines.find(l => l.id === selected.id)?.maxTimeframe ?? null) : null
+  // 水平線を選択編集中の時だけ使う、時間足ごとの表示ON/OFF（新規配置前のarmed状態には
+  // 対応しない＝常に全時間足ONで配置し、必要なら配置後にここで個別にOFFする運用にしている）
+  const selectedHLineHidden = useTraderStore(s =>
+    selected?.kind === 'h' ? (s.lines.find(l => l.id === selected.id)?.hiddenTimeframes ?? []) : []
   );
 
   // 「書いてから見た目を直す」だけでなく「見た目を決めてから書く」需要があるため、図形を
@@ -250,19 +249,27 @@ export function PalettePanel() {
           </div>
           {selected?.kind === 'h' && (
             <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-              {HLINE_MAX_TF_OPTIONS.map(opt => (
-                <button
-                  key={String(opt.v)}
-                  onClick={() => updateLine(selected.id, { maxTimeframe: opt.v })}
-                  title="選んだ足以下（より短い足）にも自動的に表示されます"
-                  style={{
-                    backgroundColor: selectedHLineMaxTf === opt.v ? '#2a2a2a' : '#161616',
-                    color: selectedHLineMaxTf === opt.v ? '#e0e0e0' : '#666',
-                    border: selectedHLineMaxTf === opt.v ? '2px solid #42a5f5' : '1px solid #222',
-                    borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-                  }}
-                >{opt.label}</button>
-              ))}
+              {HLINE_TF_OPTIONS.map(opt => {
+                const isOn = !selectedHLineHidden.includes(opt.v);
+                return (
+                  <button
+                    key={opt.v}
+                    onClick={() => {
+                      const next = isOn
+                        ? [...selectedHLineHidden, opt.v]
+                        : selectedHLineHidden.filter(v => v !== opt.v);
+                      updateLine(selected.id, { hiddenTimeframes: next });
+                    }}
+                    title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
+                    style={{
+                      backgroundColor: isOn ? '#2a2a2a' : '#161616',
+                      color: isOn ? '#e0e0e0' : '#666',
+                      border: isOn ? '2px solid #42a5f5' : '1px solid #222',
+                      borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                    }}
+                  >{opt.label}</button>
+                );
+              })}
             </div>
           )}
         </>

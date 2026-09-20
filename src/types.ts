@@ -78,9 +78,10 @@ export interface DrawnLine {
   color: string;
   dash: LineDash;
   width: LineWidth;
-  // このラインを表示する上限の時間足（例: '4H'を選ぶと4H以下＝1H/15m/5mでも自動的に表示され、
-  // 1D/1W/MNでは表示されない）。undefined/null = 全時間足で表示（デフォルト、従来の挙動）
-  maxTimeframe?: TimeframeSec | null;
+  // このラインを表示しない時間足（1H/4H/1D/1W/MNのみ指定可、個別にON/OFFできる）。
+  // 5m/15mは単独指定できず、1Hがここに含まれる＝OFFの時だけ連動して非表示になる
+  // （それ以外は常にデフォルトON）。undefined/空配列 = 全時間足で表示（デフォルト）
+  hiddenTimeframes?: TimeframeSec[];
 }
 
 // ── 垂直線 ───────────────────────────────────────────────────────────────

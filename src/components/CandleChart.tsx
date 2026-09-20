@@ -6,7 +6,7 @@ import {
   type SeriesMarker,
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
-import type { Candle, Position, ClosedTrade, LineSelection, TimeframeSec } from '../types';
+import type { Candle, Position, ClosedTrade, LineSelection, TimeframeSec, DrawnLine } from '../types';
 import { TIMEFRAMES } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
@@ -204,6 +204,15 @@ function buildTradeMarkers(positions: Position[], closedTrades: ClosedTrade[], s
 
   markers.sort((a, b) => (a.time as number) - (b.time as number));
   return markers;
+}
+
+// 水平線を指定の時間足パネルで表示すべきか。hiddenTimeframesは1H/4H/1D/1W/MNのみを個別に
+// 保持でき、5m/15mは単独指定できないため1H(3600)がOFFかどうかに連動させる
+function isHLineVisibleAt(line: DrawnLine, timeframeSec: TimeframeSec): boolean {
+  const hidden = line.hiddenTimeframes;
+  if (!hidden || hidden.length === 0) return true;
+  const key = timeframeSec < 3600 ? 3600 : timeframeSec;
+  return !hidden.includes(key as TimeframeSec);
 }
 
 // Cmd/Ctrl+C→VのクリップボードはCandleChartコンポーネントの寿命内だけ有効な状態だが、
@@ -2137,8 +2146,8 @@ export function CandleChart({
       const { lines: currentLines } = useTraderStore.getState();
       const tf = timeframeSecRef.current;
       for (const line of currentLines) {
-        // このパネルの時間足では非表示（maxTimeframe設定で除外）のラインは当たり判定も無効にする
-        if (line.maxTimeframe != null && tf > line.maxTimeframe) continue;
+        // このパネルの時間足では非表示（hiddenTimeframes設定で除外）のラインは当たり判定も無効にする
+        if (!isHLineVisibleAt(line, tf)) continue;
         const ly = seriesRef.current.priceToCoordinate(line.price);
         if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return line.id;
       }
@@ -4014,9 +4023,8 @@ export function CandleChart({
     const series = seriesRef.current;
     try {
       const existing = priceLineMapRef.current;
-      // maxTimeframeが指定されているラインは、それ以下（より短い足）のパネルにだけ表示する
-      // （例: 4Hを設定すると4H/1H/15m/5mには出るが1D/1W/MNには出ない）。未指定は全時間足で表示
-      const visibleLines = lines.filter(l => l.maxTimeframe == null || timeframeSec <= l.maxTimeframe);
+      // 時間足ごとにON/OFFできる（hiddenTimeframes）。1Hのみ5m/15mの表示にも連動する
+      const visibleLines = lines.filter(l => isHLineVisibleAt(l, timeframeSec));
       const nextIds = new Set(visibleLines.map(l => l.id));
 
       // 削除された、またはこのパネルの時間足では非表示になったラインを除去
