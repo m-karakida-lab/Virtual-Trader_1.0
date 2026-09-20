@@ -1,10 +1,20 @@
 import { useRef, useState, useEffect } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import { LINE_COLORS, TEXT_FONT_SIZES, type LineDash, type LineWidth, type TextBorderStyle } from '../types';
+import { LINE_COLORS, TEXT_FONT_SIZES, WEEK_SEC, MONTH_SEC, type LineDash, type LineWidth, type TextBorderStyle, type TimeframeSec } from '../types';
 
 const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
 const DASH_OPTIONS: { v: LineDash; label: string }[] = [
   { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
+];
+// 水平線の表示範囲。選んだ足「以下」（より短い足）にも自動的に表示される
+// （例: 4Hを選ぶと4H/1H/15m/5mに出るが1D/1W/MNには出ない）。nullは全時間足で表示（デフォルト）
+const HLINE_MAX_TF_OPTIONS: { v: TimeframeSec | null; label: string }[] = [
+  { v: null, label: '全時間足' },
+  { v: 3600, label: '1H' },
+  { v: 14400, label: '4H' },
+  { v: 86400, label: '1D' },
+  { v: WEEK_SEC, label: '1W' },
+  { v: MONTH_SEC, label: 'MN' },
 ];
 const TEXT_BORDER_OPTIONS: { v: TextBorderStyle; label: string }[] = [
   { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' }, { v: 'none', label: '枠なし' },
@@ -38,6 +48,12 @@ export function PalettePanel() {
   const setArrowDraft = useTraderStore(s => s.setArrowDraft);
   const setBrushDraft = useTraderStore(s => s.setBrushDraft);
   const setTextDraft = useTraderStore(s => s.setTextDraft);
+  const updateLine = useTraderStore(s => s.updateLine);
+  // 水平線を選択編集中の時だけ使う、表示する時間足の上限設定（新規配置前のarmed状態には
+  // 対応しない＝常に「全時間足」で配置し、必要なら配置後にここで絞り込む運用にしている）
+  const selectedHLineMaxTf = useTraderStore(s =>
+    selected?.kind === 'h' ? (s.lines.find(l => l.id === selected.id)?.maxTimeframe ?? null) : null
+  );
 
   // 「書いてから見た目を直す」だけでなく「見た目を決めてから書く」需要があるため、図形を
   // 選択していなくても描画ツールのどれかが起動中（配置前）ならパレットを出す。その場合は
@@ -232,6 +248,23 @@ export function PalettePanel() {
               >{w}px</button>
             ))}
           </div>
+          {selected?.kind === 'h' && (
+            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+              {HLINE_MAX_TF_OPTIONS.map(opt => (
+                <button
+                  key={String(opt.v)}
+                  onClick={() => updateLine(selected.id, { maxTimeframe: opt.v })}
+                  title="選んだ足以下（より短い足）にも自動的に表示されます"
+                  style={{
+                    backgroundColor: selectedHLineMaxTf === opt.v ? '#2a2a2a' : '#161616',
+                    color: selectedHLineMaxTf === opt.v ? '#e0e0e0' : '#666',
+                    border: selectedHLineMaxTf === opt.v ? '2px solid #42a5f5' : '1px solid #222',
+                    borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                  }}
+                >{opt.label}</button>
+              ))}
+            </div>
+          )}
         </>
       )}
     </div>

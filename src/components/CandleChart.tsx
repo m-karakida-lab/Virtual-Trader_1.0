@@ -2135,7 +2135,10 @@ export function CandleChart({
     const findHLineNear = (y: number): number | null => {
       if (!seriesRef.current) return null;
       const { lines: currentLines } = useTraderStore.getState();
+      const tf = timeframeSecRef.current;
       for (const line of currentLines) {
+        // このパネルの時間足では非表示（maxTimeframe設定で除外）のラインは当たり判定も無効にする
+        if (line.maxTimeframe != null && tf > line.maxTimeframe) continue;
         const ly = seriesRef.current.priceToCoordinate(line.price);
         if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return line.id;
       }
@@ -4011,9 +4014,12 @@ export function CandleChart({
     const series = seriesRef.current;
     try {
       const existing = priceLineMapRef.current;
-      const nextIds = new Set(lines.map(l => l.id));
+      // maxTimeframeが指定されているラインは、それ以下（より短い足）のパネルにだけ表示する
+      // （例: 4Hを設定すると4H/1H/15m/5mには出るが1D/1W/MNには出ない）。未指定は全時間足で表示
+      const visibleLines = lines.filter(l => l.maxTimeframe == null || timeframeSec <= l.maxTimeframe);
+      const nextIds = new Set(visibleLines.map(l => l.id));
 
-      // 削除されたラインを除去
+      // 削除された、またはこのパネルの時間足では非表示になったラインを除去
       for (const [id, priceLine] of existing) {
         if (!nextIds.has(id)) {
           series.removePriceLine(priceLine);
@@ -4022,7 +4028,7 @@ export function CandleChart({
       }
 
       // 追加 or 更新（既存ラインは applyOptions で in-place 更新。remove+create だとドラッグ中にカクつく）
-      for (const line of lines) {
+      for (const line of visibleLines) {
         const opts = {
           price: line.price,
           color: line.color,
@@ -4042,7 +4048,7 @@ export function CandleChart({
       logError('CandleChart:hlines', e);
     }
     syncVLinesRef.current();
-  }, [lines, selected, overlaysHidden, showHLinePriceLabel]);
+  }, [lines, selected, overlaysHidden, showHLinePriceLabel, timeframeSec]);
 
   // 垂直線の日付ラベルON/OFFが切り替わった時だけ再同期する（vlines自体の変化は
   // 上のhline用useEffect末尾のsyncVLinesRef経由で既にカバーされている）

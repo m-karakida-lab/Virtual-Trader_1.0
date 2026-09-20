@@ -78,6 +78,9 @@ export interface DrawnLine {
   color: string;
   dash: LineDash;
   width: LineWidth;
+  // このラインを表示する上限の時間足（例: '4H'を選ぶと4H以下＝1H/15m/5mでも自動的に表示され、
+  // 1D/1W/MNでは表示されない）。undefined/null = 全時間足で表示（デフォルト、従来の挙動）
+  maxTimeframe?: TimeframeSec | null;
 }
 
 // ── 垂直線 ───────────────────────────────────────────────────────────────
