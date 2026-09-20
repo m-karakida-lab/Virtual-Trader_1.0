@@ -373,12 +373,51 @@ export function CandleChart({
     const sameSource = nonMainVisibleSourceRef.current === nonMainCandles;
     const sameContent = sameSource && prev.length === next.length &&
       (next.length === 0 || (prev[0] === next[0] && prev[next.length - 1] === next[next.length - 1]));
-    if (sameContent) return prev;
-    nonMainVisibleRef.current = next;
-    nonMainVisibleSourceRef.current = nonMainCandles;
-    return next;
+    const closed = sameContent ? prev : next;
+    if (!sameContent) {
+      nonMainVisibleRef.current = next;
+      nonMainVisibleSourceRef.current = nonMainCandles;
+    }
+
+    // 形成中（まだ閉じていない）最新足を末尾に追加する。「上位足が閉じるまで何も
+    // 出さない」だと、メインが1本進むたびに上位足の表示が2〜3日分も遅れて見え、
+    // しかもバケットが閉じた瞬間だけ1日分ドンと進むように見えて不自然（実際に指摘を
+    // 受けて判明）。closed（上のsameContent最適化対象）とは別に、こちらは意図的に
+    // メインが1本進むたびに毎回新しい配列を返す（形成中の足はメインの進行に合わせて
+    // 中身が変わり続けるべきものなので安定化の対象外にする）
+    const curTime = candles[cursor]?.time;
+    if (curTime === undefined || nonMainCandles.length === 0) return closed;
+    // バケット開始時刻はnonMainCandles自身から引く。ここでfloor(curTime/timeframeSec)を
+    // 独自に計算し直すと、queryCandlesのブローカー時間バケット境界＋JST表示ズレ（不変
+    // 条件/地雷を参照）と食い違い、実在しない境界で足を切ってしまう不具合を踏む
+    let lo = 0, hi = nonMainCandles.length - 1, bi = -1;
+    while (lo <= hi) {
+      const mid = (lo + hi) >> 1;
+      if (nonMainCandles[mid].time <= curTime) { bi = mid; lo = mid + 1; } else hi = mid - 1;
+    }
+    if (bi < 0) return closed;
+    const bucketStart = nonMainCandles[bi].time;
+    // 既にclosed側でこのバケットが確定済みとして入っているなら二重追加しない
+    if (closed.length > 0 && closed[closed.length - 1].time === bucketStart) return closed;
+    // nonMainCandles側の値はCSV全期間（未来分も含む）から集計済みのため使えない
+    // （先出し防止）。メインの確定済み足（0..cursor）からこのバケット範囲だけを
+    // 自前で再集計する
+    const bucketEnd = bucketStart + timeframeSec;
+    let formOpen: number | null = null, formHigh = -Infinity, formLow = Infinity, formClose = 0;
+    for (let i = cursor; i >= 0; i--) {
+      const c = candles[i];
+      if (c.time < bucketStart) break;
+      if (c.time >= bucketEnd) continue; // 週足/月足はバケット幅が一定でないためtimeframeSecが近似値になる保険
+      if (formOpen === null) formClose = c.close;
+      formOpen = c.open;
+      formHigh = Math.max(formHigh, c.high);
+      formLow = Math.min(formLow, c.low);
+    }
+    if (formOpen === null) return closed;
+    const forming: Candle = { time: bucketStart, open: formOpen, high: formHigh, low: formLow, close: formClose };
+    return [...closed, forming];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nonMainCandles, nonMainCursorEnd, timeframeSec]);
+  }, [nonMainCandles, nonMainCursorEnd, timeframeSec, candles, cursor]);
   // このインスタンスが実際に描画すべき足データ（メインはグローバル、非メインは上記の自前集計＋未来隠し）
   const displayCandles = isMain ? candles : nonMainVisible;
 
