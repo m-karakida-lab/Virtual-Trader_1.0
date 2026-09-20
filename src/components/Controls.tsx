@@ -576,20 +576,20 @@ export function Controls() {
                 )}
               </SettingsSection>
 
-              <SettingsSection icon="🪲" title="ログ" last={!autoSaveArmed}>
+              <SettingsSection icon="🪲" title="ログ">
                 <ErrorLogSection />
               </SettingsSection>
 
-              {/* 設定項目ではなく状態表示だけのセクション。自動保存が武装されていない
-                  （＝一度も上書き保存していない）間は動いていないので出さない */}
-              {autoSaveArmed && (
-                <SettingsSection icon="💾" title="自動保存" last>
-                  <span style={{ color: '#888', fontSize: '13px' }}>
-                    ON{lastSavedAt !== null ? `・最終保存 ${fmtSavedAt(lastSavedAt)}` : ''}
-                    <span style={{ color: '#555' }}>（10分ごと、変更があった時のみ）</span>
-                  </span>
-                </SettingsSection>
-              )}
+              {/* 設定項目ではなく状態表示だけのセクション。常時表示し、OFF（一度も
+                  上書き保存していない）の状態も分かるようにする */}
+              <SettingsSection icon="💾" title="自動保存" last>
+                <span style={{ color: autoSaveArmed ? '#888' : '#555', fontSize: '13px' }}>
+                  {autoSaveArmed
+                    ? <>ON{lastSavedAt !== null ? `・最終保存 ${fmtSavedAt(lastSavedAt)}` : ''}</>
+                    : 'OFF（「上書き保存」を1回行うと有効になります）'}
+                  {autoSaveArmed && <span style={{ color: '#555' }}>（10分ごと、変更があった時のみ）</span>}
+                </span>
+              </SettingsSection>
             </div>
           </MenuButton>
         </div>
