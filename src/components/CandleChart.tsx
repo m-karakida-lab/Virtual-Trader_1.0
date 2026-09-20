@@ -1490,6 +1490,8 @@ export function CandleChart({
     const SESSION_ROW_HEIGHT = 4; // px。下のスクラバー本体（bar、太さ4px）と揃える
     const SCRUBBER_TRACK_HEIGHT = 20; // px。下のscrubberTrackRefの高さと揃える（判定域込み）
     const SESSION_ROW_GAP = 6; // px。スクラバーとの間隔
+    const SESSION_MARKER_GAP = 3; // px。セッション帯の上端から現在足の白い縦目印までの間隔
+    const SESSION_MARKER_HEIGHT = 8; // px。現在足の白い縦目印の高さ
     const syncSessions = () => {
       if (!chartRef.current || !sessionOverlayRef.current) return;
       const { showSessions: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
@@ -1584,8 +1586,8 @@ export function CandleChart({
         marker.style.left = `${mx - 1}px`;
         // アクティブな帯の白枠（outline）と同じ位置・同じ白だと埋もれて見えなくなるため、
         // 帯の上端よりさらに上に離して配置する（帯と重ねない）
-        marker.style.bottom = `${rowBottom + SESSION_ROW_HEIGHT + 3}px`;
-        marker.style.height = '8px';
+        marker.style.bottom = `${rowBottom + SESSION_ROW_HEIGHT + SESSION_MARKER_GAP}px`;
+        marker.style.height = `${SESSION_MARKER_HEIGHT}px`;
       }
     };
     syncSessionsRef.current = syncSessions;
@@ -1642,10 +1644,12 @@ export function CandleChart({
         if (!nextKeys.has(key)) { el.remove(); els.delete(key); }
       }
 
-      // セッション帯が出ている時はその上に、出ていない時はスクラバーのすぐ上に積む
+      // セッション帯が出ている時は、帯そのものではなく現在足の白い縦目印（帯の上端よりさらに
+      // 上に出る、syncSessions参照）の上に積む。帯の上端に合わせただけだとその縦目印と
+      // 高さが重なって見づらいという指摘を受けた。セッション非表示時はスクラバーのすぐ上
       const sessionsVisible = sessionsOn && tf < 86400;
       const rowBottom = bottomMargin + SCRUBBER_TRACK_HEIGHT + TRADE_MARKER_ROW_GAP
-        + (sessionsVisible ? SESSION_ROW_HEIGHT + SESSION_ROW_GAP : 0);
+        + (sessionsVisible ? SESSION_ROW_GAP + SESSION_ROW_HEIGHT + SESSION_MARKER_GAP + SESSION_MARKER_HEIGHT : 0);
 
       for (const m of marks) {
         let el = els.get(m.key);
@@ -1863,7 +1867,7 @@ export function CandleChart({
     };
 
     const onRangeChange = () => {
-      syncVLines(); syncRects(); syncTrendLines(); syncArrows(); syncBrushes(); syncTexts(); syncWeekLines(); syncSessions(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
+      syncVLines(); syncRects(); syncTrendLines(); syncArrows(); syncBrushes(); syncTexts(); syncWeekLines(); syncSessions(); syncTradeMarkers(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
