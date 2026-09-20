@@ -1,10 +1,5 @@
 // 取引履歴の「リスクとパフォーマンス指標」計算。closedTradesとinitialBalanceから純粋関数で
 // 算出する（UI側はこの結果を表示するだけ）。
-//
-// 「レストレーションファクター」「リライアビリティファクター」は一般的な指標名ではなく
-// 定まった定義が見つからなかったため、ユーザーへ確認の上で以下の定義で実装している：
-//   レストレーションファクター = 最大ドローダウン ÷ 純利益（小さいほど損失からの回復が早い）
-//   リライアビリティファクター = 勝ちトレード数 ÷ トレード総数（勝率%を比率のまま表したもの）
 import type { ClosedTrade } from '../types';
 import { MONTH_SEC } from '../types';
 import { SESSIONS, sessionKeyAt } from './sessions';
@@ -29,7 +24,6 @@ export interface TradeStats {
   avgWin: number;
   avgLoss: number; // 負の値
   maxDrawdown: number; // 正の値（下落幅）
-  maxDailyLossPct: number | null; // 正の値（%、その日の開始残高比）。取引が無ければnull
   profitFactor: number | null;
   returnPct: number | null;
 
@@ -53,8 +47,6 @@ export interface TradeStats {
 
   // その他
   maxLots: number;
-  restorationFactor: number | null;
-  reliabilityFactor: number | null;
   winRatePct: number | null;
   lossRatePct: number | null;
 
@@ -127,29 +119,6 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
     maxDrawdown = Math.max(maxDrawdown, peak - bal);
   }
 
-  // 当日最大損失率%: 日ごとの損益を積み上げ、その日の開始残高に対する下落率が最も大きい日を探す
-  let dayBal = initialBalance;
-  let dayStartBal = initialBalance;
-  let curDay: number | null = null;
-  let maxDailyLossPct: number | null = null;
-  const closeDayEnd = () => {
-    if (curDay === null) return;
-    const dayPnl = dayBal - dayStartBal;
-    if (dayPnl < 0 && dayStartBal > 0) {
-      const lossPct = (-dayPnl / dayStartBal) * 100;
-      maxDailyLossPct = maxDailyLossPct === null ? lossPct : Math.max(maxDailyLossPct, lossPct);
-    }
-  };
-  for (const t of sorted) {
-    const day = dayStartOf(t.closeTime);
-    if (curDay === null) { curDay = day; dayStartBal = dayBal; }
-    else if (day !== curDay) { closeDayEnd(); curDay = day; dayStartBal = dayBal; }
-    dayBal += t.pnl;
-  }
-  closeDayEnd();
-
-  const restorationFactor = netProfit !== 0 ? maxDrawdown / netProfit : null;
-  const reliabilityFactor = totalTrades > 0 ? winCount / totalTrades : null;
   const winRatePct = totalTrades > 0 ? (winCount / totalTrades) * 100 : null;
   const lossRatePct = totalTrades > 0 ? (lossCount / totalTrades) * 100 : null;
 
@@ -166,11 +135,11 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
 
   return {
     netProfit, avgTradePnl, grossProfit, grossLoss, avgMonthlyProfit, avgWin, avgLoss,
-    maxDrawdown, maxDailyLossPct, profitFactor, returnPct,
+    maxDrawdown, profitFactor, returnPct,
     totalTrades, tradingDays, winCount, lossCount, maxConsecutiveWins, maxConsecutiveLosses,
     avgTradesPerDay, avgTradesPerMonth, avgWinsPerMonth, avgLossesPerMonth, largestWin, largestLoss,
     elapsedDays, elapsedMonths,
-    maxLots, restorationFactor, reliabilityFactor, winRatePct, lossRatePct,
+    maxLots, winRatePct, lossRatePct,
     bySession,
   };
 }

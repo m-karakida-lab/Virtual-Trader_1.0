@@ -425,7 +425,6 @@ export function HistoryPanel() {
                 <StatRow label="利益平均額" value={fmtMoneyAbs(rs.avgWin)} />
                 <StatRow label="損失平均額" value={fmtMoneyAbs(rs.avgLoss)} />
                 <StatRow label="最大ドローダウン" value={fmtMoneyAbs(rs.maxDrawdown)} />
-                <StatRow label="当日最大損失率" value={nn(rs.maxDailyLossPct, v => fmtPct(v))} />
                 <StatRow label="プロフィットファクター" value={nn(rs.profitFactor, v => v.toFixed(2))} />
                 <StatRow label="リターン" value={nn(rs.returnPct, v => fmtPct(v))} />
               </StatGroup>
@@ -452,8 +451,6 @@ export function HistoryPanel() {
 
               <StatGroup title="その他">
                 <StatRow label="最大ロット" value={rs.maxLots.toLocaleString()} />
-                <StatRow label="レストレーションファクター" value={nn(rs.restorationFactor, v => v.toFixed(2))} />
-                <StatRow label="リライアビリティファクター" value={nn(rs.reliabilityFactor, v => v.toFixed(2))} />
                 <StatRow label="勝率" value={nn(rs.winRatePct, v => fmtPct(v))} />
                 <StatRow label="損失率" value={nn(rs.lossRatePct, v => fmtPct(v))} />
               </StatGroup>
