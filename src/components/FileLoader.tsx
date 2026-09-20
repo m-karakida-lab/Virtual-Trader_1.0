@@ -54,8 +54,9 @@ function OpenMenuButton({
 }
 
 // 保存時刻（実時刻・ローカル）を"HH:MM"で表示。リプレイ上の足時刻（JST基準の別フォーマット）
-// とは無関係な、実際にディスクへ書き込んだ壁時計時刻なのでDateのローカルゲッターでよい
-function fmtSavedAt(ms: number): string {
+// とは無関係な、実際にディスクへ書き込んだ壁時計時刻なのでDateのローカルゲッターでよい。
+// 自動保存の状態表示（Controls.tsxの「設定」メニュー内）からも使う
+export function fmtSavedAt(ms: number): string {
   const d = new Date(ms);
   const hh = String(d.getHours()).padStart(2, '0');
   const mm = String(d.getMinutes()).padStart(2, '0');
@@ -70,8 +71,6 @@ export function FileLoader() {
   const canSave     = useTraderStore(s => s.rawCsvText !== null);
   const canOverwrite = useTraderStore(s => s.rawFileHandle !== null && s.rawFileIsBundle);
   const loadedFileLabel = useTraderStore(s => s.loadedFileLabel);
-  const autoSaveArmed = useTraderStore(s => s.autoSaveArmed);
-  const lastSavedAt = useTraderStore(s => s.lastSavedAt);
   const isLoaded    = useTraderStore(s => s.isLoaded);
   const advanceToEnd = useTraderStore(s => s.advanceToEnd);
   const candlesLength = useTraderStore(s => s.candles.length);
@@ -205,18 +204,6 @@ export function FileLoader() {
             borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
           }}
         >💾 vtd{canOverwrite ? '上書き保存' : '保存'}</button>
-      )}
-
-      {/* 自動保存の状態表示。武装済み（＝1回でも上書き保存に成功した）時だけ出す控えめな
-          小文字ラベル。武装前は自動保存自体が動いていないので表示しても意味が無く、
-          常時出すと目立ちすぎるという指摘を踏まえてこの条件にした */}
-      {autoSaveArmed && (
-        <span
-          title="10分ごとに、前回保存時から変更があれば自動でファイルへ上書き保存します"
-          style={{ color: '#555', fontSize: '11px' }}
-        >
-          自動保存ON{lastSavedAt !== null ? `・最終${fmtSavedAt(lastSavedAt)}` : ''}
-        </span>
       )}
 
       <button

@@ -4,6 +4,7 @@ import { type Position, type PendingOrder } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { readErrorLog, clearErrorLog } from '../lib/errorLog';
+import { fmtSavedAt } from './FileLoader';
 import {
   isFileSystemAccessSupported as isErrorLogFileSupported,
   pickErrorLogFile, forgetErrorLogFile, getErrorLogFileName,
@@ -272,6 +273,8 @@ export function Controls() {
   const setChartLayout = useTraderStore(s => s.setChartLayout);
   const quad3Pattern = useTraderStore(s => s.quad3Pattern);
   const toggleQuad3Pattern = useTraderStore(s => s.toggleQuad3Pattern);
+  const autoSaveArmed = useTraderStore(s => s.autoSaveArmed);
+  const lastSavedAt = useTraderStore(s => s.lastSavedAt);
   const toggleEMA     = useTraderStore(s => s.toggleEMA);
   const toggleSMA     = useTraderStore(s => s.toggleSMA);
   const toggleBB      = useTraderStore(s => s.toggleBB);
@@ -573,9 +576,20 @@ export function Controls() {
                 )}
               </SettingsSection>
 
-              <SettingsSection icon="🪲" title="ログ" last>
+              <SettingsSection icon="🪲" title="ログ" last={!autoSaveArmed}>
                 <ErrorLogSection />
               </SettingsSection>
+
+              {/* 設定項目ではなく状態表示だけのセクション。自動保存が武装されていない
+                  （＝一度も上書き保存していない）間は動いていないので出さない */}
+              {autoSaveArmed && (
+                <SettingsSection icon="💾" title="自動保存" last>
+                  <span style={{ color: '#888', fontSize: '13px' }}>
+                    ON{lastSavedAt !== null ? `・最終保存 ${fmtSavedAt(lastSavedAt)}` : ''}
+                    <span style={{ color: '#555' }}>（10分ごと、変更があった時のみ）</span>
+                  </span>
+                </SettingsSection>
+              )}
             </div>
           </MenuButton>
         </div>
