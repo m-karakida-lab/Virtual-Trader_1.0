@@ -4732,7 +4732,10 @@ export function CandleChart({
           // 「先頭から見る」仕様どおり常に今revealされている最新足に合わせる
           const { from, to } = relativeViewToLogicalRange(saved, nonMainCandles.length);
           const span = to - from;
-          chartRef.current?.timeScale().setVisibleLogicalRange({ from: lastIdx + CHART_RIGHT_OFFSET_BARS - span, to: lastIdx + CHART_RIGHT_OFFSET_BARS });
+          // メイン側と同じ理由で、revealされている本数（lastIdx+1）がspanより少ない
+          // 序盤はfromが負にはみ出すためtoを固定してfromを0未満にクランプする
+          const rangeTo = lastIdx + CHART_RIGHT_OFFSET_BARS;
+          chartRef.current?.timeScale().setVisibleLogicalRange({ from: Math.max(0, rangeTo - span), to: rangeTo });
         } else if (nonMainVisible.length > 0) {
           // 時刻ベースのsetVisibleRange()は、setData直後などレイアウト未確定なタイミングで
           // 呼ぶと内部のtime→logical変換が失敗しクラッシュすることがある（実際に新規CSV
@@ -4864,7 +4867,12 @@ export function CandleChart({
     if (saved && candles.length > 0) {
       const { from, to } = relativeViewToLogicalRange(saved, candles.length);
       const span = to - from;
-      chartRef.current.timeScale().setVisibleLogicalRange({ from: cursor + CHART_RIGHT_OFFSET_BARS - span, to: cursor + CHART_RIGHT_OFFSET_BARS });
+      // revealされている本数（cursor+1）がspanより少ない序盤は、fromが負（＝実データの
+      // 無い過去側）にはみ出す。負のlogical indexにはlightweight-chartsが架空の時刻を
+      // 外挿してしまい、軸の日付が実データとずれて見える／実足が右端に押しやられて
+      // 見える不具合になるため、toは固定したままfromを0未満にクランプする
+      const rangeTo = cursor + CHART_RIGHT_OFFSET_BARS;
+      chartRef.current.timeScale().setVisibleLogicalRange({ from: Math.max(0, rangeTo - span), to: rangeTo });
     } else {
       chartRef.current.timeScale().scrollToRealTime();
     }

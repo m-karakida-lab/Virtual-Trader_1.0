@@ -184,6 +184,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - CSV再読込で`lines`/`vlines`/`rects`/`closedTrades`/`positions`/`pendingOrders`は全リセット。時間軸切替では保持
 - フォルダを開いた履歴はChrome/Edgeのみ対応（File System Access API）。Safari/Firefoxはフォールバックし履歴機能自体出ない
 - 履歴の`FileSystemDirectoryHandle`は`startIn`の起点としてのみ使う（中身は読まない）。フルパスは取得不可能な仕様のため表示名はフォルダ名止まり
+- 保存ビュー復元（`relativeViewToLogicalRange`）のspanは全期間本数でクランプするが、位置は`cursor`/`lastIdx`（revealされている本数）基準で右オフセットするため、リプレイ序盤でrevealが少ないと`from`が負（実データの無い過去側）にはみ出し、軸日付が実データとずれ小数の足が右端に押し込まれて見える。`to`固定・`from`を0未満にクランプして回避（`CandleChart.tsx`のメイン/非メイン両方の分岐）
 - フロートパネルの位置クランプは`chart.priceScale('right').width()`/`chart.timeScale().height()`の実測値をstore経由で共有
 - `setTimeframe`のカーソル復元は新しい足の**終了時刻**で比較すること（`newCandles[i].time + sec <= currentClose`、開始時刻だけだと先出しになる）
 - `FloatingControls`は`offsetParent`基準でクランプ
