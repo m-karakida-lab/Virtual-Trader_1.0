@@ -136,7 +136,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/components/DrawToolbar.tsx` — 描画ツール起動アイコンパネル。クリックで`isDrawingLine`等のstore状態をトグルするのみ、実際の配置/描画は`CandleChart`側が担う。「一覧」アイコン（`DrawnObjectsPopup`）で既存図形（水平線/垂直線/四角形/トレンドライン/ブラシ/テキスト）を種類別に縦一覧表示し選択/削除（`maxHeight`+縦スクロールで件数超過に対応、下部バーを圧迫しない）。最下部の目アイコンで`overlaysHidden`を一括トグル（EMA/SMA/BB/雲は色を透明化しオートスケールジャンプを回避、描画物はvisibility切替）
 - `src/components/PalettePanel.tsx` — パレットモードON時のみ表示するドラッグ移動可能なスタイル選択ウィンドウ。図形との同期は`store`の`syncPaletteStyleFrom`/`applyPaletteStyleTo`が担う
 - `src/components/HistoryPanel.tsx` — パフォーマンス分析（SplitBar/SignedBarRowの簡易横棒グラフ）＋リスクとパフォーマンス指標（`tradeStats.ts`の計算結果を表示するだけ）＋エクイティカーブ＋取引履歴テーブル（オーバーレイパネル）
-- `src/lib/tradeStats.ts` — 取引履歴のリスク・パフォーマンス指標を計算する純粋関数（`computeTradeStats`）。レストレーションファクター＝最大DD÷純利益、リライアビリティファクター＝勝ちトレード数÷トレード総数（いずれも一般名称ではなくユーザー確認済みの独自定義）
+- `src/lib/tradeStats.ts` — 取引履歴のリスク・パフォーマンス指標を計算する純粋関数（`computeTradeStats`）
 - `src/components/FileLoader.tsx` — 「ファイル選択▾」ドロップダウン（開く履歴）＋「💾 vtd保存」ボタン
 - `src/components/ErrorBoundary.tsx` — レンダー/エフェクト中の例外を捕捉し黒画面の代わりにエラー内容を表示（`main.tsx`でApp全体を包む）
 - `src/lib/errorLog.ts` — 例外をlocalStorage（`vt:errorLog`、直近20件）に記録。`window.onerror`/`unhandledrejection`とErrorBoundary両方から書き込む。加えて`errorLogFile.ts`経由で実ファイルへも追記を試みる（ベストエフォート）
