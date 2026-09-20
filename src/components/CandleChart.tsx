@@ -7,7 +7,6 @@ import {
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, LineSelection, TimeframeSec, DrawnLine } from '../types';
 import { TIMEFRAMES } from '../types';
-import { currencySymbol } from '../lib/currency';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
@@ -251,6 +250,7 @@ export function CandleChart({
   // 重なって見づらいという指摘を受けて撤去した）
   const tradeMarkerOverlayRef = useRef<HTMLDivElement>(null);
   const tradeMarkerElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
+  const tradeMarkerLineElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const syncTradeMarkersRef = useRef<() => void>(() => {});
   const measureOverlayRef = useRef<HTMLDivElement>(null);
   const measureBoxRef = useRef<HTMLDivElement>(null);
@@ -1602,7 +1602,7 @@ export function CandleChart({
       if (!chartRef.current || !tradeMarkerOverlayRef.current) return;
       const overlay = tradeMarkerOverlayRef.current;
       const {
-        positions: allPositions, closedTrades: allClosedTrades, quoteCurrency: qc,
+        positions: allPositions, closedTrades: allClosedTrades,
         tradeMarkersVisible: visibleMap, showSessions: sessionsOn, chartBottomMargin: bottomMargin,
       } = useTraderStore.getState();
       const tf = timeframeSecRef.current;
@@ -1610,16 +1610,16 @@ export function CandleChart({
       overlay.style.display = visible ? 'block' : 'none';
       if (!visible) return;
 
-      const sym = currencySymbol(qc);
       const tradeNoById = new Map<number, number>();
       [...allClosedTrades].sort((a, b) => a.closeTime - b.closeTime).forEach((t, i) => tradeNoById.set(t.id, i + 1));
 
-      type Mark = { key: string; time: number; color: string; text: string; tradeId: number | null };
+      // priceはマーカーからローソク足へ繋ぐ縦線の到達点（そのマーカー自身のエントリー/決済価格）
+      type Mark = { key: string; time: number; price: number; color: string; text: string; tradeId: number | null };
       const marks: Mark[] = [];
       for (const pos of allPositions) {
         const isBuy = pos.side === 'BUY';
         marks.push({
-          key: `open-${pos.id}`, time: pos.openTime,
+          key: `open-${pos.id}`, time: pos.openTime, price: pos.openPrice,
           color: isBuy ? '#26a69a' : '#ef5350', text: pos.side, tradeId: null,
         });
       }
@@ -1627,21 +1627,25 @@ export function CandleChart({
         const isBuy = t.side === 'BUY';
         const no = tradeNoById.get(t.id);
         marks.push({
-          key: `entry-${t.id}`, time: t.openTime,
+          key: `entry-${t.id}`, time: t.openTime, price: t.openPrice,
           color: isBuy ? '#26a69a' : '#ef5350', text: `#${no}`, tradeId: t.id,
         });
         marks.push({
-          key: `exit-${t.id}`, time: t.closeTime,
+          key: `exit-${t.id}`, time: t.closeTime, price: t.closePrice,
           color: t.pnl >= 0 ? '#26a69a' : '#ef5350',
-          text: `#${no} ${t.pnl >= 0 ? '+' : ''}${sym}${Math.round(t.pnl).toLocaleString()}`,
+          text: `#${no}`,
           tradeId: t.id,
         });
       }
 
       const els = tradeMarkerElsRef.current;
+      const lineEls = tradeMarkerLineElsRef.current;
       const nextKeys = new Set(marks.map(m => m.key));
       for (const [key, el] of els) {
         if (!nextKeys.has(key)) { el.remove(); els.delete(key); }
+      }
+      for (const [key, el] of lineEls) {
+        if (!nextKeys.has(key)) { el.remove(); lineEls.delete(key); }
       }
 
       // セッション帯が出ている時は、帯そのものではなく現在足の白い縦目印（帯の上端よりさらに
@@ -1651,6 +1655,7 @@ export function CandleChart({
       const rowBottom = bottomMargin + SCRUBBER_TRACK_HEIGHT + TRADE_MARKER_ROW_GAP
         + (sessionsVisible ? SESSION_ROW_GAP + SESSION_ROW_HEIGHT + SESSION_MARKER_GAP + SESSION_MARKER_HEIGHT : 0);
 
+      const TAG_HEIGHT = 17; // px。fontSize10px+padding上下1pxの実測値（マーカーからの縦線の起点に使う）
       for (const m of marks) {
         let el = els.get(m.key);
         if (!el) {
@@ -1670,14 +1675,42 @@ export function CandleChart({
           overlay.appendChild(el);
           els.set(m.key, el);
         }
+        // マーカーがどの足を指しているか分かるよう、タグからそのエントリー/決済価格の
+        // 位置まで縦線で繋ぐ（専用行に移した結果、足との対応が見た目だけでは分からなく
+        // なったという指摘を受けて追加）
+        let lineEl = lineEls.get(m.key);
+        if (!lineEl) {
+          lineEl = document.createElement('div');
+          lineEl.style.position = 'absolute';
+          lineEl.style.width = '1px';
+          lineEl.style.pointerEvents = 'none';
+          overlay.appendChild(lineEl);
+          lineEls.set(m.key, lineEl);
+        }
         const x = timeToX(m.time);
-        if (x === null) { el.style.display = 'none'; continue; }
+        const y = seriesRef.current?.priceToCoordinate(m.price) ?? null;
+        if (x === null) {
+          el.style.display = 'none';
+          lineEl.style.display = 'none';
+          continue;
+        }
         el.style.display = 'block';
         el.style.left = `${x}px`;
         el.style.bottom = `${rowBottom}px`;
         el.style.backgroundColor = m.color;
         el.style.color = '#0d0d0d';
         el.textContent = m.text;
+
+        if (y === null) {
+          lineEl.style.display = 'none';
+        } else {
+          lineEl.style.display = 'block';
+          lineEl.style.left = `${x}px`;
+          lineEl.style.top = `${y}px`;
+          lineEl.style.bottom = `${rowBottom + TAG_HEIGHT}px`;
+          lineEl.style.backgroundImage = `repeating-linear-gradient(to bottom, ${m.color} 0, ${m.color} 2px, transparent 2px, transparent 5px)`;
+          lineEl.style.opacity = '0.6';
+        }
       }
     };
     syncTradeMarkersRef.current = syncTradeMarkers;
@@ -3988,6 +4021,8 @@ export function CandleChart({
       weekLineElsRef.current = [];
       tradeMarkerElsRef.current.forEach(el => el.remove());
       tradeMarkerElsRef.current.clear();
+      tradeMarkerLineElsRef.current.forEach(el => el.remove());
+      tradeMarkerLineElsRef.current.clear();
       chart.remove();
       // chart.remove() で価格ラインも破棄されるため、次のマウント（StrictModeの
       // 二重実行や、4画面でのメインパネル切替による再マウント）で古い IPriceLine を
