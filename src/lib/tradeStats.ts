@@ -92,16 +92,20 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
     : 0;
   const elapsedMonths = elapsedDays / MONTH_DAYS;
   const hasElapsedMonths = elapsedMonths > 0;
+  const hasElapsedDays = elapsedDays > 0;
 
   const avgMonthlyProfit = hasElapsedMonths ? netProfit / elapsedMonths : netProfit;
   const avgTradesPerMonth = totalTrades > 0 ? (hasElapsedMonths ? totalTrades / elapsedMonths : totalTrades) : null;
   const avgWinsPerMonth = totalTrades > 0 ? (hasElapsedMonths ? winCount / elapsedMonths : winCount) : null;
   const avgLossesPerMonth = totalTrades > 0 ? (hasElapsedMonths ? lossCount / elapsedMonths : lossCount) : null;
 
-  // Trading Days数（決済が発生した日のユニーク数）と1日平均トレード数
+  // Trading Days数（決済が発生した日のユニーク数、参考値として別枠で表示）
   const tradingDaySet = new Set(sorted.map(t => dayStartOf(t.closeTime)));
   const tradingDays = tradingDaySet.size;
-  const avgTradesPerDay = tradingDays > 0 ? totalTrades / tradingDays : null;
+  // 1日平均トレード数は「月平均トレード数」と同じ経過暦日数（elapsedDays、取引が無かった日も
+  // 含む）を分母にする。以前はtradingDays（取引があった日だけ）で割っていたため、月平均を
+  // 30で割った値と桁が合わず、取引が特定の日に集中していると平均が不自然に高く出ていた
+  const avgTradesPerDay = totalTrades > 0 ? (hasElapsedDays ? totalTrades / elapsedDays : totalTrades) : null;
 
   // 最大連続勝ち/負け（決済順、pnl===0は連続をリセットする＝勝ちにも負けにも数えない）
   let maxConsecutiveWins = 0, maxConsecutiveLosses = 0, curWin = 0, curLoss = 0;
