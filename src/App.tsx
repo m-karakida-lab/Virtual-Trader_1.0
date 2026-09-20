@@ -62,6 +62,25 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
+  // スペースキーで「1コマ進む」（FloatingControlsの⏭ボタンと同じadvance()）。
+  // ここ（App.tsx側1箇所）で拾うのは、CandleChartは4画面時に4インスタンス同時に
+  // マウントされておりインスタンスごとにwindow.addEventListenerすると同じキー入力に
+  // 4回反応してしまうため（Delete/Undo/コピペ等はパネル固有の操作なのでactivePanelSlotで
+  // 絞っているが、advance()はパネルに依存しないグローバルな操作なのでそもそも1箇所で
+  // 受ければ足りる）。テキストボックス編集中はスペース入力を奪わないよう除外する
+  useEffect(() => {
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.code !== 'Space') return;
+      const active = document.activeElement as HTMLElement | null;
+      const tag = (active?.tagName || '').toLowerCase();
+      if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
+      e.preventDefault(); // ページスクロール・フォーカス中ボタンの再クリックを防ぐ
+      useTraderStore.getState().advance();
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
   // 画面全体へのCSV/vtdファイルのドラッグ&ドロップ読み込み。子要素をまたぐたびに
   // dragenter/dragleaveが発火するため、カウンタで「本当に画面外に出たか」を判定する
   const [isDragOver, setIsDragOver] = useState(false);
