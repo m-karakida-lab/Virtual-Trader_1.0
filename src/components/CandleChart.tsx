@@ -619,6 +619,25 @@ export function CandleChart({
     };
     chart.subscribeCrosshairMove(onCrosshairMove);
 
+    // マウスカーソル位置の日付（lightweight-charts組み込みの、日付軸欄に出る
+    // ハイライト表示）と区切り線の自前日付ラベル（DOM、区切り線の方が後から常に
+    // 前面に重なる）が同じ位置で衝突すると、カーソル側の日付が隠れて読めなくなって
+    // いた。カーソル位置に近い区切り線ラベルは一時的に隠し、カーソル側を優先する
+    // （区切り線自体は隠さない、ラベルだけ）。sourceEventの有無を問わず全ての
+    // crosshair移動（他パネルからの同期含む）で反応させる
+    const onCrosshairMoveForSeparatorLabels: Parameters<typeof chart.subscribeCrosshairMove>[0] = param => {
+      const cx = param.point?.x;
+      for (const el of weekLineElsRef.current) {
+        const label = el.lastChild as HTMLDivElement | undefined;
+        if (!label || label.style.display === 'none') continue;
+        const elLeft = parseFloat(el.style.left || '');
+        label.style.visibility = cx !== undefined && !Number.isNaN(elLeft) && Math.abs(elLeft - cx) < 28
+          ? 'hidden'
+          : 'visible';
+      }
+    };
+    chart.subscribeCrosshairMove(onCrosshairMoveForSeparatorLabels);
+
     // ── 雲（先行スパンA/B）の塗りつぶしを canvas に再描画 ────────────────
     const syncCloud = () => {
       const canvas = cloudCanvasRef.current;
@@ -1557,11 +1576,19 @@ export function CandleChart({
         } else {
           el.style.display = 'block';
           el.style.left = `${x}px`;
-          // 線はラベル（軸欄の垂直中央）まで伸ばして隙間なくつなげる
-          lineEl.style.height = `calc(100% - ${bottomMargin / 2}px)`;
-          label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
-          label.style.transform = 'translate(-50%, -50%)';
-          label.textContent = formatSeparatorDate(t);
+          // 土曜日の区切り線はラベルを出さず線だけにする（線自体は削らず、ラベルの
+          // 有無に関わらず常に軸欄手前ギリギリまで伸ばす）。週末は取引が無いため
+          // 土曜の区切りと次の月曜の区切りが画面上で近接し、ラベル同士がぶつかるため
+          const isSaturday = new Date(t * 1000).getUTCDay() === 6;
+          lineEl.style.height = `calc(100% - ${isSaturday ? bottomMargin : bottomMargin / 2}px)`;
+          if (isSaturday) {
+            label.style.display = 'none';
+          } else {
+            label.style.display = 'block';
+            label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
+            label.style.transform = 'translate(-50%, -50%)';
+            label.textContent = formatSeparatorDate(t);
+          }
         }
       });
     };
@@ -4097,6 +4124,7 @@ export function CandleChart({
       window.removeEventListener('mousemove', onWindowMouseMoveForFollow);
       window.removeEventListener('mouseup', onWindowMouseUpForFollow);
       chart.unsubscribeCrosshairMove(onCrosshairMove);
+      chart.unsubscribeCrosshairMove(onCrosshairMoveForSeparatorLabels);
       if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
       vlineElsRef.current.forEach(el => el.remove());
       vlineElsRef.current.clear();
