@@ -4617,14 +4617,22 @@ export function CandleChart({
       updateCloudStep(candles, cursor);
     } else {
       seriesRef.current.setData(candles.slice(0, cursor + 1).map(toBar));
-      // 「最新足に固定」が有効な間は、ここの組み込みscrollToRealTime()を呼ばない。
-      // 呼ぶと既定400msのアニメーションが始まり、その直後に効くこのeffectより後ろの
-      // 継続追従effect（applyLatestViewRef、setVisibleLogicalRangeで即座に確定）と
-      // 競合し、一瞬だけ組み込み側の既定位置（このパネル独自のfollowAnchorRefを
-      // 考慮しない位置）へ寄ってから正しい位置へ戻る、という見た目のズレが起きる
-      // （「最新足に固定した状態で1コマ戻ると位置が少し戻って見える」不具合として発覚）
-      if (!justPromoted && !useTraderStore.getState().followLatest) {
-        chartRef.current?.timeScale().scrollToRealTime();
+      // stepBack/jumpToTime等は自分自身の中でfollowLatestをfalseに戻すため、この
+      // effectが走る時点では既にfollowLatestはfalseになっている——「followLatestが
+      // 有効な間はscrollToRealTime()を呼ばない」という条件は実質発火しない（この効果
+      // 自体は無害だが根本対策にならない）。本当に見たいのは「直前まで最新足に固定
+      // されていたか」なので、followAnchorRef（固定モード中に一度でも捕捉されていれば
+      // 非null）を見る。捕捉済みならscrollToRealTime()（既定の右オフセット・アニメー
+      // ション付き）ではなく、このパネル固有のoffset/spanをそのまま使うapplyLatestViewRef
+      // で即座に位置を確定する——固定を解除する操作（1コマ戻る等）をしても、最新足の
+      // 画面上の位置が既定値へジャンプせず、その1本分だけ動く自然な見た目になる
+      // （「最新足に固定した状態で1コマ戻ると位置が大きくずれる」不具合として発覚）
+      if (!justPromoted) {
+        if (followAnchorRef.current !== null) {
+          applyLatestViewRef.current(false);
+        } else {
+          chartRef.current?.timeScale().scrollToRealTime();
+        }
       }
       recomputeEmaFull(candles, cursor);
       recomputeSMAFull(candles, cursor);
