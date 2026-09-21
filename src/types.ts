@@ -107,6 +107,8 @@ export interface DrawnRect {
   color: string;
   dash: LineDash;
   width: LineWidth;
+  // 水平線のhiddenTimeframesと同じ仕様（DrawnLine参照）
+  hiddenTimeframes?: TimeframeSec[];
 }
 
 // ── トレンドライン ───────────────────────────────────────────────────────

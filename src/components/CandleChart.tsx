@@ -5,7 +5,7 @@ import {
   type Time, type UTCTimestamp, type CandlestickData, type LineData, type IPriceLine,
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
-import type { Candle, LineSelection, TimeframeSec, DrawnLine } from '../types';
+import type { Candle, LineSelection, TimeframeSec } from '../types';
 import { TIMEFRAMES } from '../types';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS } from '../lib/chartTheme';
@@ -171,10 +171,11 @@ function candleIndexAt(candles: Candle[], t: number): number {
 }
 
 
-// 水平線を指定の時間足パネルで表示すべきか。hiddenTimeframesは1H/4H/1D/1W/MNのみを個別に
-// 保持でき、5m/15mは単独指定できないため1H(3600)がOFFかどうかに連動させる
-function isHLineVisibleAt(line: DrawnLine, timeframeSec: TimeframeSec): boolean {
-  const hidden = line.hiddenTimeframes;
+// 水平線・四角形を指定の時間足パネルで表示すべきか（hiddenTimeframesを持つ図形なら
+// 共通で使える）。hiddenTimeframesは1H/4H/1D/1W/MNのみを個別に保持でき、5m/15mは
+// 単独指定できないため1H(3600)がOFFかどうかに連動させる
+function isHiddenTimeframesVisibleAt(obj: { hiddenTimeframes?: TimeframeSec[] }, timeframeSec: TimeframeSec): boolean {
+  const hidden = obj.hiddenTimeframes;
   if (!hidden || hidden.length === 0) return true;
   const key = timeframeSec < 3600 ? 3600 : timeframeSec;
   return !hidden.includes(key as TimeframeSec);
@@ -813,9 +814,9 @@ export function CandleChart({
       if (selected?.kind === 'h') {
         const line = currentLines.find(l => l.id === selected.id);
         // この時間足で非表示に設定されている水平線を選択中の場合、線自体は
-        // isHLineVisibleAtでフィルタされ描画されないのに、中点ハンドルだけが
+        // isHiddenTimeframesVisibleAtでフィルタされ描画されないのに、中点ハンドルだけが
         // 判定を経由せず残ってしまっていた（実際に指摘を受けて判明）
-        const y = line && isHLineVisibleAt(line, timeframeSecRef.current)
+        const y = line && isHiddenTimeframesVisibleAt(line, timeframeSecRef.current)
           ? seriesRef.current.priceToCoordinate(line.price)
           : null;
         if (y !== null) point = [container.clientWidth / 2, y];
@@ -921,6 +922,8 @@ export function CandleChart({
 
       const boxes: { x1: number; y1: number; x2: number; y2: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
       for (const r of currentRects) {
+        // 水平線と同じく、この時間足では非表示に設定した四角形は描画しない
+        if (!isHiddenTimeframesVisibleAt(r, timeframeSecRef.current)) continue;
         const live = rectDragPreviewPx && rectDragPreviewPx.id === r.id ? rectDragPreviewPx : null;
         const x1 = live ? live.x1 : timeToX(r.time1);
         const x2 = live ? live.x2 : timeToX(r.time2);
@@ -973,7 +976,12 @@ export function CandleChart({
       }
 
       let hasSelected = false;
-      const selectedRect = selectedRectId !== null ? currentRects.find(r => r.id === selectedRectId) : undefined;
+      const selectedRectRaw = selectedRectId !== null ? currentRects.find(r => r.id === selectedRectId) : undefined;
+      // 水平線の中点ハンドルと同じ理由で、この時間足で非表示中の四角形を選択していても
+      // リサイズハンドルは出さない
+      const selectedRect = selectedRectRaw && isHiddenTimeframesVisibleAt(selectedRectRaw, timeframeSecRef.current)
+        ? selectedRectRaw
+        : undefined;
       if (selectedRect) {
         const live = rectDragPreviewPx && rectDragPreviewPx.id === selectedRect.id ? rectDragPreviewPx : null;
         const x1 = live ? live.x1 : timeToX(selectedRect.time1);
@@ -2350,7 +2358,7 @@ export function CandleChart({
       const tf = timeframeSecRef.current;
       for (const line of currentLines) {
         // このパネルの時間足では非表示（hiddenTimeframes設定で除外）のラインは当たり判定も無効にする
-        if (!isHLineVisibleAt(line, tf)) continue;
+        if (!isHiddenTimeframesVisibleAt(line, tf)) continue;
         const ly = seriesRef.current.priceToCoordinate(line.price);
         if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return line.id;
       }
@@ -2402,7 +2410,7 @@ export function CandleChart({
       // ハンドル（角の小さな四角）は選択中の四角形にしか表示されないため、判定も選択中のものだけに
       // 限定する。そうしないと未選択の四角形の辺のちょうど中央あたりを「枠を掴んで移動」しようとした
       // 際に、見えないハンドルに引っかかって意図せずリサイズされてしまう
-      for (const r of currentRects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id)) {
+      for (const r of currentRects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id && isHiddenTimeframesVisibleAt(rr, timeframeSecRef.current))) {
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
@@ -2431,7 +2439,7 @@ export function CandleChart({
       if (!chartRef.current || !seriesRef.current) return null;
       const { rects: currentRects, selected } = useTraderStore.getState();
       // 角のハンドルと同じ理由で、選択中の四角形の辺だけを対象にする
-      for (const r of currentRects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id)) {
+      for (const r of currentRects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id && isHiddenTimeframesVisibleAt(rr, timeframeSecRef.current))) {
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
@@ -2467,6 +2475,8 @@ export function CandleChart({
       if (!chartRef.current || !seriesRef.current) return null;
       const { rects: currentRects } = useTraderStore.getState();
       for (const r of currentRects) {
+        // この時間足では非表示の四角形は当たり判定も無効にする
+        if (!isHiddenTimeframesVisibleAt(r, timeframeSecRef.current)) continue;
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
@@ -2487,6 +2497,8 @@ export function CandleChart({
       if (!chartRef.current || !seriesRef.current) return null;
       const { rects: currentRects } = useTraderStore.getState();
       for (const r of currentRects) {
+        // この時間足では非表示の四角形は当たり判定も無効にする
+        if (!isHiddenTimeframesVisibleAt(r, timeframeSecRef.current)) continue;
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
@@ -4183,7 +4195,7 @@ export function CandleChart({
     try {
       const existing = priceLineMapRef.current;
       // 時間足ごとにON/OFFできる（hiddenTimeframes）。1Hのみ5m/15mの表示にも連動する
-      const visibleLines = lines.filter(l => isHLineVisibleAt(l, timeframeSec));
+      const visibleLines = lines.filter(l => isHiddenTimeframesVisibleAt(l, timeframeSec));
       const nextIds = new Set(visibleLines.map(l => l.id));
 
       // 削除された、またはこのパネルの時間足では非表示になったラインを除去

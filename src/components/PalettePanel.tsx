@@ -6,7 +6,7 @@ const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
 const DASH_OPTIONS: { v: LineDash; label: string }[] = [
   { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
 ];
-// 水平線の表示時間足。個別にON/OFFでき、デフォルトは全部ON（全時間足で表示）。
+// 水平線・四角形の表示時間足。個別にON/OFFでき、デフォルトは全部ON（全時間足で表示）。
 // 1HをOFFにすると5m/15mも連動して非表示になる（5m/15mは単独指定不可）
 const HLINE_TF_OPTIONS: { v: TimeframeSec; label: string }[] = [
   { v: 3600, label: '1H' },
@@ -48,10 +48,14 @@ export function PalettePanel() {
   const setBrushDraft = useTraderStore(s => s.setBrushDraft);
   const setTextDraft = useTraderStore(s => s.setTextDraft);
   const updateLine = useTraderStore(s => s.updateLine);
-  // 水平線を選択編集中の時だけ使う、時間足ごとの表示ON/OFF（新規配置前のarmed状態には
-  // 対応しない＝常に全時間足ONで配置し、必要なら配置後にここで個別にOFFする運用にしている）
+  const updateRect = useTraderStore(s => s.updateRect);
+  // 水平線・四角形を選択編集中の時だけ使う、時間足ごとの表示ON/OFF（新規配置前のarmed
+  // 状態には対応しない＝常に全時間足ONで配置し、必要なら配置後にここで個別にOFFする運用）
   const selectedHLineHidden = useTraderStore(s =>
     selected?.kind === 'h' ? (s.lines.find(l => l.id === selected.id)?.hiddenTimeframes ?? []) : []
+  );
+  const selectedRectHidden = useTraderStore(s =>
+    selected?.kind === 'rect' ? (s.rects.find(r => r.id === selected.id)?.hiddenTimeframes ?? []) : []
   );
 
   // 「書いてから見た目を直す」だけでなく「見た目を決めてから書く」需要があるため、図形を
@@ -259,6 +263,31 @@ export function PalettePanel() {
                         ? [...selectedHLineHidden, opt.v]
                         : selectedHLineHidden.filter(v => v !== opt.v);
                       updateLine(selected.id, { hiddenTimeframes: next });
+                    }}
+                    title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
+                    style={{
+                      backgroundColor: isOn ? '#202020' : '#161616',
+                      color: isOn ? '#ccc' : '#666',
+                      border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
+                      borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                    }}
+                  >{opt.label}</button>
+                );
+              })}
+            </div>
+          )}
+          {selected?.kind === 'rect' && (
+            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+              {HLINE_TF_OPTIONS.map(opt => {
+                const isOn = !selectedRectHidden.includes(opt.v);
+                return (
+                  <button
+                    key={opt.v}
+                    onClick={() => {
+                      const next = isOn
+                        ? [...selectedRectHidden, opt.v]
+                        : selectedRectHidden.filter(v => v !== opt.v);
+                      updateRect(selected.id, { hiddenTimeframes: next });
                     }}
                     title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
                     style={{
