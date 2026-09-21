@@ -1,18 +1,12 @@
 // 取引履歴の「リスクとパフォーマンス指標」計算。closedTradesとinitialBalanceから純粋関数で
 // 算出する（UI側はこの結果を表示するだけ）。
 import type { ClosedTrade } from '../types';
-import { MONTH_SEC } from '../types';
+import { MONTH_SEC, WEEK_SEC } from '../types';
 import { SESSIONS, sessionKeyAt } from './sessions';
 
 const DAY_SEC = 86400;
 const MONTH_DAYS = MONTH_SEC / DAY_SEC; // 平均月長（日）。types.tsのMONTH_SECと基準を揃える
-
-// その時刻が属する日の00:00（UTCゲッターで読む、weekLines.ts/sessions.tsと同じ約束事。
-// 足の時刻は既にJST壁時計時刻として保持されているため、これでJST日境界になる）
-function dayStartOf(sec: number): number {
-  const d = new Date(sec * 1000);
-  return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000);
-}
+const WEEK_DAYS = WEEK_SEC / DAY_SEC;
 
 export interface TradeStats {
   // 収入
@@ -29,12 +23,11 @@ export interface TradeStats {
 
   // トレード数
   totalTrades: number;
-  tradingDays: number;
   winCount: number;
   lossCount: number;
   maxConsecutiveWins: number;
   maxConsecutiveLosses: number;
-  avgTradesPerDay: number | null;
+  avgTradesPerWeek: number | null;
   avgTradesPerMonth: number | null;
   avgWinsPerMonth: number | null;
   avgLossesPerMonth: number | null;
@@ -83,21 +76,16 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
     ? Math.max(0, (sorted[sorted.length - 1].closeTime - Math.min(...sorted.map(t => t.openTime))) / DAY_SEC)
     : 0;
   const elapsedMonths = elapsedDays / MONTH_DAYS;
+  const elapsedWeeks = elapsedDays / WEEK_DAYS;
   const hasElapsedMonths = elapsedMonths > 0;
-  const hasElapsedDays = elapsedDays > 0;
+  const hasElapsedWeeks = elapsedWeeks > 0;
 
   const avgMonthlyProfit = hasElapsedMonths ? netProfit / elapsedMonths : netProfit;
   const avgTradesPerMonth = totalTrades > 0 ? (hasElapsedMonths ? totalTrades / elapsedMonths : totalTrades) : null;
   const avgWinsPerMonth = totalTrades > 0 ? (hasElapsedMonths ? winCount / elapsedMonths : winCount) : null;
   const avgLossesPerMonth = totalTrades > 0 ? (hasElapsedMonths ? lossCount / elapsedMonths : lossCount) : null;
-
-  // Trading Days数（決済が発生した日のユニーク数、参考値として別枠で表示）
-  const tradingDaySet = new Set(sorted.map(t => dayStartOf(t.closeTime)));
-  const tradingDays = tradingDaySet.size;
-  // 1日平均トレード数は「月平均トレード数」と同じ経過暦日数（elapsedDays、取引が無かった日も
-  // 含む）を分母にする。以前はtradingDays（取引があった日だけ）で割っていたため、月平均を
-  // 30で割った値と桁が合わず、取引が特定の日に集中していると平均が不自然に高く出ていた
-  const avgTradesPerDay = totalTrades > 0 ? (hasElapsedDays ? totalTrades / elapsedDays : totalTrades) : null;
+  // 週平均トレード数は月平均と同じ考え方（経過暦日数を7で割った週数を分母にする）
+  const avgTradesPerWeek = totalTrades > 0 ? (hasElapsedWeeks ? totalTrades / elapsedWeeks : totalTrades) : null;
 
   // 最大連続勝ち/負け（決済順、pnl===0は連続をリセットする＝勝ちにも負けにも数えない）
   let maxConsecutiveWins = 0, maxConsecutiveLosses = 0, curWin = 0, curLoss = 0;
@@ -136,8 +124,8 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
   return {
     netProfit, avgTradePnl, grossProfit, grossLoss, avgMonthlyProfit, avgWin, avgLoss,
     maxDrawdown, profitFactor, returnPct,
-    totalTrades, tradingDays, winCount, lossCount, maxConsecutiveWins, maxConsecutiveLosses,
-    avgTradesPerDay, avgTradesPerMonth, avgWinsPerMonth, avgLossesPerMonth, largestWin, largestLoss,
+    totalTrades, winCount, lossCount, maxConsecutiveWins, maxConsecutiveLosses,
+    avgTradesPerWeek, avgTradesPerMonth, avgWinsPerMonth, avgLossesPerMonth, largestWin, largestLoss,
     elapsedDays, elapsedMonths,
     maxLots, winRatePct, lossRatePct,
     bySession,

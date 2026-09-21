@@ -431,12 +431,11 @@ export function HistoryPanel() {
 
               <StatGroup title="トレード数">
                 <StatRow label="合計トレード" value={`${rs.totalTrades}`} />
-                <StatRow label="Trading Days数" value={`${rs.tradingDays}`} />
                 <StatRow label="勝ちトレード" value={`${rs.winCount}`} />
                 <StatRow label="負けトレード" value={`${rs.lossCount}`} />
                 <StatRow label="最大連続利益トレード数" value={`${rs.maxConsecutiveWins}`} />
                 <StatRow label="最大連続損失トレード数" value={`${rs.maxConsecutiveLosses}`} />
-                <StatRow label="1日平均のトレード数" value={nn(rs.avgTradesPerDay, v => v.toFixed(1))} />
+                <StatRow label="週平均トレード数" value={nn(rs.avgTradesPerWeek, v => v.toFixed(1))} />
                 <StatRow label="月平均トレード数" value={nn(rs.avgTradesPerMonth, v => v.toFixed(1))} />
                 <StatRow label="勝ちトレードの月平均回数" value={nn(rs.avgWinsPerMonth, v => v.toFixed(1))} />
                 <StatRow label="負けトレードの月平均回数" value={nn(rs.avgLossesPerMonth, v => v.toFixed(1))} />
