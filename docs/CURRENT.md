@@ -148,6 +148,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 ## 不変条件 / 地雷
 
 - DOMオーバーレイ（雲・トレンドライン・矢印・ブラシ・垂直線・テキスト・四角形・週区切り線等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）
+- 選択中の水平線の中点ハンドル（`syncVLines`内）は`isHLineVisibleAt`のフィルタを経由しない別経路で位置決めしているため、線自体を追加する場所（フィルタ）だけでなくここにも同じ可視判定を入れること。入れ忘れると、その時間足で非表示に設定した線を選択中の場合だけ中点ハンドルが残ってしまう
 - 描画要素の種類を増やす時は`useTraderStore.ts`の`pushDrawHistory`/`undo`/`DrawSnapshot`/`loadFiles`/`saveChartFile`/`vtd.ts`の6箇所に配列とnextIdを必ず追加すること（`undo`だけ追加し忘れ、矢印を消してもUndoで戻らない不具合を実際に踏んだ）
 - 一部の証券会社CSVは末尾にDOSのEOFマーカー（0x1A）が付いており、これを含むとDuckDBのCSVパーサーが「state machine reached an invalid state」で全体読み込みに失敗する（`ignore_errors=true`でも救えない）。`loadCSVFiles`（`duckdb.ts`）で各ファイルの末尾の制御バイトを事前に切り落として回避している
 - 十字カーソル同期effect（`crosshairSourceId`/`crosshairTime`依存）は、メイン/非メインどちらの`series.setData()`effectよりも**後ろ**で宣言すること（宣言順だけでは解決しない場合あり、下記参照）

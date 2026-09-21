@@ -812,7 +812,12 @@ export function CandleChart({
       let point: [number, number] | null = null;
       if (selected?.kind === 'h') {
         const line = currentLines.find(l => l.id === selected.id);
-        const y = line ? seriesRef.current.priceToCoordinate(line.price) : null;
+        // この時間足で非表示に設定されている水平線を選択中の場合、線自体は
+        // isHLineVisibleAtでフィルタされ描画されないのに、中点ハンドルだけが
+        // 判定を経由せず残ってしまっていた（実際に指摘を受けて判明）
+        const y = line && isHLineVisibleAt(line, timeframeSecRef.current)
+          ? seriesRef.current.priceToCoordinate(line.price)
+          : null;
         if (y !== null) point = [container.clientWidth / 2, y];
       } else if (selected?.kind === 'v') {
         const v = currentVLines.find(vv => vv.id === selected.id);
