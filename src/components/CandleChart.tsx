@@ -4822,7 +4822,15 @@ export function CandleChart({
   // 不具合になっていた（実際に4画面中1枠だけロウソク足が全く表示されない不具合として発覚）
   useEffect(() => {
     const active = isMainRef.current ? followLatest : true;
-    if (!active) { followAnchorRef.current = null; return; }
+    // followLatestがfalseになってもfollowAnchorRefはここでnullに戻さないこと。
+    // メイン側のデータ同期effect（stepBack等でisStep=falseになる分岐）は、直前まで
+    // 固定されていたかをfollowAnchorRefの非nullで判定し、非nullならscrollToRealTime()
+    // ではなくこのanchorを使って位置を確定する。ここで毎回nullに戻すと、stepBackを
+    // 2回目に押した時点（1回目のstepBackで既にfollowLatestがfalseになり、このeffectが
+    // 一度inactiveとして走った後）にはもうanchorが失われており、2回目以降また既定位置へ
+    // ジャンプしてしまう（「1回目はOKだが2回目でまた後ろにオフセットする」不具合として発覚）。
+    // 再捕捉は「最新足に固定」ボタン押下時（captureSpan=true）にだけ行う
+    if (!active) return;
     if (!chartRef.current) return;
     applyLatestViewRef.current(false);
     const raf = requestAnimationFrame(() => {
