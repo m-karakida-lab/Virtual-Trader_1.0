@@ -515,6 +515,8 @@ export function Controls() {
           </MenuButton>
         </div>
 
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
+
         {/* 再生・1コマ戻る・1コマ進む。以前はチャート上に浮かぶ丸ボタン（FloatingControls）
             だったが、他の操作ボタンと統一感が無く場所も覚えにくいという指摘を受けてここへ
             移設した。左から再生・戻る・進むの順。よく使うボタンなので他のtfBtnより
