@@ -5,6 +5,7 @@ import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
 import { splitVtdBundle, buildVtdBundle } from '../lib/vtd';
 import { writeToHandle } from '../lib/openHistory';
+import { findBucketIndexContaining, buildPartialCandle } from '../lib/partialCandle';
 
 const DEFAULT_INITIAL_BALANCE = 1_000_000;
 
@@ -211,6 +212,11 @@ interface TraderState {
   candles: Candle[];
   timeframeSec: TimeframeSec;
   cursor: number;
+  // 「今」の時刻（candles[cursor].time + timeframeSec）を、時間足を切り替えても
+  // 見失わないよう保持する。advance/stepBack/jumpToTime等の実際のカーソル移動の
+  // たびに現在のcursorに合わせて更新し、setTimeframe（メイン時間足の切替・パネル
+  // 昇格）ではこの値を変えない——切替は「今の瞬間」を変えない見た目の変更でしかない
+  mainRevealedUntil: number | null;
   initialBalance: number; // CSV読み込み・リセット時の開始残高
   isInitialBalanceCustom: boolean; // ユーザーが手動で初期残高を変更したか（trueなら通貨切替時の自動調整をしない）
   balance: number;
@@ -584,6 +590,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   loadingMsg: '',
   candles: [],
   cursor: 0,
+  mainRevealedUntil: null,
   initialBalance: DEFAULT_INITIAL_BALANCE,
   isInitialBalanceCustom: false,
   balance: DEFAULT_INITIAL_BALANCE,
@@ -732,7 +739,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         ? findCursorForTime(candles, drawings.cursorTime)
         : 0;
       set({
-        candles, cursor: restoredCursor, isLoaded: true,
+        candles, cursor: restoredCursor,
+        mainRevealedUntil: candles[restoredCursor] !== undefined ? candles[restoredCursor].time + timeframeSec : null,
+        isLoaded: true,
         isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,
         balance: restoredBalance, initialBalance: newInitialBalance,
         positions: [], pendingOrders: [], nextOrderId: 1,
@@ -833,23 +842,45 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   setTimeframe: async (sec: TimeframeSec, preloadedCandles?: Candle[]) => {
     const {
       isLoaded, isLoading, timeframeSec, candles, cursor, chartLayout, preMultiLayout,
-      quad3Timeframes, quad3MainSlot, quad4Timeframes, quad4MainSlot,
+      quad3Timeframes, quad3MainSlot, quad4Timeframes, quad4MainSlot, mainRevealedUntil,
     } = get();
     if (!isLoaded || isLoading || sec === timeframeSec) return;
     // 1画面表示中はpreMultiLayoutが指す方（直前に表示していたマルチ画面レイアウト）を更新する
     const activeQuad = (chartLayout === '1' ? preMultiLayout : chartLayout) === '3' ? '3' : '4';
 
-    // 現在の足の終了時刻（＝閉じている範囲の境界）を保持し、新しい時間軸でも
-    // その時点までに閉じている足だけを選ぶ（MiniChartの先出し防止条件と揃える。
-    // 開始時刻だけで比較すると、切替先の未確定の足が誤って選ばれ1本先出しになる）
-    const currentClose = candles[cursor] !== undefined ? candles[cursor].time + timeframeSec : undefined;
+    // 「今」の時刻はmainRevealedUntil（前回の切替からずっと据え置きの、実際にカーソルを
+    // 動かした時点の値）を最優先する。時間足の切替を何度繰り返しても「今」がズレて
+    // 進んだり戻ったりしないようにするため（例: 1H→1D→1Hと切り替えても何も変わらない）
+    const boundary = mainRevealedUntil ?? (candles[cursor] !== undefined ? candles[cursor].time + timeframeSec : undefined);
 
     const applyNewCandles = (newCandles: Candle[]) => {
       let newCursor = 0;
-      if (currentClose !== undefined) {
-        for (let i = 0; i < newCandles.length; i++) {
-          if (newCandles[i].time + sec <= currentClose) newCursor = i;
-          else break;
+      let candlesToUse = newCandles;
+      if (boundary !== undefined && newCandles.length > 0) {
+        const bi = findBucketIndexContaining(newCandles, boundary);
+        if (bi >= 0) {
+          const bucketStart = newCandles[bi].time;
+          const bucketEnd = bucketStart + sec;
+          if (bucketEnd <= boundary) {
+            // 新しい時間足で見てもこのバケットは既に確定済み。そのまま使う
+            newCursor = bi;
+          } else {
+            // まだ確定していない（形成中の）バケット。旧メインの確定済み足（0..cursor）
+            // からこのバケット範囲だけを自前で再集計した部分足に差し替える——切替直後は
+            // 「今」の瞬間をそのまま見せたいので、確定済みの1つ前のバケットまで戻したく
+            // ない（実際に「1Hが1/8 10:00の時に1Dへ切り替えると1/8 07:00の形成中足では
+            // なく1/7に戻ってしまう」という指摘を受けて、確定バケットへ丸めるのをやめた）
+            const partial = buildPartialCandle(candles, cursor, bucketStart, bucketEnd);
+            if (partial) {
+              candlesToUse = newCandles.slice();
+              candlesToUse[bi] = partial;
+              newCursor = bi;
+            } else {
+              // 部分集計できる元データが無い（新旧の時間足が噛み合わない等）場合のみ、
+              // 従来通り直前の確定済みバケットへフォールバックする
+              newCursor = Math.max(0, bi - 1);
+            }
+          }
         }
       }
 
@@ -860,7 +891,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         next[quad3MainSlot] = sec;
         saveQuad(QUAD3_STORAGE_KEY, next, quad3MainSlot);
         set({
-          candles: newCandles, timeframeSec: sec, cursor: newCursor,
+          candles: candlesToUse, timeframeSec: sec, cursor: newCursor, mainRevealedUntil: boundary ?? null,
           quad3Timeframes: next,
           isLoading: false, loadingMsg: '', isPlaying: false,
         });
@@ -869,7 +900,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         next[quad4MainSlot] = sec;
         saveQuad(QUAD4_STORAGE_KEY, next, quad4MainSlot);
         set({
-          candles: newCandles, timeframeSec: sec, cursor: newCursor,
+          candles: candlesToUse, timeframeSec: sec, cursor: newCursor, mainRevealedUntil: boundary ?? null,
           quad4Timeframes: next,
           isLoading: false, loadingMsg: '', isPlaying: false,
         });
@@ -895,12 +926,15 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   },
 
   advance: () => {
-    const { cursor, candles, positions, pendingOrders, closedTrades, balance, nextId } = get();
+    const { cursor, candles, timeframeSec, positions, pendingOrders, closedTrades, balance, nextId } = get();
     if (cursor < candles.length - 1) {
       const newCursor = cursor + 1;
       const result = processOrderRange(candles, cursor, newCursor, positions, pendingOrders, closedTrades, balance, nextId);
       set({
         cursor: newCursor,
+        // 実際にカーソルを動かしたので「今」を新しい足に合わせ直す（切替直後だけ
+        // 据え置く形成中バケットの特例はここでリセットされる）
+        mainRevealedUntil: candles[newCursor].time + timeframeSec,
         ...(result.changed ? {
           positions: result.positions, pendingOrders: result.pendingOrders,
           closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
@@ -914,17 +948,21 @@ export const useTraderStore = create<TraderState>((set, get) => ({
 
   // カーソルを1つ戻す（表示のみ。約定済みの注文・決済は取り消さない）
   stepBack: () => {
-    const { cursor } = get();
+    const { cursor, candles, timeframeSec } = get();
     if (cursor <= 0) {
       set({ isPlaying: false });
       return false;
     }
-    set({ cursor: cursor - 1, isPlaying: false, followLatest: false });
+    const newCursor = cursor - 1;
+    set({
+      cursor: newCursor, isPlaying: false, followLatest: false,
+      mainRevealedUntil: candles[newCursor].time + timeframeSec,
+    });
     return true;
   },
 
   jumpToTime: (targetSec: number, opts) => {
-    const { candles, cursor: oldCursor, positions, pendingOrders, closedTrades, balance, nextId } = get();
+    const { candles, cursor: oldCursor, timeframeSec, positions, pendingOrders, closedTrades, balance, nextId } = get();
     if (candles.length === 0) return;
     // 二分探索: targetSec 以下の最後の足を探す
     let lo = 0, hi = candles.length - 1, idx = 0;
@@ -952,6 +990,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     set(s => ({
       cursor: newCursor, isPlaying: false, centerTarget: targetSec, centerSignal: s.centerSignal + 1,
       followLatest: false,
+      mainRevealedUntil: candles[newCursor].time + timeframeSec,
       ...(result?.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,
         closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
@@ -1509,13 +1548,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // カーソルを進める（通過した範囲の注文約定・TP/SL判定も行う。advanceを1本ずつ
   // 呼ぶ代わりにprocessOrderRangeへ一括で渡すことで、本数が多くても一瞬で終わる）
   advanceToEnd: () => {
-    const { cursor, candles, positions, pendingOrders, closedTrades, balance, nextId } = get();
+    const { cursor, candles, timeframeSec, positions, pendingOrders, closedTrades, balance, nextId } = get();
     if (candles.length === 0) return;
     const lastIdx = candles.length - 1;
     if (cursor >= lastIdx) { set({ isPlaying: false }); return; }
     const result = processOrderRange(candles, cursor, lastIdx, positions, pendingOrders, closedTrades, balance, nextId);
     set({
       cursor: lastIdx,
+      mainRevealedUntil: candles[lastIdx].time + timeframeSec,
       isPlaying: false,
       ...(result.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,

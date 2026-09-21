@@ -18,6 +18,7 @@ import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud } f
 import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
+import { findBucketIndexContaining, buildPartialCandle } from '../lib/partialCandle';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -394,14 +395,7 @@ export function CandleChart({
     // 基準で探すとclosedの最後より過去のバケットを見つけてしまい、setData時に
     // 「data must be asc ordered by time」で丸ごとクラッシュする不具合を実際に踏んだ
     const searchTime = nonMainCursorEnd ?? curTime;
-    // バケット開始時刻はnonMainCandles自身から引く。ここでfloor(time/timeframeSec)を
-    // 独自に計算し直すと、queryCandlesのブローカー時間バケット境界＋JST表示ズレ（不変
-    // 条件/地雷を参照）と食い違い、実在しない境界で足を切ってしまう不具合を踏む
-    let lo = 0, hi = nonMainCandles.length - 1, bi = -1;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (nonMainCandles[mid].time <= searchTime) { bi = mid; lo = mid + 1; } else hi = mid - 1;
-    }
+    const bi = findBucketIndexContaining(nonMainCandles, searchTime);
     if (bi < 0) return closed;
     const bucketStart = nonMainCandles[bi].time;
     // 既にclosed側に含まれている（＝確定済み）バケットなら追加しない。念のため
@@ -410,19 +404,8 @@ export function CandleChart({
     // nonMainCandles側の値はCSV全期間（未来分も含む）から集計済みのため使えない
     // （先出し防止）。メインの確定済み足（0..cursor）からこのバケット範囲だけを
     // 自前で再集計する
-    const bucketEnd = bucketStart + timeframeSec;
-    let formOpen: number | null = null, formHigh = -Infinity, formLow = Infinity, formClose = 0;
-    for (let i = cursor; i >= 0; i--) {
-      const c = candles[i];
-      if (c.time < bucketStart) break;
-      if (c.time >= bucketEnd) continue; // 週足/月足はバケット幅が一定でないためtimeframeSecが近似値になる保険
-      if (formOpen === null) formClose = c.close;
-      formOpen = c.open;
-      formHigh = Math.max(formHigh, c.high);
-      formLow = Math.min(formLow, c.low);
-    }
-    if (formOpen === null) return closed;
-    const forming: Candle = { time: bucketStart, open: formOpen, high: formHigh, low: formLow, close: formClose };
+    const forming = buildPartialCandle(candles, cursor, bucketStart, bucketStart + timeframeSec);
+    if (forming === null) return closed;
     return [...closed, forming];
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [nonMainCandles, nonMainCursorEnd, timeframeSec, candles, cursor]);
