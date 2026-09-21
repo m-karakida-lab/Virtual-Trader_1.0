@@ -224,6 +224,14 @@ interface TraderState {
   // 丸まって見えてしまい、「切り替えても今の時刻の表示は変わらないでほしい」という
   // 要望に反するため、表示専用の値として切替をまたいで据え置く
   mainDisplayTime: number | null;
+  // 非メイン各パネルが自分の「形成中の足」を自前集計する際の元データ。実際にカーソルを
+  // 動かした時点のcandles/cursorをそのまま保持し、setTimeframe（メイン切替）では
+  // 更新しない——メイン切替直後は新しいcandlesがまだ粗い時間足（例:1D）のことがあり、
+  // それを元データにすると他の非メインパネル（例:4H）が自分より粗いデータからは
+  // 形成中の足を再集計できず、切替前まで正しく出ていた形成中の足が急に消えて
+  // 1つ前の確定済みバケットまで戻って見えてしまう（実際に指摘を受けて判明）
+  finestSourceCandles: Candle[];
+  finestSourceCursor: number;
   initialBalance: number; // CSV読み込み・リセット時の開始残高
   isInitialBalanceCustom: boolean; // ユーザーが手動で初期残高を変更したか（trueなら通貨切替時の自動調整をしない）
   balance: number;
@@ -599,6 +607,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   cursor: 0,
   mainRevealedUntil: null,
   mainDisplayTime: null,
+  finestSourceCandles: [],
+  finestSourceCursor: 0,
   initialBalance: DEFAULT_INITIAL_BALANCE,
   isInitialBalanceCustom: false,
   balance: DEFAULT_INITIAL_BALANCE,
@@ -750,6 +760,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         candles, cursor: restoredCursor,
         mainRevealedUntil: candles[restoredCursor] !== undefined ? candles[restoredCursor].time + timeframeSec : null,
         mainDisplayTime: candles[restoredCursor] !== undefined ? candles[restoredCursor].time : null,
+        finestSourceCandles: candles, finestSourceCursor: restoredCursor,
         isLoaded: true,
         isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,
         balance: restoredBalance, initialBalance: newInitialBalance,
@@ -852,6 +863,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const {
       isLoaded, isLoading, timeframeSec, candles, cursor, chartLayout, preMultiLayout,
       quad3Timeframes, quad3MainSlot, quad4Timeframes, quad4MainSlot, mainRevealedUntil,
+      finestSourceCandles, finestSourceCursor,
     } = get();
     if (!isLoaded || isLoading || sec === timeframeSec) return;
     // 1画面表示中はpreMultiLayoutが指す方（直前に表示していたマルチ画面レイアウト）を更新する
@@ -879,7 +891,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
             // 「今」の瞬間をそのまま見せたいので、確定済みの1つ前のバケットまで戻したく
             // ない（実際に「1Hが1/8 10:00の時に1Dへ切り替えると1/8 07:00の形成中足では
             // なく1/7に戻ってしまう」という指摘を受けて、確定バケットへ丸めるのをやめた）
-            const partial = buildPartialCandle(candles, cursor, bucketStart, bucketEnd);
+            // 直前のメイン（candles/cursor）ではなくfinestSourceCandlesを使うこと。
+            // 前回切替でメインが粗い時間足（1D等）になっていた場合、candlesがその
+            // 粗いデータのままだと他の細かい時間足（4H等）の部分集計に必要な粒度が
+            // 無く、本来出せるはずの形成中足が出せなくなる
+            const partial = buildPartialCandle(finestSourceCandles, finestSourceCursor, bucketStart, bucketEnd);
             if (partial) {
               candlesToUse = newCandles.slice();
               candlesToUse[bi] = partial;
@@ -945,6 +961,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         // 据え置く形成中バケットの特例はここでリセットされる）
         mainRevealedUntil: candles[newCursor].time + timeframeSec,
         mainDisplayTime: candles[newCursor].time,
+        finestSourceCandles: candles, finestSourceCursor: newCursor,
         ...(result.changed ? {
           positions: result.positions, pendingOrders: result.pendingOrders,
           closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
@@ -968,6 +985,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       cursor: newCursor, isPlaying: false, followLatest: false,
       mainRevealedUntil: candles[newCursor].time + timeframeSec,
       mainDisplayTime: candles[newCursor].time,
+      finestSourceCandles: candles, finestSourceCursor: newCursor,
     });
     return true;
   },
@@ -1003,6 +1021,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       followLatest: false,
       mainRevealedUntil: candles[newCursor].time + timeframeSec,
       mainDisplayTime: candles[newCursor].time,
+      finestSourceCandles: candles, finestSourceCursor: newCursor,
       ...(result?.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,
         closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
@@ -1569,6 +1588,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       cursor: lastIdx,
       mainRevealedUntil: candles[lastIdx].time + timeframeSec,
       mainDisplayTime: candles[lastIdx].time,
+      finestSourceCandles: candles, finestSourceCursor: lastIdx,
       isPlaying: false,
       ...(result.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,

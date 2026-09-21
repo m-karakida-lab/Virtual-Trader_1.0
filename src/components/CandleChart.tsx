@@ -308,6 +308,8 @@ export function CandleChart({
   const showVLineDateLabel = useTraderStore(s => s.showVLineDateLabel);
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const mainRevealedUntil = useTraderStore(s => s.mainRevealedUntil);
+  const finestSourceCandles = useTraderStore(s => s.finestSourceCandles);
+  const finestSourceCursor = useTraderStore(s => s.finestSourceCursor);
   const setTimeframe = useTraderStore(s => s.setTimeframe);
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
   const chartLayout = useTraderStore(s => s.chartLayout);
@@ -411,13 +413,15 @@ export function CandleChart({
     // 「closedの最後より過去」も弾く（時系列逆転によるsetDataクラッシュの保険）
     if (closed.length > 0 && bucketStart <= closed[closed.length - 1].time) return closed;
     // nonMainCandles側の値はCSV全期間（未来分も含む）から集計済みのため使えない
-    // （先出し防止）。メインの確定済み足（0..cursor）からこのバケット範囲だけを
-    // 自前で再集計する
-    const forming = buildPartialCandle(candles, cursor, bucketStart, bucketStart + timeframeSec);
+    // （先出し防止）。finestSourceCandles（実際にカーソルを動かした時点のメインの
+    // 確定済み足）からこのバケット範囲だけを自前で再集計する——グローバルなcandles/
+    // cursorをそのまま使うと、メイン切替直後にメイン自体が粗い時間足になっていた
+    // 場合、このパネルより粗いデータからは形成中足を再集計できず出せなくなる
+    const forming = buildPartialCandle(finestSourceCandles, finestSourceCursor, bucketStart, bucketStart + timeframeSec);
     if (forming === null) return closed;
     return [...closed, forming];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [nonMainCandles, nonMainCursorEnd, timeframeSec, candles, cursor]);
+  }, [nonMainCandles, nonMainCursorEnd, timeframeSec, candles, cursor, finestSourceCandles, finestSourceCursor]);
   // このインスタンスが実際に描画すべき足データ（メインはグローバル、非メインは上記の自前集計＋未来隠し）
   const displayCandles = isMain ? candles : nonMainVisible;
 
