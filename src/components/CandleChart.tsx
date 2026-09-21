@@ -268,6 +268,7 @@ export function CandleChart({
 
   const candles = useTraderStore(s => s.candles);
   const cursor    = useTraderStore(s => s.cursor);
+  const mainDisplayTime = useTraderStore(s => s.mainDisplayTime);
   const positions = useTraderStore(s => s.positions);
   const pendingOrders = useTraderStore(s => s.pendingOrders);
   const closedTrades = useTraderStore(s => s.closedTrades);
@@ -5181,7 +5182,7 @@ export function CandleChart({
           if (isMain) setTimeframe(sec); else setQuadTimeframe(slot, sec);
         }}
         disabled={!isLoaded}
-        currentTime={candles[cursor]?.time}
+        currentTime={mainDisplayTime ?? candles[cursor]?.time}
         chartRightMargin={chartRightMargin}
         isFullscreen={chartLayout === '1'}
         restoreLayoutLabel={`${preMultiLayout}画面`}

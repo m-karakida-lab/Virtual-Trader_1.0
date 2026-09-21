@@ -215,8 +215,15 @@ interface TraderState {
   // 「今」の時刻（candles[cursor].time + timeframeSec）を、時間足を切り替えても
   // 見失わないよう保持する。advance/stepBack/jumpToTime等の実際のカーソル移動の
   // たびに現在のcursorに合わせて更新し、setTimeframe（メイン時間足の切替・パネル
-  // 昇格）ではこの値を変えない——切替は「今の瞬間」を変えない見た目の変更でしかない
+  // 昇格）ではこの値を変えない——切替は「今の瞬間」を変えない見た目の変更でしかない。
+  // データ開示境界（新しい時間足でどのバケットを形成中とみなすか）の判定に使う
   mainRevealedUntil: number | null;
+  // 画面ヘッダー「日付：」に表示する値。mainRevealedUntilと違い+timeframeSecしない
+  // 生の時刻（＝実際にカーソルを動かした時点のcandles[cursor].time）を保持する。
+  // 時間足を切り替えると新しい時間足のバケット開始時刻（例: 1Dなら07:00始まり等）に
+  // 丸まって見えてしまい、「切り替えても今の時刻の表示は変わらないでほしい」という
+  // 要望に反するため、表示専用の値として切替をまたいで据え置く
+  mainDisplayTime: number | null;
   initialBalance: number; // CSV読み込み・リセット時の開始残高
   isInitialBalanceCustom: boolean; // ユーザーが手動で初期残高を変更したか（trueなら通貨切替時の自動調整をしない）
   balance: number;
@@ -591,6 +598,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   candles: [],
   cursor: 0,
   mainRevealedUntil: null,
+  mainDisplayTime: null,
   initialBalance: DEFAULT_INITIAL_BALANCE,
   isInitialBalanceCustom: false,
   balance: DEFAULT_INITIAL_BALANCE,
@@ -741,6 +749,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       set({
         candles, cursor: restoredCursor,
         mainRevealedUntil: candles[restoredCursor] !== undefined ? candles[restoredCursor].time + timeframeSec : null,
+        mainDisplayTime: candles[restoredCursor] !== undefined ? candles[restoredCursor].time : null,
         isLoaded: true,
         isLoading: false, loadingMsg: `✓ ${candles.length.toLocaleString()}本 読み込み完了`,
         balance: restoredBalance, initialBalance: newInitialBalance,
@@ -935,6 +944,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         // 実際にカーソルを動かしたので「今」を新しい足に合わせ直す（切替直後だけ
         // 据え置く形成中バケットの特例はここでリセットされる）
         mainRevealedUntil: candles[newCursor].time + timeframeSec,
+        mainDisplayTime: candles[newCursor].time,
         ...(result.changed ? {
           positions: result.positions, pendingOrders: result.pendingOrders,
           closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
@@ -957,6 +967,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     set({
       cursor: newCursor, isPlaying: false, followLatest: false,
       mainRevealedUntil: candles[newCursor].time + timeframeSec,
+      mainDisplayTime: candles[newCursor].time,
     });
     return true;
   },
@@ -991,6 +1002,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       cursor: newCursor, isPlaying: false, centerTarget: targetSec, centerSignal: s.centerSignal + 1,
       followLatest: false,
       mainRevealedUntil: candles[newCursor].time + timeframeSec,
+      mainDisplayTime: candles[newCursor].time,
       ...(result?.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,
         closedTrades: result.closedTrades, balance: result.balance, nextId: result.nextId,
@@ -1556,6 +1568,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     set({
       cursor: lastIdx,
       mainRevealedUntil: candles[lastIdx].time + timeframeSec,
+      mainDisplayTime: candles[lastIdx].time,
       isPlaying: false,
       ...(result.changed ? {
         positions: result.positions, pendingOrders: result.pendingOrders,
