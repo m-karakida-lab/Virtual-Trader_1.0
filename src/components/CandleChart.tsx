@@ -4617,7 +4617,15 @@ export function CandleChart({
       updateCloudStep(candles, cursor);
     } else {
       seriesRef.current.setData(candles.slice(0, cursor + 1).map(toBar));
-      if (!justPromoted) chartRef.current?.timeScale().scrollToRealTime();
+      // 「最新足に固定」が有効な間は、ここの組み込みscrollToRealTime()を呼ばない。
+      // 呼ぶと既定400msのアニメーションが始まり、その直後に効くこのeffectより後ろの
+      // 継続追従effect（applyLatestViewRef、setVisibleLogicalRangeで即座に確定）と
+      // 競合し、一瞬だけ組み込み側の既定位置（このパネル独自のfollowAnchorRefを
+      // 考慮しない位置）へ寄ってから正しい位置へ戻る、という見た目のズレが起きる
+      // （「最新足に固定した状態で1コマ戻ると位置が少し戻って見える」不具合として発覚）
+      if (!justPromoted && !useTraderStore.getState().followLatest) {
+        chartRef.current?.timeScale().scrollToRealTime();
+      }
       recomputeEmaFull(candles, cursor);
       recomputeSMAFull(candles, cursor);
       recomputeBBFull(candles, cursor);
