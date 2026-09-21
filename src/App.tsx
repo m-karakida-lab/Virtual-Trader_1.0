@@ -61,20 +61,22 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // スペースキーで「1コマ進む」（下部ボタン行の⏭ボタンと同じadvance()）。
-  // ここ（App.tsx側1箇所）で拾うのは、CandleChartは4画面時に4インスタンス同時に
-  // マウントされておりインスタンスごとにwindow.addEventListenerすると同じキー入力に
-  // 4回反応してしまうため（Delete/Undo/コピペ等はパネル固有の操作なのでactivePanelSlotで
-  // 絞っているが、advance()はパネルに依存しないグローバルな操作なのでそもそも1箇所で
-  // 受ければ足りる）。テキストボックス編集中はスペース入力を奪わないよう除外する
+  // スペースキー／矢印キーで「1コマ進む」「1コマ戻る」（下部ボタン行の⏭/⏮ボタンと同じ
+  // advance()/stepBack()）。ここ（App.tsx側1箇所）で拾うのは、CandleChartは4画面時に
+  // 4インスタンス同時にマウントされておりインスタンスごとにwindow.addEventListenerすると
+  // 同じキー入力に4回反応してしまうため（Delete/Undo/コピペ等はパネル固有の操作なので
+  // activePanelSlotで絞っているが、advance()/stepBack()はパネルに依存しないグローバルな
+  // 操作なのでそもそも1箇所で受ければ足りる）。テキストボックス編集中はキー入力を
+  // 奪わないよう除外する
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code !== 'Space') return;
+      if (e.code !== 'Space' && e.code !== 'ArrowRight' && e.code !== 'ArrowLeft') return;
       const active = document.activeElement as HTMLElement | null;
       const tag = (active?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
       e.preventDefault(); // ページスクロール・フォーカス中ボタンの再クリックを防ぐ
-      useTraderStore.getState().advance();
+      if (e.code === 'ArrowLeft') useTraderStore.getState().stepBack();
+      else useTraderStore.getState().advance();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
