@@ -120,6 +120,15 @@ function formatVLineDate(sec: number): string {
   return `${yy} ${M}/${D} ${hh}:${mm}`;
 }
 
+// 週/月/年区切り線のラベル用（時刻は含めない、日付のみ）
+function formatSeparatorDate(sec: number): string {
+  const d = new Date(sec * 1000);
+  const yy = String(d.getUTCFullYear()).slice(2);
+  const M = d.getUTCMonth() + 1;
+  const D = d.getUTCDate();
+  return `${yy} ${M}/${D}`;
+}
+
 // 直近 period 本（idx を含む）の高値・安値
 function highLowWindow(cs: Candle[], idx: number, period: number): { hi: number; lo: number } {
   let hi = -Infinity, lo = Infinity;
@@ -1497,13 +1506,40 @@ export function CandleChart({
       const boundaries = weekBoundariesRef.current;
       const els = weekLineElsRef.current;
 
+      // lightweight-charts自身の目盛り（tickMarkFormatter）は間隔優先の自動配置のため、
+      // 区切り線の位置と必ずしも一致しない（区切り線はあるのに真上の目盛りは別の日、という
+      // ズレが起きる）。区切り線の位置には必ず日付が出るよう、線ごとに専用の日付ラベルを
+      // 自前で表示する（垂直線の日付ラベルと同じDOMパターン: elが位置決め用の0幅アンカー、
+      // 中のlineEl/labelがそれぞれ線本体とラベル）
       while (els.length < boundaries.length) {
         const el = document.createElement('div');
         el.style.position = 'absolute';
         el.style.top = '0';
+        el.style.height = '100%';
         el.style.width = '0px';
-        el.style.borderLeft = '1px dashed #4a4a4a';
         el.style.pointerEvents = 'none';
+
+        const lineEl = document.createElement('div');
+        lineEl.style.position = 'absolute';
+        lineEl.style.top = '0';
+        lineEl.style.width = '0px';
+        lineEl.style.borderLeft = '1px dashed #4a4a4a';
+        el.appendChild(lineEl);
+
+        const label = document.createElement('div');
+        label.style.position = 'absolute';
+        label.style.left = '0';
+        label.style.whiteSpace = 'nowrap';
+        label.style.fontSize = '10px';
+        label.style.fontWeight = '700';
+        label.style.lineHeight = '1.4';
+        label.style.padding = '1px 4px';
+        label.style.borderRadius = '3px';
+        label.style.color = '#e0e0e0';
+        label.style.backgroundColor = '#4a4a4a';
+        label.style.border = '1px solid #666';
+        el.appendChild(label);
+
         overlay.appendChild(el);
         els.push(el);
       }
@@ -1514,13 +1550,18 @@ export function CandleChart({
       boundaries.forEach((t, i) => {
         const x = chartRef.current!.timeScale().timeToCoordinate(t as Time);
         const el = els[i];
-        // 垂直線と同じ理由で、日付軸欄（chartBottomMargin分の帯）には侵入させない
-        el.style.height = `calc(100% - ${bottomMargin}px)`;
+        const lineEl = el.firstChild as HTMLDivElement;
+        const label = el.lastChild as HTMLDivElement;
         if (x === null) {
           el.style.display = 'none';
         } else {
           el.style.display = 'block';
           el.style.left = `${x}px`;
+          // 線はラベル（軸欄の垂直中央）まで伸ばして隙間なくつなげる
+          lineEl.style.height = `calc(100% - ${bottomMargin / 2}px)`;
+          label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
+          label.style.transform = 'translate(-50%, -50%)';
+          label.textContent = formatSeparatorDate(t);
         }
       });
     };
