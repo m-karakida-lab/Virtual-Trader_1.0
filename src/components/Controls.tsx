@@ -312,8 +312,11 @@ export function Controls() {
   const isLoaded      = useTraderStore(s => s.isLoaded);
   const isPlaying     = useTraderStore(s => s.isPlaying);
   const speed         = useTraderStore(s => s.speed);
+  const stepBack      = useTraderStore(s => s.stepBack);
+  const togglePlay    = useTraderStore(s => s.togglePlay);
   // 最後の足まで進んでいる（=もう先に反応できる未来が無い）間は発注・速度変更を無効化する
   const atEnd = candles.length > 0 && cursor >= candles.length - 1;
+  const atStart = cursor <= 0;
   const sym = currencySymbol(quoteCurrency);
 
   // ポジション別含み損益
@@ -416,10 +419,10 @@ export function Controls() {
           </div>
         </div>
 
-        {/* 発注ボタン。パネル本体は再生ボタン(FloatingControls)・パレット(PalettePanel)と
-            同じ、チャート上に独立して浮かぶドラッグ可能なパネル（OrderPanel.tsx）を開閉する
-            だけのトグル。以前はこの場所にドロップダウンとして直接出していたが、項目が多く
-            ゴチャゴチャして見づらいという指摘を受けて独立パネル化した */}
+        {/* 発注ボタン。パネル本体はパレット(PalettePanel)と同じ、チャート上に独立して浮かぶ
+            ドラッグ可能なパネル（OrderPanel.tsx）を開閉するだけのトグル。以前はこの場所に
+            ドロップダウンとして直接出していたが、項目が多くゴチャゴチャして見づらいという
+            指摘を受けて独立パネル化した */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <button
             onClick={() => {
@@ -512,6 +515,31 @@ export function Controls() {
           </MenuButton>
         </div>
 
+        {/* 再生・1コマ戻る・1コマ進む。以前はチャート上に浮かぶ丸ボタン（FloatingControls）
+            だったが、他の操作ボタンと統一感が無く場所も覚えにくいという指摘を受けてここへ
+            移設した。左から再生・戻る・進むの順（他のtfBtnと同じ角の無い四角形にする） */}
+        <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
+          <button
+            onClick={togglePlay}
+            disabled={!isLoaded || atEnd}
+            title={isPlaying ? '一時停止' : '再生'}
+            style={tfBtn(isPlaying, !isLoaded || atEnd)}
+          >{isPlaying ? '⏸' : '▶'}</button>
+          <button
+            onClick={() => stepBack()}
+            disabled={!isLoaded || atStart}
+            title="1コマ戻る"
+            style={tfBtn(false, !isLoaded || atStart)}
+          >⏮</button>
+          <button
+            onClick={() => advance()}
+            disabled={!isLoaded || atEnd || isPlaying}
+            title="1コマ進む"
+            style={tfBtn(false, !isLoaded || atEnd || isPlaying)}
+          >⏭</button>
+        </div>
+
+        <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
         {/* 設定（メニュー）。頻繁には使わない初期残高設定・インジケータ表示切替・ログ・
             再生速度をここにまとめる。他の操作系ボタンと混ざらないよう最右端に固定する */}

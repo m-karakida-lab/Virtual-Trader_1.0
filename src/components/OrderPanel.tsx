@@ -41,12 +41,12 @@ const inputStyle = (color: string, borderColor: string, width: string): React.CS
   fontVariantNumeric: 'tabular-nums',
 });
 
-// 発注パネル。再生ボタン（FloatingControls）・パレット（PalettePanel）と同じく、チャート上に
-// 独立して浮かぶドラッグ可能なパネルにした。以前はメニューの中に色々詰め込みすぎて
-// ゴチャゴチャしていたという指摘を受けて、「注文/数量/TP/SL/BUY・SELL」を行ごとに分離している。
+// 発注パネル。パレット（PalettePanel）と同じく、チャート上に独立して浮かぶドラッグ可能な
+// パネルにした。以前はメニューの中に色々詰め込みすぎてゴチャゴチャしていたという指摘を
+// 受けて、「注文/数量/TP/SL/BUY・SELL」を行ごとに分離している。
 // 位置はドラッグ終了時にlocalStorageへ保存し、次回開いた時も同じ位置に復元する
-// （FloatingControls/PalettePanelはマウント中だけの記憶だが、こちらは明示的に「覚えておいて」
-// という要望があったため別途永続化する）
+// （PalettePanelはマウント中だけの記憶だが、こちらは明示的に「覚えておいて」という
+// 要望があったため別途永続化する）
 export function OrderPanel() {
   const orderPanelOpen = useTraderStore(s => s.orderPanelOpen);
   const setOrderPanelOpen = useTraderStore(s => s.setOrderPanelOpen);
@@ -170,7 +170,7 @@ export function OrderPanel() {
   return (
     <div style={{
       position: 'absolute',
-      // 初期位置は左下（FloatingControlsは右下、PalettePanelは右上で埋まっているため空いている場所）
+      // 初期位置は左下（PalettePanelは右上で埋まっているため空いている場所）
       ...(pos
         ? { left: `${pos.x}px`, top: `${pos.y}px` }
         : { left: '16px', bottom: `${chartBottomMargin + 16}px` }),

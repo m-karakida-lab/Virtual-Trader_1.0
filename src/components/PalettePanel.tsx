@@ -21,7 +21,7 @@ const TEXT_BORDER_OPTIONS: { v: TextBorderStyle; label: string }[] = [
 
 // パレットモード中だけ表示する常設フローティングウィンドウ。ここで選んだ色・線種・太さは
 // 「次に選択（編集モードに入れる）した図形」へ即座に反映される（store側のselectLineが担う）。
-// ドラッグでの移動はFloatingControlsと同じ仕組み（位置はマウント中だけ保持、保存はしない）
+// ドラッグでの移動はOrderPanelと同じ仕組み（ただし位置はマウント中だけ保持、保存はしない）
 export function PalettePanel() {
   const paletteMode  = useTraderStore(s => s.paletteMode);
   const paletteStyle = useTraderStore(s => s.paletteStyle);

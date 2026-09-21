@@ -3,7 +3,6 @@ import { FileLoader } from './components/FileLoader';
 import { CandleChart } from './components/CandleChart';
 import { Controls } from './components/Controls';
 import { HistoryPanel } from './components/HistoryPanel';
-import { FloatingControls } from './components/FloatingControls';
 import { DrawToolbar } from './components/DrawToolbar';
 import { PalettePanel } from './components/PalettePanel';
 import { OrderPanel } from './components/OrderPanel';
@@ -62,7 +61,7 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // スペースキーで「1コマ進む」（FloatingControlsの⏭ボタンと同じadvance()）。
+  // スペースキーで「1コマ進む」（下部ボタン行の⏭ボタンと同じadvance()）。
   // ここ（App.tsx側1箇所）で拾うのは、CandleChartは4画面時に4インスタンス同時に
   // マウントされておりインスタンスごとにwindow.addEventListenerすると同じキー入力に
   // 4回反応してしまうため（Delete/Undo/コピペ等はパネル固有の操作なのでactivePanelSlotで
@@ -217,7 +216,6 @@ export default function App() {
               );
             })}
           </div>
-          <FloatingControls />
           <PalettePanel />
           <OrderPanel />
           {error && (
