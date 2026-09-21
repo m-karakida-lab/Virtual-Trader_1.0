@@ -517,25 +517,26 @@ export function Controls() {
 
         {/* 再生・1コマ戻る・1コマ進む。以前はチャート上に浮かぶ丸ボタン（FloatingControls）
             だったが、他の操作ボタンと統一感が無く場所も覚えにくいという指摘を受けてここへ
-            移設した。左から再生・戻る・進むの順（他のtfBtnと同じ角の無い四角形にする） */}
-        <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
+            移設した。左から再生・戻る・進むの順。よく使うボタンなので他のtfBtnより
+            一回り大きく、アクセントカラーで目立たせる（playBtn） */}
+        <div style={{ display: 'flex', gap: '4px', padding: '0 8px', flexShrink: 0 }}>
           <button
             onClick={togglePlay}
             disabled={!isLoaded || atEnd}
             title={isPlaying ? '一時停止' : '再生'}
-            style={tfBtn(isPlaying, !isLoaded || atEnd)}
+            style={playBtn(isPlaying, !isLoaded || atEnd)}
           >{isPlaying ? '⏸' : '▶'}</button>
           <button
             onClick={() => stepBack()}
             disabled={!isLoaded || atStart}
             title="1コマ戻る"
-            style={tfBtn(false, !isLoaded || atStart)}
+            style={playBtn(false, !isLoaded || atStart)}
           >⏮</button>
           <button
             onClick={() => advance()}
             disabled={!isLoaded || atEnd || isPlaying}
             title="1コマ進む"
-            style={tfBtn(false, !isLoaded || atEnd || isPlaying)}
+            style={playBtn(false, !isLoaded || atEnd || isPlaying)}
           >⏭</button>
         </div>
 
@@ -637,5 +638,19 @@ export const tfBtn = (active: boolean, disabled: boolean): React.CSSProperties =
   cursor: disabled ? 'not-allowed' : 'pointer',
   fontSize: '15px',
   fontWeight: 700,
+});
+
+// 再生・1コマ戻る・1コマ進む専用。頻繁に使うボタンなので他のtfBtnより一回り大きく、
+// アクセントカラー（BUYボタン等と同じ#1565c0系の青）で目立たせる
+const playBtn = (active: boolean, disabled: boolean): React.CSSProperties => ({
+  backgroundColor: disabled ? '#141414' : active ? '#1565c0' : '#0f2038',
+  color: disabled ? '#333' : '#fff',
+  border: disabled ? '1px solid #222' : '1px solid #1976d2',
+  borderRadius: '3px',
+  padding: '5px 14px',
+  cursor: disabled ? 'not-allowed' : 'pointer',
+  fontSize: '19px',
+  fontWeight: 700,
+  lineHeight: 1,
 });
 
