@@ -307,6 +307,7 @@ export function CandleChart({
   const showHLinePriceLabel = useTraderStore(s => s.showHLinePriceLabel);
   const showVLineDateLabel = useTraderStore(s => s.showVLineDateLabel);
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
+  const mainRevealedUntil = useTraderStore(s => s.mainRevealedUntil);
   const setTimeframe = useTraderStore(s => s.setTimeframe);
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
   const chartLayout = useTraderStore(s => s.chartLayout);
@@ -351,8 +352,15 @@ export function CandleChart({
     })();
     return () => { cancelled = true; };
   }, [isMain, isLoaded, dataVersion, timeframeSec]);
-  // メインの現在足が閉じた時点（＝これより先は「未来」として隠す境界）。MiniChart.tsxと同じ考え方
-  const nonMainCursorEnd = candles[cursor]?.time !== undefined ? candles[cursor].time + mainTimeframeSec : undefined;
+  // メインの現在足が閉じた時点（＝これより先は「未来」として隠す境界）。MiniChart.tsxと同じ考え方。
+  // candles[cursor].time + mainTimeframeSecで都度計算し直すのではなく、store側で保持している
+  // mainRevealedUntilをそのまま使うこと——メインが形成中（未確定）のバケットを昇格直後に
+  // 指している場合、candles[cursor]はその形成中バケット（バケット開始時刻）でmainTimeframeSec
+  // も新しい時間足のものなので、計算し直すと実際の開示境界より大きくずれた値になり、非メインに
+  // 降格したパネル（直前までメインで、切替の前後で実際には何も開示状況が変わっていない）が
+  // 突然余分な未来の足まで表示してしまう（先出し）→ 無関係な再描画が起きて見えていた
+  const nonMainCursorEnd = mainRevealedUntil ??
+    (candles[cursor]?.time !== undefined ? candles[cursor].time + mainTimeframeSec : undefined);
   // filter()は呼ぶたびに新しい配列参照を返すため、useMemoを挟まないと依存に使う
   // useEffectが実質毎レンダー発火してしまう（値が同じでも参照が変わるため）。
   // ただしnonMainCursorEndはメインのcursorが1本進むたびに毎回変わる（=useMemoの依存自体は
