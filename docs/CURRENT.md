@@ -169,6 +169,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - チャートの時間軸目盛りは全シリーズ時刻の和集合。一目雲のずらしは秒数でなく**本数**で行うこと（`cloudDisplacedTime`）。図形の平行移動も秒数でなく足インデックス（`candleIndexAt`）で行うこと（週末の足抜け対策）
 - `timeToCoordinate`/`priceToCoordinate`は`setData`/`setVisibleRange`/`applyOptions`直後は古い座標を返すことがある。同処理の最後に`requestAnimationFrame`で再同期すること
 - 月境界マークは`tickMarkFormatter`を通らず`localization.dateFormat`を使う。有効トークンは`yyyy/yy/MMMM/MMM/MM/dd`のみ
+- `tickMarkFormatter`の日付/時刻切替は「UTC 00:00かどうか」では判定しないこと。4H/1D/1W/1Mはブローカー時間バケット+JST表示ズレでUTC 00:00にほぼ乗らず、時刻だけが延々表示される。`timeframeSec>=14400`は常に日付表示にする
 - 非メインの`nonMainVisible`再描画は`length===0`で早期returnしないこと（空でも`setData([])`を呼び画面を空にする）
 - 自動再生は`requestAnimationFrame`（`setInterval`は高速再生時に描画ノイズが出る）
 - ドラッグ系操作は開始時に`handleScroll`/`handleScale`を無効化し終了時に必ず再有効化すること

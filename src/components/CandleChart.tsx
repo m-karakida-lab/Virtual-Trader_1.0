@@ -530,9 +530,15 @@ export function CandleChart({
           const hh = String(d.getUTCHours()).padStart(2, '0');
           const mm = String(d.getUTCMinutes()).padStart(2, '0');
           const yy = String(d.getUTCFullYear()).slice(2);
-          return d.getUTCHours() === 0 && d.getUTCMinutes() === 0
+          // 4H/1D/1W/1Mは、日境界がブローカー時間バケット+JST表示ズレの都合で
+          // UTC 00:00にほぼ乗らず（不変条件/地雷を参照）、「00:00の時だけ日付」という
+          // 判定だと日付がほぼ一生出てこず「02:00 06:00」等の時刻だけが延々と繰り返し
+          // 表示されてしまう。この粒度では時刻より日付の方が有用なので、常に日付を出す
+          return timeframeSecRef.current >= 14400
             ? `${yy} ${M}/${D}`
-            : `${hh}:${mm}`;
+            : d.getUTCHours() === 0 && d.getUTCMinutes() === 0
+              ? `${yy} ${M}/${D}`
+              : `${hh}:${mm}`;
         },
       },
       width: container.clientWidth,
