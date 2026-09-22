@@ -8,8 +8,16 @@ const DAY_SEC = 86400;
 const MONTH_DAYS = MONTH_SEC / DAY_SEC; // 平均月長（日）。types.tsのMONTH_SECと基準を揃える
 const WEEK_DAYS = WEEK_SEC / DAY_SEC;
 
-// エントリー曜日別分析用。openTimeは既にJST変換済み前提（getUTCDay基準、プロジェクト全体の慣例に合わせる）
-const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+// エントリー曜日別分析用。月〜金の5区分のみ（FXは土日がほぼ休場で日足も5本/週）。
+// openTimeは既にJST変換済み前提（getUTCDay基準、プロジェクト全体の慣例に合わせる）。
+// 週明け/週末クローズ間際でgetUTCDayが日曜(0)・土曜(6)にずれ込むごく稀なケースは、
+// それぞれ直後の月曜・直前の金曜にまとめる（休場日の列を作らないため）
+const WEEKDAY_LABELS = ['月', '火', '水', '木', '金'];
+function weekdayBucketIndex(day: number): number {
+  if (day === 0) return 0; // 日曜→月曜
+  if (day === 6) return 4; // 土曜→金曜
+  return day - 1;
+}
 
 // 保有期間帯（デイトレ〜スイングを想定した区切り。スキャルは対象外の想定なので分未満は作らない）
 const HOLD_BUCKETS: { key: string; label: string; maxSec: number }[] = [
@@ -155,7 +163,7 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
   // openTimeは既にJST変換済み前提（プロジェクト全体の慣例。fmtDateTime等と同じgetUTCDay基準）
   const weekdayBuckets = WEEKDAY_LABELS.map((label, i) => ({ key: String(i), label: `${label}曜`, count: 0, pnl: 0 }));
   for (const t of sorted) {
-    const bucket = weekdayBuckets[new Date(t.openTime * 1000).getUTCDay()];
+    const bucket = weekdayBuckets[weekdayBucketIndex(new Date(t.openTime * 1000).getUTCDay())];
     bucket.count++;
     bucket.pnl += t.pnl;
   }
