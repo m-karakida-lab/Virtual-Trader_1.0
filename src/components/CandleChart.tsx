@@ -160,6 +160,11 @@ function fmtDuration(sec: number): string {
   return `${mins}m`;
 }
 
+// TP/SLの価格ライン表示用: エントリー価格からの距離をpips単位で返す
+function pipsBetween(entryPrice: number, target: number): number {
+  return Math.abs(target - entryPrice) / inferPipSize(entryPrice);
+}
+
 function candleIndexAt(candles: Candle[], t: number): number {
   let lo = 0, hi = candles.length - 1, idx = 0;
   while (lo <= hi) {
@@ -4285,7 +4290,7 @@ export function CandleChart({
           lineWidth: 1 as const,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: 'TP',
+          title: `TP ${pipsBetween(o.price, o.tp!).toFixed(1)}p`,
         };
         const cur = tpExisting.get(o.id);
         if (cur) cur.applyOptions(opts);
@@ -4305,7 +4310,7 @@ export function CandleChart({
           lineWidth: 1 as const,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: 'SL',
+          title: `SL ${pipsBetween(o.price, o.sl!).toFixed(1)}p`,
         };
         const cur = slExisting.get(o.id);
         if (cur) cur.applyOptions(opts);
@@ -4334,7 +4339,7 @@ export function CandleChart({
           lineWidth: 1 as const,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: 'TP',
+          title: `TP ${pipsBetween(p.openPrice, p.tp!).toFixed(1)}p`,
         };
         const cur = tpExisting.get(p.id);
         if (cur) cur.applyOptions(opts);
@@ -4354,7 +4359,7 @@ export function CandleChart({
           lineWidth: 1 as const,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
-          title: 'SL',
+          title: `SL ${pipsBetween(p.openPrice, p.sl!).toFixed(1)}p`,
         };
         const cur = slExisting.get(p.id);
         if (cur) cur.applyOptions(opts);
@@ -4400,12 +4405,21 @@ export function CandleChart({
     try {
       const existing = draftLineMapRef.current;
 
+      // pips表示の基準となるエントリー価格: 成行は現在値、指値/逆指値はdraftPrice（未入力ならnullのまま表示なし）
+      const draftEntryPrice = orderType === 'market' ? candles[cursor]?.close ?? null : draftPrice;
+
       const wanted: { key: 'price' | 'tp' | 'sl'; price: number; color: string; title: string }[] = [];
       if (orderType !== 'market' && draftPrice !== null) {
         wanted.push({ key: 'price', price: draftPrice, color: '#888', title: '指値/逆指値 (draft)' });
       }
-      if (draftTP !== null) wanted.push({ key: 'tp', price: draftTP, color: '#26a69a', title: 'TP (draft)' });
-      if (draftSL !== null) wanted.push({ key: 'sl', price: draftSL, color: '#ef5350', title: 'SL (draft)' });
+      if (draftTP !== null) {
+        const pips = draftEntryPrice !== null ? ` ${pipsBetween(draftEntryPrice, draftTP).toFixed(1)}p` : '';
+        wanted.push({ key: 'tp', price: draftTP, color: '#26a69a', title: `TP (draft)${pips}` });
+      }
+      if (draftSL !== null) {
+        const pips = draftEntryPrice !== null ? ` ${pipsBetween(draftEntryPrice, draftSL).toFixed(1)}p` : '';
+        wanted.push({ key: 'sl', price: draftSL, color: '#ef5350', title: `SL (draft)${pips}` });
+      }
 
       const wantedKeys = new Set(wanted.map(w => w.key));
       for (const [key, pl] of existing) {
@@ -4427,7 +4441,7 @@ export function CandleChart({
     } catch (e) {
       logError('CandleChart:draftLines', e);
     }
-  }, [orderType, draftPrice, draftTP, draftSL]);
+  }, [orderType, draftPrice, draftTP, draftSL, candles, cursor]);
 
   // リスクリワード（TP/SL比率）プレビューの再計算
   useEffect(() => {
