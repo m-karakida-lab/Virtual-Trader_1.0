@@ -2,15 +2,18 @@ import { useEffect, useRef, useState } from 'react';
 import { CHART_FONT_FAMILY } from '../lib/chartTheme';
 import { TIMEFRAMES, type TimeframeSec } from '../types';
 
-// Unix秒（UTC）→ "YYYY/MM/DD HH:mm"。現在時刻表示用
+const WEEKDAY_LABELS = ['日', '月', '火', '水', '木', '金', '土'];
+
+// Unix秒（UTC）→ "YYYY/MM/DD(曜) HH:mm"。現在時刻表示用
 function fmtCurrentTime(sec: number): string {
   const d = new Date(sec * 1000);
   const y = d.getUTCFullYear();
   const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
   const day = String(d.getUTCDate()).padStart(2, '0');
+  const wd = WEEKDAY_LABELS[d.getUTCDay()];
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const mm = String(d.getUTCMinutes()).padStart(2, '0');
-  return `${y}/${mo}/${day} ${hh}:${mm}`;
+  return `${y}/${mo}/${day}(${wd}) ${hh}:${mm}`;
 }
 
 // TradingView風のパネルヘッダー（左上の「シンボル + 時間足」表示 + 全画面切替）。
