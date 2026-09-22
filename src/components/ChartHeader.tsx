@@ -21,7 +21,7 @@ function fmtCurrentTime(sec: number): string {
 // currentTime（リプレイ中の現在足時刻・Unix秒）を渡すと同じ行の右側に日付時刻を表示する
 export function ChartHeader({
   symbol, timeframeLabel, timeframeSec, onSelectTimeframe, disabled = false,
-  isFullscreen, onToggleFullscreen, currentTime, chartRightMargin = 0,
+  isFullscreen, onToggleFullscreen, currentTime, atrPips, chartRightMargin = 0,
   restoreLayoutLabel = '4画面', tradeMarkersVisible, onToggleTradeMarkers,
 }: {
   symbol: string;
@@ -32,6 +32,7 @@ export function ChartHeader({
   isFullscreen: boolean;
   onToggleFullscreen: () => void;
   currentTime?: number;
+  atrPips?: number | null; // 今のボラティリティの目安（ATR14をpips換算）。日付ピルの左に小さく表示
   chartRightMargin?: number;
   restoreLayoutLabel?: string; // 1画面解除時に戻る先のレイアウト名（ボタンのtitleに使う）
   tradeMarkersVisible?: boolean; // このパネルの時間足でトレード履歴マーカーを表示中か
@@ -54,8 +55,22 @@ export function ChartHeader({
     {currentTime !== undefined && (
       <div style={{
         position: 'absolute', top: 8, right: chartRightMargin + 10, zIndex: 12,
+        display: 'flex', alignItems: 'center', gap: '6px',
         pointerEvents: 'none', fontFamily: CHART_FONT_FAMILY,
       }}>
+        {atrPips !== undefined && atrPips !== null && (
+          <div
+            title="ATR(14): 直近の平均的な値幅から見た今のボラティリティの目安"
+            style={{
+              background: 'linear-gradient(rgba(255,255,255,0.12), rgba(255,255,255,0.12)), #0d0d0d',
+              borderRadius: '8px', padding: '4px 8px',
+              color: 'rgba(255,255,255,0.6)', fontSize: '14px', fontWeight: 600,
+              fontVariantNumeric: 'tabular-nums',
+            }}
+          >
+            ATR(14) {atrPips.toFixed(1)}p
+          </div>
+        )}
         <div style={{
           background: 'linear-gradient(rgba(255,255,255,0.12), rgba(255,255,255,0.12)), #0d0d0d',
           borderRadius: '8px', padding: '4px 8px',

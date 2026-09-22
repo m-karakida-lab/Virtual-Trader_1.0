@@ -14,7 +14,7 @@ import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib
 import { recognizeShape } from '../lib/shapeRecognition';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { SESSIONS, computeSessionBands, type SessionBand } from '../lib/sessions';
-import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud } from '../lib/indicators';
+import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud, computeATR } from '../lib/indicators';
 import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
@@ -436,6 +436,16 @@ export function CandleChart({
   }, [nonMainCandles, nonMainCursorEnd, timeframeSec, candles, cursor, finestSourceCandles, finestSourceCursor]);
   // このインスタンスが実際に描画すべき足データ（メインはグローバル、非メインは上記の自前集計＋未来隠し）
   const displayCandles = isMain ? candles : nonMainVisible;
+
+  // ATR(14)バッジ用。このパネル自身の時間軸・今の位置（メインはcursor、非メインは
+  // displayCandlesの末尾＝effectiveCursorRefと同じ考え方）で計算する
+  const atrPips = useMemo(() => {
+    const idx = isMain ? cursor : displayCandles.length - 1;
+    if (idx < 0 || idx >= displayCandles.length) return null;
+    const atr = computeATR(displayCandles, idx);
+    if (atr === null) return null;
+    return atr / inferPipSize(displayCandles[idx].close);
+  }, [displayCandles, isMain, cursor]);
 
   // マウント時1回のみ実行される巨大なイベント設定用useEffect（下のchart初期化）はpropsを
   // クロージャで固定してしまうため、4画面でisMain/slotがremountなしに切り替わることに
@@ -5310,6 +5320,7 @@ export function CandleChart({
         }}
         disabled={!isLoaded}
         currentTime={mainDisplayTime ?? candles[cursor]?.time}
+        atrPips={atrPips}
         chartRightMargin={chartRightMargin}
         isFullscreen={chartLayout === '1'}
         restoreLayoutLabel={`${preMultiLayout}画面`}

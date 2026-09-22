@@ -7,6 +7,7 @@ import type { Candle } from '../types';
 export const EMA_PERIOD = 200;
 export const SMA_PERIOD = 14;
 export const BB_PERIOD = 20;
+export const ATR_PERIOD = 14;
 export const TENKAN_PERIOD = 9;
 export const KIJUN_PERIOD = 26;
 export const SENKOU_B_PERIOD = 52;
@@ -36,6 +37,31 @@ export function computeSMA(candles: Candle[]): LineData[] {
     if (i >= SMA_PERIOD - 1) data.push({ time: candles[i].time as Time, value: sum / SMA_PERIOD });
   }
   return data;
+}
+
+// ATR（Average True Range）: Wilderのスムージングで算出した「今のボラティリティ」の目安。
+// uptoIndex時点の1値だけを返す（プロット用の時系列ではなく、チャート右上の数値バッジ用）。
+// 毎回0から通し計算するが、この用途では期間分（既定14）より前の履歴は結果にほぼ寄与しない
+// （指数減衰で数期間後には無視できる程度になる）ため、直近をある程度多めに遡るだけで足りる
+export function computeATR(candles: Candle[], uptoIndex: number, period: number = ATR_PERIOD): number | null {
+  const lookback = period * 5; // 収束に十分な遡り幅（Wilderの平滑化が前の値をほぼ忘れる長さ）
+  const start = Math.max(1, uptoIndex - lookback);
+  if (uptoIndex < start) return null;
+
+  let sum = 0, count = 0;
+  let atr: number | null = null;
+  for (let i = start; i <= uptoIndex; i++) {
+    const c = candles[i], prev = candles[i - 1];
+    const tr = Math.max(c.high - c.low, Math.abs(c.high - prev.close), Math.abs(c.low - prev.close));
+    if (atr === null) {
+      sum += tr;
+      count++;
+      if (count === period) atr = sum / period;
+    } else {
+      atr = (atr * (period - 1) + tr) / period;
+    }
+  }
+  return atr;
 }
 
 function highLowWindow(cs: Candle[], idx: number, period: number): { hi: number; lo: number } {
