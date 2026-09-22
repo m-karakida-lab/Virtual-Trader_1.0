@@ -74,6 +74,7 @@ export function OrderPanel() {
   const riskPercent   = useTraderStore(s => s.riskPercent);
   const setRiskPercent = useTraderStore(s => s.setRiskPercent);
   const submitOrder   = useTraderStore(s => s.submitOrder);
+  const error         = useTraderStore(s => s.error);
   const closeAll      = useTraderStore(s => s.closeAll);
   const chartRightMargin  = useTraderStore(s => s.chartRightMargin);
   const chartBottomMargin = useTraderStore(s => s.chartBottomMargin);
@@ -163,8 +164,9 @@ export function OrderPanel() {
   };
 
   const handleExecute = () => {
-    submitOrder(selectedSide);
-    setOrderPanelOpen(false);
+    // 失敗時（残高不足・TP/SLの向きが矛盾等）はパネルを閉じない。閉じてしまうと
+    // エラー内容を見ながら入力を直せないため（成功時のみ閉じる）
+    if (submitOrder(selectedSide)) setOrderPanelOpen(false);
   };
 
   return (
@@ -329,6 +331,14 @@ export function OrderPanel() {
           style={sideBtn('#c62828', selectedSide === 'SELL', !isLoaded || atEnd)}
         >SELL</button>
       </div>
+
+      {/* 注文執行失敗時のエラー（残高不足・TP/SLの向きが矛盾等）。パネルを閉じずにここへ出す */}
+      {error && (
+        <div style={{
+          color: '#ff7b72', backgroundColor: '#3a0d0d', border: '1px solid #ef5350',
+          borderRadius: '4px', padding: '6px 10px', fontSize: '13px', fontWeight: 600,
+        }}>{error}</div>
+      )}
 
       {/* 注文執行（ここで確定。BUY/SELLで選んだ方向を実際に発注する） */}
       <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>

@@ -383,7 +383,7 @@ interface TraderState {
   pickPrice: (price: number) => void;
   toggleJumpSync: () => void;
   jumpSyncTo: (sourceId: string, time: number) => void;
-  submitOrder: (side: Side) => void;
+  submitOrder: (side: Side) => boolean; // 成立したらtrue（発注パネルを閉じる判断に使う）
   cancelOrder: (id: number) => void;
   updateOrderPrice: (id: number, price: number) => void;
   setOrderTP: (id: number, tp: number | undefined) => void;
@@ -1076,7 +1076,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   submitOrder: (side: Side) => {
     const { orderType, lots, lotMode, riskPercent, draftPrice, draftTP, draftSL, candles, cursor, positions, nextId, pendingOrders, nextOrderId, balance } = get();
     const c = candles[cursor];
-    if (!c) return;
+    if (!c) return false;
     const tp = draftTP ?? undefined;
     const sl = draftSL ?? undefined;
     const entryPrice = orderType === 'market' ? c.close : draftPrice;
@@ -1090,14 +1090,14 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         const tpValid = side === 'BUY' ? tp > entryPrice : tp < entryPrice;
         if (!tpValid) {
           set({ error: `${side} の TP は建値(${entryPrice})より${side === 'BUY' ? '上' : '下'}の価格を指定してください` });
-          return;
+          return false;
         }
       }
       if (sl !== undefined) {
         const slValid = side === 'BUY' ? sl < entryPrice : sl > entryPrice;
         if (!slValid) {
           set({ error: `${side} の SL は建値(${entryPrice})より${side === 'BUY' ? '下' : '上'}の価格を指定してください` });
-          return;
+          return false;
         }
       }
     }
@@ -1107,17 +1107,17 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     if (lotMode === 'risk') {
       if (sl === undefined || entryPrice === null) {
         set({ error: 'リスク%指定には SL の設定が必要です' });
-        return;
+        return false;
       }
       const stopDistance = Math.abs(entryPrice - sl);
       if (stopDistance === 0) {
         set({ error: 'SL がエントリー価格と同じです' });
-        return;
+        return false;
       }
       useLots = Math.round((balance * (riskPercent / 100)) / stopDistance);
       if (useLots <= 0) {
         set({ error: '計算されたロット数が0以下です' });
-        return;
+        return false;
       }
     }
 
@@ -1135,16 +1135,17 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       const margin = useLots * c.close * 0.04;
       if (balance < margin) {
         set({ error: '残高が不足しています' });
-        return;
+        return false;
       }
       set({
         positions: [...positions, { id: nextId, side, openPrice: c.close, lots: useLots, openTime: c.time, tp, sl }],
         nextId: nextId + 1,
         draftTP: null, draftSL: null,
-        lastOrderRatiosByKey,
+        lastOrderRatiosByKey, error: null,
       });
+      return true;
     } else {
-      if (draftPrice === null) return;
+      if (draftPrice === null) return false;
 
       // 指値・逆指値は現在値との上下関係が決まっている（実際の注文として成立する条件）
       // STOP-BUY: 現在値より上 / STOP-SELL: 現在値より下 / LIMIT-BUY: 現在値より下 / LIMIT-SELL: 現在値より上
@@ -1153,7 +1154,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       if (isAbove !== mustBeAbove) {
         const typeLabel = orderType === 'stop' ? '逆指値' : '指値';
         set({ error: `${side} ${typeLabel} は現在値(${c.close})より${mustBeAbove ? '上' : '下'}の価格を指定してください` });
-        return;
+        return false;
       }
 
       set({
@@ -1162,6 +1163,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         lastOrderRatiosByKey,
         draftPrice: null, draftTP: null, draftSL: null, error: null,
       });
+      return true;
     }
   },
 

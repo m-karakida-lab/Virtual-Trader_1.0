@@ -35,6 +35,7 @@ export default function App() {
   const error      = useTraderStore(s => s.error);
   const clearError = useTraderStore(s => s.clearError);
   const isLoaded   = useTraderStore(s => s.isLoaded);
+  const orderPanelOpen = useTraderStore(s => s.orderPanelOpen);
   const showHistoryPanel = useTraderStore(s => s.showHistoryPanel);
   const chartLayout   = useTraderStore(s => s.chartLayout);
   const preMultiLayout = useTraderStore(s => s.preMultiLayout);
@@ -220,7 +221,9 @@ export default function App() {
           </div>
           <PalettePanel />
           <OrderPanel />
-          {error && (
+          {/* 発注パネルが開いている間は同じerrorがOrderPanel側にも表示されるため、
+              ここでの二重表示を避ける（発注以外の原因のエラーはパネルを閉じれば従来通り出る） */}
+          {error && !orderPanelOpen && (
             <div style={{
               position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)',
               backgroundColor: '#3a0d0d', color: '#ff7b72', border: '1px solid #ef5350',
