@@ -223,6 +223,7 @@ export function CandleChart({
   const orderLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const tpLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const slLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
+  const positionEntryLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const orderTpLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const orderSlLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const draftLineMapRef = useRef<Map<'price' | 'tp' | 'sl', IPriceLine>>(new Map());
@@ -4166,6 +4167,7 @@ export function CandleChart({
       orderLineMapRef.current.clear();
       tpLineMapRef.current.clear();
       slLineMapRef.current.clear();
+      positionEntryLineMapRef.current.clear();
       orderTpLineMapRef.current.clear();
       orderSlLineMapRef.current.clear();
       draftLineMapRef.current.clear();
@@ -4360,6 +4362,34 @@ export function CandleChart({
       }
     } catch (e) {
       logError('CandleChart:tpSlLines', e);
+    }
+  }, [positions]);
+
+  // ポジションのエントリー価格ラインを再描画
+  useEffect(() => {
+    if (!seriesRef.current) return;
+    const series = seriesRef.current;
+    try {
+      const existing = positionEntryLineMapRef.current;
+      const ids = new Set(positions.map(p => p.id));
+      for (const [id, pl] of existing) {
+        if (!ids.has(id)) { series.removePriceLine(pl); existing.delete(id); }
+      }
+      for (const p of positions) {
+        const opts = {
+          price: p.openPrice,
+          color: p.side === 'BUY' ? '#42a5f5' : '#ab47bc',
+          lineWidth: 2 as const,
+          lineStyle: LineStyle.Solid,
+          axisLabelVisible: true,
+          title: `${p.side} ${p.lots}`,
+        };
+        const cur = existing.get(p.id);
+        if (cur) cur.applyOptions(opts);
+        else existing.set(p.id, series.createPriceLine(opts));
+      }
+    } catch (e) {
+      logError('CandleChart:positionEntryLines', e);
     }
   }, [positions]);
 
