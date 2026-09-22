@@ -483,6 +483,10 @@ export function CandleChart({
   // 再生中かどうか。カーソル変化時のデータ同期effect（isStep判定に使うためisPlaying自体は
   // depsに入れられない）から最新値を読むためのref
   const isPlayingRef = useRef(isPlaying);
+  // メイン→非メインへ降格した瞬間を検出するため（デフォルトisMain=trueだと初回マウントを
+  // 誤って「降格」扱いしてしまうため、非メインpropsで始まるインスタンスも考慮してisMainの
+  // 初期値をそのまま入れておく）
+  const prevIsMainRef = useRef(isMain);
   useEffect(() => {
     isMainRef.current = isMain;
     slotRef.current = slot;
@@ -492,6 +496,19 @@ export function CandleChart({
     displayCandlesRef.current = displayCandles;
     effectiveCursorRef.current = isMain ? cursor : displayCandles.length - 1;
     isPlayingRef.current = isPlaying;
+    // メインの間はfollowLatestがOFFだとcaptureFollowAnchorFromCurrentView側の
+    // isFollowActiveNow()ガードで弾かれ、followAnchorRefが更新されないまま（null）に
+    // なりがち（ジャンプ・パン等でメインの表示位置を動かしても捕捉されない）。この状態で
+    // 別パネルをメインへ昇格させてこの枠が降格すると、非メインの「常時追従」effectが
+    // null＝アンカー未設定と判定し、既定値（画面右端＝真の最新足）にリセットしてしまう
+    // ——「Aをメインに昇格→Bが最新足に戻る」のAB逆パターンとして実際に踏んだ（前回直した
+    // 「ジャンプ直後に降格して戻る」不具合とは発生タイミングが違う、同根の別ケース）。
+    // 降格した瞬間、その時点の実際の表示位置をアンカーとして採用することで、降格後も
+    // 直前の見た目のまま追従を続けられるようにする
+    if (prevIsMainRef.current && !isMain) {
+      captureFollowAnchorRef.current();
+    }
+    prevIsMainRef.current = isMain;
   }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec, isPlaying]);
   // 非メイン時、クリック（ドラッグでない）でメインへ昇格させるための始点記録
   const nonMainMouseDownPosRef = useRef<{ x: number; y: number } | null>(null);
