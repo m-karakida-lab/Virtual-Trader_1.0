@@ -525,6 +525,7 @@ function processOrderRange(
           closedTrades = [...closedTrades, {
             id: pos.id, side: pos.side, openPrice: pos.openPrice, closePrice: exitPrice,
             openTime: pos.openTime, closeTime: c.time, lots: pos.lots, pnl,
+            tp: pos.tp, sl: pos.sl,
           }];
           changed = true;
         } else {
@@ -1197,6 +1198,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       closedTrades: [...closedTrades, {
         id: pos.id, side: pos.side, openPrice: pos.openPrice, closePrice: c.close,
         openTime: pos.openTime, closeTime: c.time, lots: pos.lots, pnl,
+        tp: pos.tp, sl: pos.sl,
       }],
     });
   },
@@ -1211,6 +1213,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       return {
         id: pos.id, side: pos.side, openPrice: pos.openPrice, closePrice: c.close,
         openTime: pos.openTime, closeTime: c.time, lots: pos.lots, pnl,
+        tp: pos.tp, sl: pos.sl,
       };
     });
     const totalPnl = newTrades.reduce((sum, t) => sum + t.pnl, 0);

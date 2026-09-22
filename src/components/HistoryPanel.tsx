@@ -5,7 +5,7 @@ import type { ClosedTrade } from '../types';
 import { LINE_COLORS } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { pricePrecision, inferPipSize } from '../lib/pips';
-import { computeTradeStats } from '../lib/tradeStats';
+import { computeTradeStats, plannedRR } from '../lib/tradeStats';
 import { downloadAiAnalysis } from '../lib/aiExport';
 import { SESSIONS } from '../lib/sessions';
 import { initDuckDB } from '../lib/duckdb';
@@ -491,6 +491,7 @@ export function HistoryPanel() {
                 <StatRow label="最大ロット" value={rs.maxLots.toLocaleString()} />
                 <StatRow label="勝率" value={nn(rs.winRatePct, v => fmtPct(v))} />
                 <StatRow label="損失率" value={nn(rs.lossRatePct, v => fmtPct(v))} />
+                <StatRow label="平均リスクリワード比" value={rs.avgPlannedRR === null ? '—' : `1 : ${rs.avgPlannedRR.toFixed(2)}（${rs.rrSetCount}件）`} />
               </StatGroup>
             </div>
           </div>
@@ -602,16 +603,17 @@ export function HistoryPanel() {
                 <th style={{ padding: '8px 16px', width: '10%' }}>ロット</th>
                 <th style={{ padding: '8px 16px', width: '10%' }}>エントリー</th>
                 <th style={{ padding: '8px 16px', width: '10%' }}>決済</th>
-                <th style={{ padding: '8px 16px', width: '12%' }}>開始</th>
-                <th style={{ padding: '8px 16px', width: '12%' }}>終了</th>
-                <th style={{ padding: '8px 16px', width: '10%' }}>保有期間</th>
+                <th style={{ padding: '8px 16px', width: '9%' }}>開始</th>
+                <th style={{ padding: '8px 16px', width: '9%' }}>終了</th>
+                <th style={{ padding: '8px 16px', width: '8%' }}>保有期間</th>
+                <th style={{ padding: '8px 16px', width: '8%' }} title="エントリー時点のTP/SLから算出したリスクリワード比">R:R</th>
                 <th style={{ padding: '8px 16px', width: '10%', textAlign: 'right' }}>獲得(損失)pips</th>
                 <th style={{ padding: '8px 16px', width: '12%', textAlign: 'right' }}>損益</th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 ? (
-                <tr><td colSpan={10} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
+                <tr><td colSpan={11} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
               ) : (
                 [...sorted].reverse().map((t, i) => (
                   <tr
@@ -635,6 +637,7 @@ export function HistoryPanel() {
                     <td style={{ padding: '6px 16px', color: '#555' }}>{fmtDateTime(t.openTime)}</td>
                     <td style={{ padding: '6px 16px', color: '#555' }}>{fmtDateTime(t.closeTime)}</td>
                     <td style={{ padding: '6px 16px', color: '#666' }}>{fmtDuration(t.closeTime - t.openTime)}</td>
+                    <td style={{ padding: '6px 16px', color: '#666' }}>{(() => { const rr = plannedRR(t); return rr === null ? '—' : `1:${rr.toFixed(2)}`; })()}</td>
                     <td style={{
                       padding: '6px 16px', textAlign: 'right', fontWeight: 700,
                       color: t.pnl >= 0 ? '#26a69a' : '#ef5350',

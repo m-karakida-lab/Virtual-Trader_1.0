@@ -19,6 +19,15 @@ function weekdayBucketIndex(day: number): number {
   return day - 1;
 }
 
+// エントリー時点のリスクリワード比（reward/risk。発注パネルのR:Rプレビューと同じ考え方、
+// 「1 : この値」の表記）。TP/SLの両方が設定されていたトレードのみ算出可能
+export function plannedRR(t: ClosedTrade): number | null {
+  if (t.tp === undefined || t.sl === undefined) return null;
+  const risk = Math.abs(t.openPrice - t.sl);
+  const reward = Math.abs(t.tp - t.openPrice);
+  return risk > 0 ? reward / risk : null;
+}
+
 // 保有期間帯（デイトレ〜スイングを想定した区切り。スキャルは対象外の想定なので分未満は作らない）
 const HOLD_BUCKETS: { key: string; label: string; maxSec: number }[] = [
   { key: 'lt1h', label: '1時間未満', maxSec: 3600 },
@@ -66,6 +75,8 @@ export interface TradeStats {
   maxLots: number;
   winRatePct: number | null;
   lossRatePct: number | null;
+  avgPlannedRR: number | null; // エントリー時点のリスクリワード比の平均（TP/SL両方設定済みのトレードのみ対象）
+  rrSetCount: number; // TP/SLが両方とも設定されていたトレード数（分母。avgPlannedRRの根拠件数として表示用）
 
   // セッション別分析: エントリー時刻（openTime）でどのセッションだったかを判定して集計。
   // どのセッションにも属さない時間帯（NY終了〜東京開始の2時間）は「セッション外」にまとめる
@@ -179,13 +190,17 @@ export function computeTradeStats(trades: ClosedTrade[], initialBalance: number)
   }
   const byHoldBucket = holdBuckets;
 
+  const rrValues = sorted.map(plannedRR).filter((v): v is number => v !== null);
+  const avgPlannedRR = rrValues.length > 0 ? rrValues.reduce((s, v) => s + v, 0) / rrValues.length : null;
+  const rrSetCount = rrValues.length;
+
   return {
     netProfit, avgTradePnl, grossProfit, grossLoss, avgMonthlyProfit, avgWin, avgLoss,
     maxDrawdown, profitFactor, returnPct,
     totalTrades, winCount, lossCount, maxConsecutiveWins, maxConsecutiveLosses,
     avgTradesPerWeek, avgTradesPerMonth, avgWinsPerMonth, avgLossesPerMonth, largestWin, largestLoss,
     elapsedDays, elapsedMonths, avgHoldSec, avgHoldWinSec, avgHoldLossSec,
-    maxLots, winRatePct, lossRatePct,
+    maxLots, winRatePct, lossRatePct, avgPlannedRR, rrSetCount,
     bySession, byWeekday, byHoldBucket,
   };
 }

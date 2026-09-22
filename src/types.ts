@@ -40,6 +40,10 @@ export interface ClosedTrade {
   closeTime: number;
   lots: number;
   pnl: number;
+  // エントリー時点で設定していたTP/SL（リスクリワード比の算出用）。これより前に決済された
+  // 取引（vtd/旧セッション）には無いため任意。手動決済等でTP/SL未設定だった場合もundefined
+  tp?: number;
+  sl?: number;
 }
 
 // 表示時間軸（秒）。月足は暦月ごとに日数が違うため厳密な秒数ではなく、
