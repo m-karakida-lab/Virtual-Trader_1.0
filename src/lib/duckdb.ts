@@ -97,6 +97,43 @@ export async function loadCSVFiles(
   }
 }
 
+// MAE/MFE・決済後の値幅分析用: 複数の時間帯（ブローカー時間のUnix秒範囲、複数トレード分を
+// まとめて1クエリで済ませるためのもの）に絞って1分足を取得する。範囲は呼び出し側が数値として
+// 計算済みのもの（ユーザー入力ではない）のみを渡す前提で、文字列展開のままSQLに埋め込む
+export async function queryCandlesInRanges(
+  instance: duckdb.AsyncDuckDB,
+  brokerRanges: { lo: number; hi: number }[],
+): Promise<Candle[]> {
+  if (brokerRanges.length === 0) return [];
+  const conn = await instance.connect();
+  try {
+    const whereClause = brokerRanges
+      .map(r => `(ts >= ${Math.floor(r.lo)} AND ts <= ${Math.ceil(r.hi)})`)
+      .join(' OR ');
+    const result = await conn.query(`
+      SELECT
+        (floor(ts / 60) * 60)::BIGINT AS time,
+        arg_min(open,  ts) AS open,
+        max(high)          AS high,
+        min(low)           AS low,
+        arg_max(close, ts) AS close
+      FROM candles_1m
+      WHERE ${whereClause}
+      GROUP BY floor(ts / 60)
+      ORDER BY time
+    `);
+    return result.toArray().map(row => ({
+      time:  brokerToJST(Number(row.time)),
+      open:  Number(row.open),
+      high:  Number(row.high),
+      low:   Number(row.low),
+      close: Number(row.close),
+    }));
+  } finally {
+    await conn.close();
+  }
+}
+
 // intervalSec は固定の時間軸選択肢からのみ渡される（ユーザー入力ではないため文字列展開で安全）
 // 週足・月足はカレンダー月/週の日数が一定でないため floor(ts/sec) の等間隔バケットが使えない。
 // DuckDB の date_trunc で暦基準（週=月曜始まり, 月=1日始まり）に集計する

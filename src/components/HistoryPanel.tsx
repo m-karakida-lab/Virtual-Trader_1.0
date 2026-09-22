@@ -8,6 +8,8 @@ import { pricePrecision, inferPipSize } from '../lib/pips';
 import { computeTradeStats } from '../lib/tradeStats';
 import { downloadAiAnalysis } from '../lib/aiExport';
 import { SESSIONS } from '../lib/sessions';
+import { initDuckDB } from '../lib/duckdb';
+import { computeTradeExcursions, summarizeExcursions, type TradeExcursion } from '../lib/tradeExcursion';
 
 const SESSION_COLOR: Record<string, string> = {
   ...Object.fromEntries(SESSIONS.map(s => [s.key, s.color])),
@@ -241,6 +243,25 @@ export function HistoryPanel() {
   const stats = useMemo(() => computeStats(closedTrades), [closedTrades]);
   const rs = useMemo(() => computeTradeStats(closedTrades, initialBalance), [closedTrades, initialBalance]);
 
+  // MAE/MFE・決済後の値幅は1分足を遡ってDuckDBに問い合わせる必要があるため非同期。
+  // パネルを開くたび（マウントごと）に取得し直す。読み込み中はnullのまま（該当セクションを出さない）
+  const [excursions, setExcursions] = useState<Map<number, TradeExcursion> | null>(null);
+  useEffect(() => {
+    let cancelled = false;
+    if (closedTrades.length === 0) { setExcursions(new Map()); return; }
+    setExcursions(null);
+    (async () => {
+      const db = await initDuckDB();
+      const result = await computeTradeExcursions(db, closedTrades);
+      if (!cancelled) setExcursions(result);
+    })();
+    return () => { cancelled = true; };
+  }, [closedTrades]);
+  const excursionSummary = useMemo(
+    () => excursions ? summarizeExcursions(closedTrades, excursions) : null,
+    [closedTrades, excursions],
+  );
+
   // リスク・パフォーマンス指標セクション専用のフォーマッタ（symは通貨記号、rsはcomputeTradeStatsの結果）
   const fmtMoney = (n: number) => `${n >= 0 ? '+' : ''}${sym}${fmt(n)}`;
   const fmtMoneyAbs = (n: number) => `${sym}${fmt(Math.abs(n))}`;
@@ -401,14 +422,14 @@ export function HistoryPanel() {
         </div>
         <div style={{ display: 'flex', gap: '8px' }}>
           <button
-            onClick={() => downloadAiAnalysis({ closedTrades, initialBalance, balance, quoteCurrency, symbol, sym }, symbol || 'trade')}
-            disabled={sorted.length === 0}
-            title="集計指標・取引一覧を、外部のAI（ChatGPT/Claude等）にそのまま読み込ませて分析してもらえる形式のMarkdownファイルとして書き出す"
+            onClick={() => downloadAiAnalysis({ closedTrades, initialBalance, balance, quoteCurrency, symbol, sym, excursions }, symbol || 'trade')}
+            disabled={sorted.length === 0 || excursions === null}
+            title="集計指標・取引一覧（MAE/MFE・損切り後の値動き込み）を、外部のAI（ChatGPT/Claude等）にそのまま読み込ませて分析してもらえる形式のMarkdownファイルとして書き出す"
             style={{
-              background: 'none', border: '1px solid #444', color: sorted.length === 0 ? '#555' : '#aaa',
-              borderRadius: '4px', padding: '6px 14px', cursor: sorted.length === 0 ? 'default' : 'pointer', fontSize: '14px',
+              background: 'none', border: '1px solid #444', color: (sorted.length === 0 || excursions === null) ? '#555' : '#aaa',
+              borderRadius: '4px', padding: '6px 14px', cursor: (sorted.length === 0 || excursions === null) ? 'default' : 'pointer', fontSize: '14px',
             }}
-          >📊 AI分析用エクスポート</button>
+          >📊 AI分析用エクスポート{excursions === null && sorted.length > 0 ? '（集計中…）' : ''}</button>
           <button onClick={toggleHistoryPanel} style={{
             background: 'none', border: '1px solid #444', color: '#aaa',
             borderRadius: '4px', padding: '6px 14px', cursor: 'pointer', fontSize: '14px',
@@ -538,6 +559,29 @@ export function HistoryPanel() {
               buckets={rs.byHoldBucket.map((b, i) => ({ key: b.key, label: b.label, color: LINE_COLORS[i % LINE_COLORS.length], count: b.count, pnl: b.pnl }))}
               sym={sym}
             />
+          </div>
+        )}
+
+        {sorted.length > 0 && (
+          <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
+            <div style={{ ...sectionTitle, marginBottom: '10px' }}>■保有中の振れ幅・損切り後の値動き</div>
+            <div style={{ color: '#555', fontSize: '11px', marginBottom: '10px' }}>
+              1分足まで遡って事後計算（バックテストなので決済後のデータも既知）。あくまで結果論であり、「次から握り続けるべき」という結論には直結しない点に注意
+            </div>
+            {excursionSummary === null ? (
+              <div style={{ color: '#555', fontSize: '13px' }}>集計中…</div>
+            ) : (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: '12px' }}>
+                <StatGroup title="保有中の振れ幅">
+                  <StatRow label="平均MAE（最大含み損）" value={nn(excursionSummary.avgMaePips, v => `${v.toFixed(1)}pips`)} />
+                  <StatRow label="平均MFE（最大含み益）" value={nn(excursionSummary.avgMfePips, v => `${v.toFixed(1)}pips`)} />
+                </StatGroup>
+                <StatGroup title="負けトレードの損切り後（24h以内）">
+                  <StatRow label="平均の戻り幅" value={nn(excursionSummary.avgPostCloseFavPipsForLosses, v => `${v.toFixed(1)}pips`)} />
+                  <StatRow label="建値以上まで戻った割合" value={nn(excursionSummary.recoveredWithin24hPct, v => `${v.toFixed(0)}%`)} />
+                </StatGroup>
+              </div>
+            )}
           </div>
         )}
 
