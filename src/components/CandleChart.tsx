@@ -4282,7 +4282,7 @@ export function CandleChart({
         const opts = {
           price: o.tp!,
           color: '#26a69a',
-          lineWidth: 2 as const,
+          lineWidth: 1 as const,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
           title: 'TP',
@@ -4302,7 +4302,7 @@ export function CandleChart({
         const opts = {
           price: o.sl!,
           color: '#ef5350',
-          lineWidth: 2 as const,
+          lineWidth: 1 as const,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
           title: 'SL',
@@ -4331,7 +4331,7 @@ export function CandleChart({
         const opts = {
           price: p.tp!,
           color: '#26a69a',
-          lineWidth: 2 as const,
+          lineWidth: 1 as const,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
           title: 'TP',
@@ -4351,7 +4351,7 @@ export function CandleChart({
         const opts = {
           price: p.sl!,
           color: '#ef5350',
-          lineWidth: 2 as const,
+          lineWidth: 1 as const,
           lineStyle: LineStyle.Dashed,
           axisLabelVisible: true,
           title: 'SL',
@@ -4379,7 +4379,7 @@ export function CandleChart({
         const opts = {
           price: p.openPrice,
           color: p.side === 'BUY' ? '#42a5f5' : '#ab47bc',
-          lineWidth: 2 as const,
+          lineWidth: 1 as const,
           lineStyle: LineStyle.Solid,
           axisLabelVisible: true,
           title: `${p.side} ${p.lots}`,
