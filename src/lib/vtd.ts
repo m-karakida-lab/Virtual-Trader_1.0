@@ -5,7 +5,7 @@
 // 追加し、その後ろに描画データのJSONを1つ書くだけ。区切り文字列より前はDuckDBにとって
 // 普通のCSVそのものなので、read_csv側の実装には一切手を入れていない。
 // マーカーが無いファイル（証券会社の生CSV）は今まで通りそのまま読み込める。
-import type { DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnArrow, DrawnBrush, DrawnText, ClosedTrade } from '../types';
+import type { DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnChannel, DrawnArrow, DrawnBrush, DrawnText, ClosedTrade } from '../types';
 
 const VTD_MARKER = '\n===VT_DRAWINGS_V1===\n';
 
@@ -14,6 +14,7 @@ export interface VtdDrawings {
   vlines: DrawnVLine[];
   rects: DrawnRect[];
   trendLines: DrawnTrendLine[];
+  channels: DrawnChannel[];
   arrows: DrawnArrow[];
   brushes: DrawnBrush[];
   texts: DrawnText[];
@@ -38,6 +39,8 @@ export function splitVtdBundle(text: string): { csvText: string; drawings: VtdDr
       rects: Array.isArray(parsed.rects) ? parsed.rects : [],
       // 旧形式（トレンドライン/矢印/ブラシ/テキスト機能追加前）のファイルには無いため空配列にフォールバックする
       trendLines: Array.isArray(parsed.trendLines) ? parsed.trendLines : [],
+      // 平行チャネル機能追加より前のファイルには無いため空配列にフォールバックする
+      channels: Array.isArray(parsed.channels) ? parsed.channels : [],
       arrows: Array.isArray(parsed.arrows) ? parsed.arrows : [],
       brushes: Array.isArray(parsed.brushes) ? parsed.brushes : [],
       texts: Array.isArray(parsed.texts) ? parsed.texts : [],

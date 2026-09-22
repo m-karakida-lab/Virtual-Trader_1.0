@@ -48,6 +48,14 @@ const ICONS: Record<string, JSX.Element> = {
       <circle cx="20" cy="6" r="2" fill="currentColor" stroke="none" />
     </svg>
   ),
+  channel: (
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
+      <line x1="3" y1="15" x2="15" y2="4" />
+      <line x1="9" y1="20" x2="21" y2="9" />
+      <circle cx="3" cy="15" r="1.6" fill="currentColor" stroke="none" />
+      <circle cx="15" cy="4" r="1.6" fill="currentColor" stroke="none" />
+    </svg>
+  ),
   arrow: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="4" y1="19" x2="19" y2="5" />
@@ -268,6 +276,7 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   const vlines = useTraderStore(s => s.vlines);
   const rects = useTraderStore(s => s.rects);
   const trendLines = useTraderStore(s => s.trendLines);
+  const channels = useTraderStore(s => s.channels);
   const arrows = useTraderStore(s => s.arrows);
   const brushes = useTraderStore(s => s.brushes);
   const texts = useTraderStore(s => s.texts);
@@ -277,6 +286,7 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   const removeVLine = useTraderStore(s => s.removeVLine);
   const removeRect = useTraderStore(s => s.removeRect);
   const removeTrendLine = useTraderStore(s => s.removeTrendLine);
+  const removeChannel = useTraderStore(s => s.removeChannel);
   const removeArrow = useTraderStore(s => s.removeArrow);
   const removeBrush = useTraderStore(s => s.removeBrush);
   const removeText = useTraderStore(s => s.removeText);
@@ -292,7 +302,7 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   }, [open]);
 
   const isEmpty = lines.length === 0 && vlines.length === 0 && rects.length === 0
-    && trendLines.length === 0 && arrows.length === 0 && brushes.length === 0 && texts.length === 0;
+    && trendLines.length === 0 && channels.length === 0 && arrows.length === 0 && brushes.length === 0 && texts.length === 0;
 
   const openPopup = () => {
     const rect = btnRef.current?.getBoundingClientRect();
@@ -379,6 +389,18 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
             );
           })}
 
+          {channels.map((ch, i) => {
+            const isSel = selected?.kind === 'channel' && selected.id === ch.id;
+            const sel: LineSelection = { kind: 'channel', id: ch.id };
+            return (
+              <span key={`ch${ch.id}`} onClick={() => selectLine(isSel ? null : sel)} style={chipStyle(isSel)}>
+                <span style={chipDotStyle(ch.color, true)} />
+                チャネル{i + 1}
+                <button onClick={e => { e.stopPropagation(); removeChannel(ch.id); }} style={chipRemoveStyle}>×</button>
+              </span>
+            );
+          })}
+
           {arrows.map((ar, i) => {
             const isSel = selected?.kind === 'arrow' && selected.id === ar.id;
             const sel: LineSelection = { kind: 'arrow', id: ar.id };
@@ -427,6 +449,7 @@ export function DrawToolbar() {
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
   const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
+  const isDrawingChannel = useTraderStore(s => s.isDrawingChannel);
   const isDrawingArrow = useTraderStore(s => s.isDrawingArrow);
   const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText  = useTraderStore(s => s.isDrawingText);
@@ -435,6 +458,7 @@ export function DrawToolbar() {
   const toggleMeasure   = useTraderStore(s => s.toggleMeasure);
   const toggleDrawRect  = useTraderStore(s => s.toggleDrawRect);
   const toggleDrawTrendLine = useTraderStore(s => s.toggleDrawTrendLine);
+  const toggleDrawChannel = useTraderStore(s => s.toggleDrawChannel);
   const toggleDrawArrow = useTraderStore(s => s.toggleDrawArrow);
   const toggleDrawBrush = useTraderStore(s => s.toggleDrawBrush);
   const toggleDrawText  = useTraderStore(s => s.toggleDrawText);
@@ -465,6 +489,7 @@ export function DrawToolbar() {
       <ToolButton icon="ruler" title="ものさし" active={isMeasuring} disabled={!isLoaded} onClick={toggleMeasure} />
       <ToolButton icon="rect" title="四角形" active={isDrawingRect} disabled={!isLoaded} onClick={toggleDrawRect} />
       <ToolButton icon="trend" title="トレンドライン" active={isDrawingTrendLine} disabled={!isLoaded} onClick={toggleDrawTrendLine} />
+      <ToolButton icon="channel" title="平行チャネル（ドラッグで基準線→もう1クリックで幅を決定）" active={isDrawingChannel} disabled={!isLoaded} onClick={toggleDrawChannel} />
       <ToolButton icon="arrow" title="矢印（特定の足を指し示す）" active={isDrawingArrow} disabled={!isLoaded} onClick={toggleDrawArrow} />
       <ToolButton icon="brush" title="ブラシ" active={isDrawingBrush} disabled={!isLoaded} onClick={toggleDrawBrush} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />

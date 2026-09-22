@@ -127,6 +127,22 @@ export interface DrawnTrendLine {
   width: LineWidth;
 }
 
+// ── 平行チャネル ─────────────────────────────────────────────────────────
+
+// トレンドラインと同じ基準線（始点・終点）に、価格方向のオフセットを1つ加えた2本目の
+// 平行線を持つ。2本目は常に基準線と同じ傾き（time1/time2はそのまま、price1+offset/
+// price2+offsetの2点を結ぶ）なので、ズーム・スクロールで見た目の傾きが変わっても常に
+// 平行を保てる（画面ピクセル基準の「垂直距離」ではなく価格そのものの差分として持つ）
+export interface DrawnChannel {
+  id: number;
+  time1: number; price1: number; // 基準線の始点
+  time2: number; price2: number; // 基準線の終点
+  offset: number; // 2本目の線までの価格差（正負どちらもあり得る）
+  color: string;
+  dash: LineDash;
+  width: LineWidth;
+}
+
 // ── 矢印 ─────────────────────────────────────────────────────────────────
 
 // トレンドラインと同じ2点（始点・終点）だが、終点（矢先）に矢印ヘッドを描く。
@@ -178,4 +194,4 @@ export interface DrawnText {
 }
 
 // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストを問わず「選択中の1つ」を表す
-export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'arrow' | 'brush' | 'text'; id: number };
+export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'channel' | 'arrow' | 'brush' | 'text'; id: number };

@@ -51,6 +51,13 @@ interface TrendEndpoint {
   priceField: 'price1' | 'price2';
 }
 
+// 平行チャネルの基準線のドラッグ中の端点。トレンドラインと同じ構造（offsetは端点操作では変わらない）
+interface ChannelEndpoint {
+  channelId: number;
+  timeField: 'time1' | 'time2';
+  priceField: 'price1' | 'price2';
+}
+
 // 矢印のドラッグ中の端点。トレンドラインと全く同じ構造（2端点、辺の概念なし）
 interface ArrowEndpoint {
   arrowId: number;
@@ -241,6 +248,12 @@ export function CandleChart({
   const syncRectsRef = useRef<() => void>(() => {});
   const trendCanvasRef = useRef<HTMLCanvasElement>(null);
   const syncTrendLinesRef = useRef<() => void>(() => {});
+  const channelCanvasRef = useRef<HTMLCanvasElement>(null);
+  const syncChannelsRef = useRef<() => void>(() => {});
+  // 平行チャネルの「基準線は引いたがオフセット確定クリック待ち」の間にツールバーで別の
+  // ツールへ切り替える等でisDrawingChannelがfalseになった時、待機中プレビューだけが
+  // 残り続けないよう破棄する（下のuseEffectから呼ぶ）
+  const cancelChannelAwaitRef = useRef<() => void>(() => {});
   const arrowCanvasRef = useRef<HTMLCanvasElement>(null);
   const syncArrowsRef = useRef<() => void>(() => {});
   const brushCanvasRef = useRef<HTMLCanvasElement>(null);
@@ -290,6 +303,7 @@ export function CandleChart({
   const vlines    = useTraderStore(s => s.vlines);
   const rects     = useTraderStore(s => s.rects);
   const trendLines = useTraderStore(s => s.trendLines);
+  const channels  = useTraderStore(s => s.channels);
   const arrows    = useTraderStore(s => s.arrows);
   const brushes   = useTraderStore(s => s.brushes);
   const texts     = useTraderStore(s => s.texts);
@@ -299,6 +313,7 @@ export function CandleChart({
   const isMeasuring    = useTraderStore(s => s.isMeasuring);
   const isDrawingRect  = useTraderStore(s => s.isDrawingRect);
   const isDrawingTrendLine = useTraderStore(s => s.isDrawingTrendLine);
+  const isDrawingChannel = useTraderStore(s => s.isDrawingChannel);
   const isDrawingArrow = useTraderStore(s => s.isDrawingArrow);
   const isDrawingBrush = useTraderStore(s => s.isDrawingBrush);
   const isDrawingText  = useTraderStore(s => s.isDrawingText);
@@ -1096,6 +1111,73 @@ export function CandleChart({
     };
     syncTrendLinesRef.current = syncTrendLines;
     syncTrendLines();
+
+    // ── 平行チャネル（基準線＋価格オフセットした2本目の平行線） ──────────
+    // ドラッグ中（端点リサイズ・平行移動・オフセット調整）は、storeを経由せずここだけ
+    // 書き換えて即座に再描画するプレビュー用（トレンドラインと同じ作法）
+    let channelDragPreview: { id: number; time1: number; price1: number; time2: number; price2: number; offset: number } | null = null;
+    // 新規描画中（まだstoreに存在しない）のプレビューはピクセル座標のみで持つ
+    let newChannelDraft: { x1: number; y1: number; x2: number; y2: number } | null = null;
+    // 基準線が確定し、オフセットを決めるクリック待ちの状態（このモードの間もisDrawingChannelは
+    // ONのまま維持し、ツールバーのハイライトを保つ）
+    let channelAwaitingOffset: { time1: number; price1: number; time2: number; price2: number } | null = null;
+    let channelOffsetPreview: number | null = null; // 待機中のマウス移動プレビュー（価格差、クリック確定前）
+
+    const syncChannels = () => {
+      const canvas = channelCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const { channels: currentChannels, selected } = useTraderStore.getState();
+      const selectedChannelId = selected?.kind === 'channel' ? selected.id : null;
+
+      for (const ch of currentChannels) {
+        const live = channelDragPreview && channelDragPreview.id === ch.id ? channelDragPreview : ch;
+        const x1 = timeToX(live.time1);
+        const x2 = timeToX(live.time2);
+        const y1 = seriesRef.current.priceToCoordinate(live.price1);
+        const y2 = seriesRef.current.priceToCoordinate(live.price2);
+        const y1b = seriesRef.current.priceToCoordinate(live.price1 + live.offset);
+        const y2b = seriesRef.current.priceToCoordinate(live.price2 + live.offset);
+        if (x1 === null || x2 === null || y1 === null || y2 === null || y1b === null || y2b === null) continue;
+        const isSelected = ch.id === selectedChannelId;
+        // 基準線は端点ハンドル付きでトレンドラインと同じ見た目、2本目はオフセット線なので
+        // 端点ハンドルは出さない（掴むのは本体ドラッグのみ＝幅の調整用）
+        drawTrendLineShape(ctx, x1, y1, x2, y2, ch.color, ch.dash, ch.width, isSelected);
+        drawTrendLineShape(ctx, x1, y1b, x2, y2b, ch.color, ch.dash, ch.width, false);
+      }
+
+      if (channelAwaitingOffset) {
+        const { channelDraft } = useTraderStore.getState();
+        const { time1, price1, time2, price2 } = channelAwaitingOffset;
+        const offset = channelOffsetPreview ?? 0;
+        const x1 = timeToX(time1), x2 = timeToX(time2);
+        const y1 = seriesRef.current.priceToCoordinate(price1), y2 = seriesRef.current.priceToCoordinate(price2);
+        const y1b = seriesRef.current.priceToCoordinate(price1 + offset), y2b = seriesRef.current.priceToCoordinate(price2 + offset);
+        if (x1 !== null && x2 !== null && y1 !== null && y2 !== null) {
+          drawTrendLineShape(ctx, x1, y1, x2, y2, channelDraft.color, channelDraft.dash, channelDraft.width, false);
+          if (y1b !== null && y2b !== null) drawTrendLineShape(ctx, x1, y1b, x2, y2b, channelDraft.color, channelDraft.dash, channelDraft.width, false);
+        }
+      } else if (newChannelDraft) {
+        const { channelDraft } = useTraderStore.getState();
+        const { x1, y1, x2, y2 } = newChannelDraft;
+        drawTrendLineShape(ctx, x1, y1, x2, y2, channelDraft.color, channelDraft.dash, channelDraft.width, false);
+      }
+    };
+    syncChannelsRef.current = syncChannels;
+    syncChannels();
+    cancelChannelAwaitRef.current = () => {
+      channelAwaitingOffset = null;
+      channelOffsetPreview = null;
+      syncChannels();
+    };
 
     // ── 矢印（特定の足を指し示す） ───────────────────────────────────────
     // トレンドラインと全く同じ2点構造・操作性（新規描画/端点リサイズ/平行移動）だが、
@@ -2042,7 +2124,7 @@ export function CandleChart({
     };
 
     const onRangeChange = () => {
-      syncVLines(); syncRects(); syncTrendLines(); syncArrows(); syncBrushes(); syncTexts(); syncWeekLines(); syncSessions(); syncTradeMarkers(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
+      syncVLines(); syncRects(); syncTrendLines(); syncChannels(); syncArrows(); syncBrushes(); syncTexts(); syncWeekLines(); syncSessions(); syncTradeMarkers(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
@@ -2144,6 +2226,15 @@ export function CandleChart({
     let trendLineDragging = false;
     let trendLineStart: { x: number; y: number; price: number } | null = null;
     let pendingTrendLineEnd: { x: number; y: number; price: number } | null = null;
+
+    // ── 平行チャネル（1回目のドラッグで基準線、続く1クリックでオフセット=幅を決定） ──
+    // channelAwaitingOffset/channelOffsetPreviewはsyncChannels（このさらに上で定義済み、
+    // マウント時に即呼ばれる）から参照されるため、それより前で宣言しておく必要がある
+    // （TDZ: letはブロック内で宣言行に達するまでアクセス不可のため、定義順を守らないと
+    // 初回のsyncChannels()呼び出しでReferenceErrorになる——実際に踏んだ）
+    let channelDragging = false;
+    let channelStart: { x: number; y: number; price: number } | null = null;
+    let pendingChannelEnd: { x: number; y: number; price: number } | null = null;
 
     // ── 矢印（ドラッグで描画。トレンドラインと同じ2点ドラッグ、終点=矢先） ──
     let arrowDragging = false;
@@ -2278,6 +2369,17 @@ export function CandleChart({
     // 時間方向の移動は四角形の平行移動と同じ理由で足のインデックス差分を使う
     let trendMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
     let pendingTrendMoveDelta: { idx: number; dp: number } | null = null;
+    // ── 平行チャネルの端点リサイズ・平行移動・オフセット（幅）調整ドラッグ ──
+    // 端点リサイズ・平行移動はトレンドラインと同じ構造（offsetは触らない）。
+    // オフセット調整は2本目の線本体を掴んだ時だけ発生し、offsetフィールドのみ変える
+    let draggingChannelEndpoint: ChannelEndpoint | null = null;
+    let pendingChannelEndpointPos: { time: number; price: number } | null = null;
+    let draggingChannelMoveId: number | null = null;
+    let channelMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
+    let pendingChannelMoveDelta: { idx: number; dp: number } | null = null;
+    let draggingChannelOffsetId: number | null = null;
+    let channelOffsetStart: { baseOffset: number; startPrice: number } | null = null;
+    let pendingChannelOffset: number | null = null;
     // ── 矢印の端点リサイズ・平行移動ドラッグ（トレンドラインと同じ構造） ──
     let draggingArrowEndpoint: ArrowEndpoint | null = null;
     let pendingArrowEndpointPos: { time: number; price: number } | null = null;
@@ -2537,6 +2639,14 @@ export function CandleChart({
       return Math.hypot(px - (x1 + t * dx), py - (y1 + t * dy));
     }
 
+    // 直線(time1,price1)-(time2,price2)を時間方向に延長した直線上で、atTime時点の価格を返す
+    // （平行チャネルのオフセット確定クリック時、基準線から見た価格差を求めるのに使う）
+    function interpolatePriceOnLine(time1: number, price1: number, time2: number, price2: number, atTime: number): number {
+      if (time2 === time1) return price1;
+      const t = (atTime - time1) / (time2 - time1);
+      return price1 + t * (price2 - price1);
+    }
+
     // トレンドラインの端点近傍判定（リサイズハンドル）。四角形の角ハンドルと同じ理由で、
     // 選択中のトレンドラインにしか効かない（見た目のハンドルも選択中にしか出さないため）
     const findTrendEndpointNear = (x: number, y: number): TrendEndpoint | null => {
@@ -2561,6 +2671,46 @@ export function CandleChart({
         const y1 = seriesRef.current.priceToCoordinate(tl.price1), y2 = seriesRef.current.priceToCoordinate(tl.price2);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
         if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return tl.id;
+      }
+      return null;
+    };
+
+    // 平行チャネルの基準線の端点近傍判定（選択中のみ、トレンドラインと同じ）
+    const findChannelEndpointNear = (x: number, y: number): ChannelEndpoint | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { channels: currentChannels, selected } = useTraderStore.getState();
+      for (const ch of currentChannels.filter(c => selected?.kind === 'channel' && selected.id === c.id)) {
+        const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
+        const y1 = seriesRef.current.priceToCoordinate(ch.price1), y2 = seriesRef.current.priceToCoordinate(ch.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        if (Math.hypot(x1 - x, y1 - y) <= RECT_HANDLE_HIT_PX) return { channelId: ch.id, timeField: 'time1', priceField: 'price1' };
+        if (Math.hypot(x2 - x, y2 - y) <= RECT_HANDLE_HIT_PX) return { channelId: ch.id, timeField: 'time2', priceField: 'price2' };
+      }
+      return null;
+    };
+
+    // 平行チャネルの基準線本体の近傍判定。ヒットしたら選択、掴んだままドラッグすると平行移動
+    const findChannelBaseNear = (x: number, y: number): number | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { channels: currentChannels } = useTraderStore.getState();
+      for (const ch of currentChannels) {
+        const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
+        const y1 = seriesRef.current.priceToCoordinate(ch.price1), y2 = seriesRef.current.priceToCoordinate(ch.price2);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return ch.id;
+      }
+      return null;
+    };
+
+    // 平行チャネルの2本目（オフセット線）本体の近傍判定。掴んだままドラッグするとオフセット（幅）調整
+    const findChannelOffsetLineNear = (x: number, y: number): number | null => {
+      if (!chartRef.current || !seriesRef.current) return null;
+      const { channels: currentChannels } = useTraderStore.getState();
+      for (const ch of currentChannels) {
+        const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
+        const y1 = seriesRef.current.priceToCoordinate(ch.price1 + ch.offset), y2 = seriesRef.current.priceToCoordinate(ch.price2 + ch.offset);
+        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
+        if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return ch.id;
       }
       return null;
     };
@@ -2788,7 +2938,7 @@ export function CandleChart({
       // （最初にnullへ戻しておき、以降のどこかの分岐で早期returnした＝実際に何か操作した
       // 場合は昇格候補にしない。onMouseUp側で移動量判定して実際に昇格させる）
       nonMainMouseDownPosRef.current = null;
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingArrow: isAr, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingChannel: isCh, isDrawingArrow: isAr, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -2834,6 +2984,33 @@ export function CandleChart({
         chart.applyOptions({ handleScroll: false, handleScale: false });
         newTrendDraft = { x1: x, y1: snap.y, x2: x, y2: snap.y };
         syncTrendLines();
+        return;
+      }
+
+      if (isCh) {
+        if (!seriesRef.current || !chartRef.current) return;
+        if (channelAwaitingOffset) {
+          // フェーズ2: 基準線は確定済み、このクリックでオフセット（幅）を決めて完成させる
+          const snap = magnetSnap(x, y);
+          if (snap === null) return;
+          const { time1, price1, time2, price2 } = channelAwaitingOffset;
+          const atTime = pixelToTime(x) ?? time1;
+          const basePriceAtX = interpolatePriceOnLine(time1, price1, time2, price2, atTime);
+          const offset = snap.price - basePriceAtX;
+          useTraderStore.getState().addChannel(time1, price1, time2, price2, offset);
+          channelAwaitingOffset = null;
+          channelOffsetPreview = null;
+          syncChannels();
+          return;
+        }
+        const snap = magnetSnap(x, y);
+        if (snap === null) return;
+        channelStart = { x, y: snap.y, price: snap.price };
+        pendingChannelEnd = { x, y: snap.y, price: snap.price };
+        channelDragging = true;
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        newChannelDraft = { x1: x, y1: snap.y, x2: x, y2: snap.y };
+        syncChannels();
         return;
       }
 
@@ -3012,6 +3189,56 @@ export function CandleChart({
         return;
       }
 
+      const channelEndpoint = findChannelEndpointNear(x, y);
+      if (channelEndpoint !== null) {
+        draggingChannelEndpoint = channelEndpoint;
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'nwse-resize';
+        useTraderStore.getState().selectLine({ kind: 'channel', id: channelEndpoint.channelId });
+        return;
+      }
+
+      // オフセット線（2本目）の判定を基準線より先に行う: 基準線とオフセット線が近い
+      // （幅が狭い）時、先に判定した方が優先的に掴めてしまうため、より細い操作対象である
+      // オフセット線側を先にチェックする
+      const channelOffsetId = findChannelOffsetLineNear(x, y);
+      if (channelOffsetId !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const { channels: channelsAtDown } = useTraderStore.getState();
+        const ch = channelsAtDown.find(c => c.id === channelOffsetId);
+        const startPrice = seriesRef.current.coordinateToPrice(y);
+        if (!ch || startPrice === null) return;
+        draggingChannelOffsetId = channelOffsetId;
+        channelOffsetStart = { baseOffset: ch.offset, startPrice };
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'move';
+        useTraderStore.getState().selectLine({ kind: 'channel', id: channelOffsetId });
+        return;
+      }
+
+      const channelBaseId = findChannelBaseNear(x, y);
+      if (channelBaseId !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const { channels: channelsAtDown } = useTraderStore.getState();
+        const ch = channelsAtDown.find(c => c.id === channelBaseId);
+        const visibleAtDown = displayCandlesRef.current;
+        const startTime = pixelToTime(x);
+        const startPrice = seriesRef.current.coordinateToPrice(y);
+        if (!ch || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
+        draggingChannelMoveId = channelBaseId;
+        channelMoveStart = {
+          idx1: candleIndexAt(visibleAtDown, ch.time1),
+          idx2: candleIndexAt(visibleAtDown, ch.time2),
+          price1: ch.price1, price2: ch.price2,
+          startIdx: candleIndexAt(visibleAtDown, startTime),
+          startPrice,
+        };
+        chart.applyOptions({ handleScroll: false, handleScale: false });
+        container.style.cursor = 'move';
+        useTraderStore.getState().selectLine({ kind: 'channel', id: channelBaseId });
+        return;
+      }
+
       const brushVertex = findBrushVertexNear(x, y);
       if (brushVertex !== null) {
         draggingBrushVertex = brushVertex;
@@ -3119,6 +3346,27 @@ export function CandleChart({
         pendingTrendLineEnd = { x, y: snap.y, price: snap.price };
         newTrendDraft = { x1: trendLineStart.x, y1: trendLineStart.y, x2: x, y2: snap.y };
         syncTrendLines();
+        return;
+      }
+
+      if (channelDragging && channelStart) {
+        const snap = magnetSnap(x, y);
+        if (snap === null) return;
+        pendingChannelEnd = { x, y: snap.y, price: snap.price };
+        newChannelDraft = { x1: channelStart.x, y1: channelStart.y, x2: x, y2: snap.y };
+        syncChannels();
+        return;
+      }
+
+      if (channelAwaitingOffset) {
+        // フェーズ2: オフセット確定前のプレビュー（マウス追従で2本目の線を動かす）
+        const snap = magnetSnap(x, y);
+        if (snap === null) return;
+        const { time1, price1, time2, price2 } = channelAwaitingOffset;
+        const atTime = pixelToTime(x) ?? time1;
+        const basePriceAtX = interpolatePriceOnLine(time1, price1, time2, price2, atTime);
+        channelOffsetPreview = snap.price - basePriceAtX;
+        syncChannels();
         return;
       }
 
@@ -3372,6 +3620,86 @@ export function CandleChart({
         return;
       }
 
+      if (draggingChannelEndpoint !== null) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const price = magnetSnap(x, y)?.price ?? null;
+        const time = pixelToTime(x);
+        if (price === null || time === null) return;
+        pendingChannelEndpointPos = { time, price };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingChannelEndpoint === null || pendingChannelEndpointPos === null) return;
+            const { channels: currentChannels } = useTraderStore.getState();
+            const ch = currentChannels.find(c => c.id === draggingChannelEndpoint!.channelId);
+            if (!ch) return;
+            channelDragPreview = {
+              id: ch.id,
+              time1: draggingChannelEndpoint.timeField === 'time1' ? pendingChannelEndpointPos.time : ch.time1,
+              price1: draggingChannelEndpoint.priceField === 'price1' ? pendingChannelEndpointPos.price : ch.price1,
+              time2: draggingChannelEndpoint.timeField === 'time2' ? pendingChannelEndpointPos.time : ch.time2,
+              price2: draggingChannelEndpoint.priceField === 'price2' ? pendingChannelEndpointPos.price : ch.price2,
+              offset: ch.offset,
+            };
+            syncChannels();
+          });
+        }
+        return;
+      }
+
+      if (draggingChannelMoveId !== null && channelMoveStart) {
+        if (!seriesRef.current || !chartRef.current) return;
+        const t = pixelToTime(x);
+        const p = seriesRef.current.coordinateToPrice(y);
+        if (t === null || p === null) return;
+        const visibleMove = displayCandlesRef.current;
+        if (visibleMove.length === 0) return;
+        pendingChannelMoveDelta = { idx: candleIndexAt(visibleMove, t) - channelMoveStart.startIdx, dp: p - channelMoveStart.startPrice };
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingChannelMoveId === null || pendingChannelMoveDelta === null || channelMoveStart === null) return;
+            const visibleRaf = displayCandlesRef.current;
+            if (visibleRaf.length === 0) return;
+            const { channels: currentChannels } = useTraderStore.getState();
+            const ch = currentChannels.find(c => c.id === draggingChannelMoveId);
+            if (!ch) return;
+            const newIdx1 = Math.min(Math.max(channelMoveStart.idx1 + pendingChannelMoveDelta.idx, 0), visibleRaf.length - 1);
+            const newIdx2 = Math.min(Math.max(channelMoveStart.idx2 + pendingChannelMoveDelta.idx, 0), visibleRaf.length - 1);
+            channelDragPreview = {
+              id: draggingChannelMoveId,
+              time1: visibleRaf[newIdx1].time, price1: channelMoveStart.price1 + pendingChannelMoveDelta.dp,
+              time2: visibleRaf[newIdx2].time, price2: channelMoveStart.price2 + pendingChannelMoveDelta.dp,
+              offset: ch.offset,
+            };
+            syncChannels();
+          });
+        }
+        return;
+      }
+
+      if (draggingChannelOffsetId !== null && channelOffsetStart) {
+        if (!seriesRef.current) return;
+        const p = seriesRef.current.coordinateToPrice(y);
+        if (p === null) return;
+        pendingChannelOffset = channelOffsetStart.baseOffset + (p - channelOffsetStart.startPrice);
+        if (!rafScheduled) {
+          rafScheduled = true;
+          requestAnimationFrame(() => {
+            rafScheduled = false;
+            if (draggingChannelOffsetId === null || pendingChannelOffset === null) return;
+            const { channels: currentChannels } = useTraderStore.getState();
+            const ch = currentChannels.find(c => c.id === draggingChannelOffsetId);
+            if (!ch) return;
+            channelDragPreview = { id: ch.id, time1: ch.time1, price1: ch.price1, time2: ch.time2, price2: ch.price2, offset: pendingChannelOffset! };
+            syncChannels();
+          });
+        }
+        return;
+      }
+
       if (draggingArrowEndpoint !== null) {
         if (!seriesRef.current || !chartRef.current) return;
         const price = magnetSnap(x, y)?.price ?? null;
@@ -3531,8 +3859,8 @@ export function CandleChart({
       // ドラッグ中でなければ、ライン近傍でカーソルをホバー表示に。ジャンプモード中は
       // 図形をドラッグ編集できる状態ではない（クリックは足の時刻ピックに使われる）ため、
       // 垂直線等に重なっても「ドラッグできる」ことを示す矢印カーソルは出さない
-      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingArrow: isAr, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
-      if (!dH && !dV && !isM && !isR && !isTL && !isAr && !isB && !dT && pick === null && !jumpSync) {
+      const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingChannel: isCh, isDrawingArrow: isAr, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
+      if (!dH && !dV && !isM && !isR && !isTL && !isCh && !isAr && !isB && !dT && pick === null && !jumpSync) {
         const draft = findDraftNear(y);
         if (draft !== null) { container.style.cursor = 'ns-resize'; return; }
         const target = findPriceTargetNear(y);
@@ -3551,6 +3879,12 @@ export function CandleChart({
         if (trendEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const trendLineHoverId = findTrendLineNear(x, y);
         if (trendLineHoverId !== null) { container.style.cursor = 'move'; return; }
+        const channelEndpointHover = findChannelEndpointNear(x, y);
+        if (channelEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
+        const channelOffsetHoverId = findChannelOffsetLineNear(x, y);
+        if (channelOffsetHoverId !== null) { container.style.cursor = 'move'; return; }
+        const channelBaseHoverId = findChannelBaseNear(x, y);
+        if (channelBaseHoverId !== null) { container.style.cursor = 'move'; return; }
         const arrowEndpointHover = findArrowEndpointNear(x, y);
         if (arrowEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const arrowHoverId = findArrowNear(x, y);
@@ -3605,6 +3939,28 @@ export function CandleChart({
         syncTrendLines(); // ドラフトのクリア（実際に追加された場合はstore更新側の再描画とも重複するが無害）
         trendLineStart = null;
         pendingTrendLineEnd = null;
+        return;
+      }
+      if (channelDragging) {
+        // フェーズ1（基準線）の確定。ここではまだstoreにaddChannelしない——オフセットを
+        // 決めるクリック（フェーズ2、mousedown側で処理）まで待つ。ドラッグせず単にクリック
+        // しただけ（始点=終点）の場合は何も始めず、そのままツールをアクティブなまま維持する
+        channelDragging = false;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        newChannelDraft = null;
+        if (channelStart && pendingChannelEnd) {
+          const t1 = pixelToTime(channelStart.x);
+          const t2 = pixelToTime(pendingChannelEnd.x);
+          const p1 = channelStart.price;
+          const p2 = pendingChannelEnd.price;
+          if (t1 !== null && t2 !== null && (t1 !== t2 || p1 !== p2)) {
+            channelAwaitingOffset = { time1: t1, price1: p1, time2: t2, price2: p2 };
+            channelOffsetPreview = 0;
+          }
+        }
+        syncChannels();
+        channelStart = null;
+        pendingChannelEnd = null;
         return;
       }
       if (arrowDragging) {
@@ -3783,6 +4139,51 @@ export function CandleChart({
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';
       }
+      if (draggingChannelEndpoint !== null) {
+        if (pendingChannelEndpointPos !== null) {
+          useTraderStore.getState().updateChannel(draggingChannelEndpoint.channelId, {
+            [draggingChannelEndpoint.timeField]: pendingChannelEndpointPos.time,
+            [draggingChannelEndpoint.priceField]: pendingChannelEndpointPos.price,
+          });
+        }
+        draggingChannelEndpoint = null;
+        pendingChannelEndpointPos = null;
+        channelDragPreview = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
+      }
+      if (draggingChannelMoveId !== null) {
+        if (pendingChannelMoveDelta !== null && channelMoveStart !== null) {
+          const visibleUp = displayCandlesRef.current;
+          if (visibleUp.length > 0) {
+            const newIdx1 = Math.min(Math.max(channelMoveStart.idx1 + pendingChannelMoveDelta.idx, 0), visibleUp.length - 1);
+            const newIdx2 = Math.min(Math.max(channelMoveStart.idx2 + pendingChannelMoveDelta.idx, 0), visibleUp.length - 1);
+            useTraderStore.getState().updateChannel(draggingChannelMoveId, {
+              time1: visibleUp[newIdx1].time,
+              time2: visibleUp[newIdx2].time,
+              price1: channelMoveStart.price1 + pendingChannelMoveDelta.dp,
+              price2: channelMoveStart.price2 + pendingChannelMoveDelta.dp,
+            });
+          }
+        }
+        draggingChannelMoveId = null;
+        channelMoveStart = null;
+        pendingChannelMoveDelta = null;
+        channelDragPreview = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
+      }
+      if (draggingChannelOffsetId !== null) {
+        if (pendingChannelOffset !== null) {
+          useTraderStore.getState().updateChannel(draggingChannelOffsetId, { offset: pendingChannelOffset });
+        }
+        draggingChannelOffsetId = null;
+        channelOffsetStart = null;
+        pendingChannelOffset = null;
+        channelDragPreview = null;
+        chart.applyOptions({ handleScroll: true, handleScale: true });
+        container.style.cursor = 'default';
+      }
       if (draggingArrowEndpoint !== null) {
         if (pendingArrowEndpointPos !== null) {
           useTraderStore.getState().updateArrow(draggingArrowEndpoint.arrowId, {
@@ -3924,12 +4325,13 @@ export function CandleChart({
       if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
 
       if (e.key === 'Delete' || e.key === 'Backspace') {
-        const { selected: sel, removeLine, removeVLine, removeRect, removeTrendLine, removeArrow, removeBrush, removeText } = useTraderStore.getState();
+        const { selected: sel, removeLine, removeVLine, removeRect, removeTrendLine, removeChannel, removeArrow, removeBrush, removeText } = useTraderStore.getState();
         if (!sel) return;
         if (sel.kind === 'h') removeLine(sel.id);
         else if (sel.kind === 'v') removeVLine(sel.id);
         else if (sel.kind === 'rect') removeRect(sel.id);
         else if (sel.kind === 'trend') removeTrendLine(sel.id);
+        else if (sel.kind === 'channel') removeChannel(sel.id);
         else if (sel.kind === 'arrow') removeArrow(sel.id);
         else if (sel.kind === 'brush') removeBrush(sel.id);
         else removeText(sel.id);
@@ -4006,6 +4408,21 @@ export function CandleChart({
           const newId = useTraderStore.getState().nextTrendLineId - 1;
           store.selectLine({ kind: 'trend', id: newId });
           clipboard = { kind: 'trend', id: newId };
+        } else if (clipboard.kind === 'channel') {
+          const src = store.channels.find(c => c.id === clipboard!.id);
+          if (!src) return;
+          const x1 = timeToX(src.time1), x2 = timeToX(src.time2);
+          const y1 = seriesRef.current.priceToCoordinate(src.price1), y2 = seriesRef.current.priceToCoordinate(src.price2);
+          if (x1 === null || x2 === null || y1 === null || y2 === null) return;
+          const newTime1 = pixelToTime(x1 + PASTE_OFFSET_PX);
+          const newTime2 = pixelToTime(x2 + PASTE_OFFSET_PX);
+          const newPrice1 = seriesRef.current.coordinateToPrice(y1 + PASTE_OFFSET_PX);
+          const newPrice2 = seriesRef.current.coordinateToPrice(y2 + PASTE_OFFSET_PX);
+          if (newTime1 === null || newTime2 === null || newPrice1 === null || newPrice2 === null) return;
+          store.duplicateChannel(src.id, newTime1, newPrice1, newTime2, newPrice2);
+          const newId = useTraderStore.getState().nextChannelId - 1;
+          store.selectLine({ kind: 'channel', id: newId });
+          clipboard = { kind: 'channel', id: newId };
         } else if (clipboard.kind === 'arrow') {
           const src = store.arrows.find(a => a.id === clipboard!.id);
           if (!src) return;
@@ -4191,10 +4608,10 @@ export function CandleChart({
 
   // 描画・計測・価格ピッキングモード中はカーソルを crosshair に
   useEffect(() => {
-    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingArrow || isDrawingBrush || isDrawingText || pickTarget !== null || isJumpSync)) {
+    if (containerRef.current && (isDrawingLine || isDrawingVLine || isMeasuring || isDrawingRect || isDrawingTrendLine || isDrawingChannel || isDrawingArrow || isDrawingBrush || isDrawingText || pickTarget !== null || isJumpSync)) {
       containerRef.current.style.cursor = 'crosshair';
     }
-  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingTrendLine, isDrawingArrow, isDrawingBrush, isDrawingText, pickTarget, isJumpSync]);
+  }, [isDrawingLine, isDrawingVLine, isMeasuring, isDrawingRect, isDrawingTrendLine, isDrawingChannel, isDrawingArrow, isDrawingBrush, isDrawingText, pickTarget, isJumpSync]);
 
   // ものさしモードを解除したら表示を消す
   useEffect(() => {
@@ -4471,7 +4888,19 @@ export function CandleChart({
   // トレンドラインの再描画（選択状態が変わった時も端点ハンドル表示を更新する）
   useEffect(() => {
     syncTrendLinesRef.current();
+    syncChannelsRef.current();
   }, [trendLines, selected]);
+
+  // 平行チャネルの再描画（選択状態が変わった時も端点ハンドル表示を更新する）
+  useEffect(() => {
+    syncChannelsRef.current();
+  }, [channels, selected]);
+
+  // ツールを切り替える等でisDrawingChannelがfalseになったら、基準線確定済み・
+  // オフセット確定待ちのプレビューが残り続けないよう破棄する
+  useEffect(() => {
+    if (!isDrawingChannel) cancelChannelAwaitRef.current();
+  }, [isDrawingChannel]);
 
   // 矢印の再描画（選択状態が変わった時も端点ハンドル表示を更新する）
   useEffect(() => {
@@ -4633,6 +5062,7 @@ export function CandleChart({
         syncVLinesRef.current();
         syncRectsRef.current();
         syncTrendLinesRef.current();
+        syncChannelsRef.current();
         syncArrowsRef.current();
         syncBrushesRef.current();
         syncTextsRef.current();
@@ -4721,6 +5151,7 @@ export function CandleChart({
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncChannelsRef.current();
       syncArrowsRef.current();
       syncBrushesRef.current();
       syncTextsRef.current();
@@ -4793,6 +5224,7 @@ export function CandleChart({
     syncVLinesRef.current();
     syncRectsRef.current();
     syncTrendLinesRef.current();
+    syncChannelsRef.current();
     syncArrowsRef.current();
     syncBrushesRef.current();
     syncTextsRef.current();
@@ -4812,6 +5244,7 @@ export function CandleChart({
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncChannelsRef.current();
       syncArrowsRef.current();
       syncBrushesRef.current();
       syncTextsRef.current();
@@ -4858,6 +5291,7 @@ export function CandleChart({
     syncVLinesRef.current();
     syncRectsRef.current();
     syncTrendLinesRef.current();
+    syncChannelsRef.current();
     syncArrowsRef.current();
     syncBrushesRef.current();
     syncTextsRef.current();
@@ -4917,6 +5351,7 @@ export function CandleChart({
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncChannelsRef.current();
       syncArrowsRef.current();
       syncBrushesRef.current();
       syncTextsRef.current();
@@ -4964,6 +5399,7 @@ export function CandleChart({
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncChannelsRef.current();
       syncArrowsRef.current();
       syncBrushesRef.current();
       syncTextsRef.current();
@@ -5101,6 +5537,7 @@ export function CandleChart({
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncChannelsRef.current();
       syncArrowsRef.current();
       syncBrushesRef.current();
       syncTextsRef.current();
@@ -5142,6 +5579,7 @@ export function CandleChart({
       syncVLinesRef.current();
       syncRectsRef.current();
       syncTrendLinesRef.current();
+      syncChannelsRef.current();
       syncArrowsRef.current();
       syncBrushesRef.current();
       syncTextsRef.current();
@@ -5362,6 +5800,8 @@ export function CandleChart({
       {/* トレンドラインは斜めの線分なのでDOMのborderで表現できず、専用canvasに描く
           （雲と同じ方式）。価格軸に被らないよう幅は四角形・テキストのオーバーレイと揃える */}
       <canvas ref={trendCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
+      {/* 平行チャネルもトレンドラインと同じ方式（専用canvas）。基準線＋価格オフセットした2本目の線を描く */}
+      <canvas ref={channelCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       {/* 矢印はトレンドラインと同じ2点構造なので同じ方式（専用canvas）で描く。終点に矢印ヘッドを足すだけ。
           他の描画（四角形・トレンドライン・ブラシ・テキスト）より常に上に見せたいというわがままな
           要望のため、zIndexだけ他の描画系（9）より1段高くしてある。当たり判定側の優先順位も
