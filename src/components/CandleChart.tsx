@@ -2150,6 +2150,9 @@ export function CandleChart({
       if (!range || range.to <= range.from) return;
       followAnchorRef.current = { span: range.to - range.from, offset: range.to - lastIdx };
     };
+    // ジャンプ機能のeffect（この巨大effectの外、jumpSyncSignal依存の別effect）からも
+    // 呼べるようにrefへ公開する（他のsyncXRefと同じパターン）
+    captureFollowAnchorRef.current = captureFollowAnchorFromCurrentView;
     container.addEventListener('wheel', captureFollowAnchorFromCurrentView, { passive: true });
     let dragStartXY: { x: number; y: number } | null = null;
     let isDraggingForFollow = false;
@@ -5101,6 +5104,9 @@ export function CandleChart({
   // これによって「操作したパネルはその位置で固定、他のパネルは無関係に追従を続ける」を実現している
   // （followAnchorRefはパネルインスタンスごとに独立したrefのため）
   const followAnchorRef = useRef<{ span: number; offset: number } | null>(null);
+  // captureFollowAnchorFromCurrentView（上の巨大effect内で定義）を、jumpSyncSignal依存の
+  // 別effectから呼ぶための公開先（他のsyncXRefと同じ「関数をrefに入れて共有する」パターン）
+  const captureFollowAnchorRef = useRef<() => void>(() => {});
   const applyLatestViewRef = useRef<(captureSpan: boolean) => void>(() => {});
   applyLatestViewRef.current = (captureSpan: boolean) => {
     if (!chartRef.current) return;
@@ -5575,6 +5581,16 @@ export function CandleChart({
     // setVisibleLogicalRange直後の座標ズレ対策。上のcenterSignal効果と同じ理由
     // （雲の塗りつぶしが一瞬ズレてマウスを動かすと直る、という形で発覚）
     const raf = requestAnimationFrame(() => {
+      // 非メインパネルは「最新足に固定」トグルに関わらず常時追従がデフォルト（下の
+      // followLatest継続追従effect）。ジャンプ後にfollowAnchorRefを更新しないと、
+      // ここまで手動パン/ホイール操作した場合と違って古いアンカー（ジャンプ前の
+      // 「最新足付近」の位置）が残ったままになり、他パネルをメインに昇格させる等で
+      // candles/cursorが変わってnonMainVisibleの参照が更新された瞬間、その古い
+      // アンカーで「最新足に固定」の追従effectが再発火してジャンプ後の位置を
+      // 上書きしてしまう（3画面でジャンプ後に別パネルをクリックすると、ジャンプした
+      // はずの他の非メインパネルが最新足へ勝手に戻る不具合として発覚）。ジャンプ直後の
+      // 位置を新しいアンカーとして採用し、以降はその位置を基準に追従を続けさせる
+      captureFollowAnchorRef.current();
       syncCloudRef.current();
       syncVLinesRef.current();
       syncRectsRef.current();
