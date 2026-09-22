@@ -6,6 +6,7 @@ import { LINE_COLORS } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { pricePrecision, inferPipSize } from '../lib/pips';
 import { computeTradeStats } from '../lib/tradeStats';
+import { downloadAiAnalysis } from '../lib/aiExport';
 import { SESSIONS } from '../lib/sessions';
 
 const SESSION_COLOR: Record<string, string> = {
@@ -212,7 +213,9 @@ function fmtDateTime(sec: number): string {
 export function HistoryPanel() {
   const closedTrades   = useTraderStore(s => s.closedTrades);
   const initialBalance = useTraderStore(s => s.initialBalance);
+  const balance         = useTraderStore(s => s.balance);
   const quoteCurrency   = useTraderStore(s => s.quoteCurrency);
+  const symbol           = useTraderStore(s => s.symbol);
   const toggleHistoryPanel = useTraderStore(s => s.toggleHistoryPanel);
   const jumpToTime = useTraderStore(s => s.jumpToTime);
   const scrollToTradeId = useTraderStore(s => s.scrollToTradeId);
@@ -396,10 +399,21 @@ export function HistoryPanel() {
         <div style={{ display: 'flex', alignItems: 'baseline', gap: '16px' }}>
           <span style={{ color: '#e0e0e0', fontSize: '18px', fontWeight: 700 }}>取引履歴</span>
         </div>
-        <button onClick={toggleHistoryPanel} style={{
-          background: 'none', border: '1px solid #444', color: '#aaa',
-          borderRadius: '4px', padding: '6px 14px', cursor: 'pointer', fontSize: '14px',
-        }}>閉じる</button>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button
+            onClick={() => downloadAiAnalysis({ closedTrades, initialBalance, balance, quoteCurrency, symbol, sym }, symbol || 'trade')}
+            disabled={sorted.length === 0}
+            title="集計指標・取引一覧を、外部のAI（ChatGPT/Claude等）にそのまま読み込ませて分析してもらえる形式のMarkdownファイルとして書き出す"
+            style={{
+              background: 'none', border: '1px solid #444', color: sorted.length === 0 ? '#555' : '#aaa',
+              borderRadius: '4px', padding: '6px 14px', cursor: sorted.length === 0 ? 'default' : 'pointer', fontSize: '14px',
+            }}
+          >📊 AI分析用エクスポート</button>
+          <button onClick={toggleHistoryPanel} style={{
+            background: 'none', border: '1px solid #444', color: '#aaa',
+            borderRadius: '4px', padding: '6px 14px', cursor: 'pointer', fontSize: '14px',
+          }}>閉じる</button>
+        </div>
       </div>
 
       <div style={{ flex: 1, overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '16px' }}>
