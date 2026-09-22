@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { ClosedTrade } from '../types';
+import { LINE_COLORS } from '../types';
 import { currencySymbol } from '../lib/currency';
 import { pricePrecision, inferPipSize } from '../lib/pips';
 import { computeTradeStats } from '../lib/tradeStats';
@@ -446,6 +447,9 @@ export function HistoryPanel() {
               <StatGroup title="時間">
                 <StatRow label="経過日数" value={rs.elapsedDays.toFixed(1)} />
                 <StatRow label="経過月数" value={rs.elapsedMonths.toFixed(1)} />
+                <StatRow label="平均保有期間" value={nn(rs.avgHoldSec, v => fmtDuration(v))} />
+                <StatRow label="平均保有期間（勝ち）" value={nn(rs.avgHoldWinSec, v => fmtDuration(v))} />
+                <StatRow label="平均保有期間（負け）" value={nn(rs.avgHoldLossSec, v => fmtDuration(v))} />
               </StatGroup>
 
               <StatGroup title="その他">
@@ -496,6 +500,28 @@ export function HistoryPanel() {
             <div style={{ color: '#555', fontSize: '11px', marginBottom: '10px' }}>エントリー時刻（JST）が属するセッション基準</div>
             <SessionSplitBar
               buckets={rs.bySession.map(s => ({ key: s.key, label: s.label, color: SESSION_COLOR[s.key], count: s.count, pnl: s.pnl }))}
+              sym={sym}
+            />
+          </div>
+        )}
+
+        {sorted.length > 0 && (
+          <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
+            <div style={{ ...sectionTitle, marginBottom: '10px' }}>■曜日別分析</div>
+            <div style={{ color: '#555', fontSize: '11px', marginBottom: '10px' }}>エントリー曜日（JST）基準</div>
+            <SessionSplitBar
+              buckets={rs.byWeekday.map((w, i) => ({ key: w.key, label: w.label, color: LINE_COLORS[i % LINE_COLORS.length], count: w.count, pnl: w.pnl }))}
+              sym={sym}
+            />
+          </div>
+        )}
+
+        {sorted.length > 0 && (
+          <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '14px 16px', flexShrink: 0 }}>
+            <div style={{ ...sectionTitle, marginBottom: '10px' }}>■保有期間帯別分析</div>
+            <div style={{ color: '#555', fontSize: '11px', marginBottom: '10px' }}>決済-建玉の保有時間で区分（デイトレ〜スイング）</div>
+            <SessionSplitBar
+              buckets={rs.byHoldBucket.map((b, i) => ({ key: b.key, label: b.label, color: LINE_COLORS[i % LINE_COLORS.length], count: b.count, pnl: b.pnl }))}
               sym={sym}
             />
           </div>
