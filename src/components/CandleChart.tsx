@@ -88,6 +88,9 @@ const CLICK_TOLERANCE_PX = 6;
 // 四角形の角・辺ハンドルは見た目が小さく掴みにくいという声を受けて、ヒット判定だけ
 // DRAG_TOLERANCE_PXより広く取る（水平線・垂直線・TP/SL等の他のドラッグ対象は対象外）
 const RECT_HANDLE_HIT_PX = 12;
+// 水平線・垂直線等の透明抜きで、ヒゲ区間（高値〜安値のうち実体を除く部分）に使う幅。
+// lightweight-charts自体はヒゲの実描画幅を公開していないため近似値
+const WICK_CUTOUT_PX = 2;
 const MIN_JUMP_SPAN_BARS = 30; // 日時ジャンプ時、表示幅がこの本数分未満にはならないようにする
 const CHART_RIGHT_OFFSET_BARS = 10; // createChartのtimeScale.rightOffsetと同じ値（「最新足に固定」を自前計算するため）
 // 四角形・トレンドライン・平行チャネル・垂直線等、canvas自前描画系の線種→setLineDash変換。
@@ -759,20 +762,8 @@ export function CandleChart({
       // 雲の塗りつぶしに重なったロウソク足を上に見せる。塗りつぶしはSeriesではなく
       // このcanvasへの直接描画なので、先行スパンA/BのSeries順序を変えただけでは
       // 塗りつぶし自体はロウソク足を覆ったままになる——四角形の縦線・垂直線と同じ
-      // destination-outで、ロウソク足（高値〜安値の全域）の位置だけ透明に抜く
-      const barSpacing = timeScale.options().barSpacing;
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = '#000';
-      for (const c of cs) {
-        const cx = timeToX(c.time);
-        if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
-        const yHigh = series.priceToCoordinate(c.high);
-        const yLow = series.priceToCoordinate(c.low);
-        if (yHigh === null || yLow === null) continue;
-        ctx.fillRect(cx - barSpacing / 2, Math.min(yHigh, yLow), barSpacing, Math.abs(yLow - yHigh));
-      }
-      ctx.restore();
+      // destination-outで、ロウソク足の位置だけ透明に抜く（cutCandlesFromCanvas参照）
+      cutCandlesFromCanvas(ctx, w);
     };
     syncCloudRef.current = syncCloud;
 
@@ -825,6 +816,36 @@ export function CandleChart({
       return ts.timeToCoordinate(visible[lo].time as Time);
     };
 
+    // 水平線・垂直線・雲の塗りつぶし・四角形が共通で使うロウソク足の透明抜き。以前は
+    // 高値〜安値の全域を実体と同じbarSpacing幅で一律に抜いていたため、ヒゲだけの区間
+    // （高値〜実体上端、実体下端〜安値）でも本体1本ぶんの幅で避けてしまい、線が必要以上に
+    // 途切れて見えていた（実際に指摘を受けて判明）。実体区間はbarSpacing幅、ヒゲ区間は
+    // 細い固定幅（WICK_CUTOUT_PX）に分けて抜くよう変更した。lightweight-charts自体は
+    // ヒゲの実際の描画幅を設定として公開していないため、この幅はTradingView等を参考にした近似値
+    const cutCandlesFromCanvas = (ctx: CanvasRenderingContext2D, w: number) => {
+      if (!chartRef.current || !seriesRef.current) return;
+      const series = seriesRef.current;
+      const barSpacing = chartRef.current.timeScale().options().barSpacing;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = '#000';
+      for (const c of displayCandlesRef.current) {
+        const cx = timeToX(c.time);
+        if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
+        const yHigh = series.priceToCoordinate(c.high);
+        const yLow = series.priceToCoordinate(c.low);
+        const yOpen = series.priceToCoordinate(c.open);
+        const yClose = series.priceToCoordinate(c.close);
+        if (yHigh === null || yLow === null || yOpen === null || yClose === null) continue;
+        const bodyTop = Math.min(yOpen, yClose);
+        const bodyBottom = Math.max(yOpen, yClose);
+        if (bodyTop > yHigh) ctx.fillRect(cx - WICK_CUTOUT_PX / 2, yHigh, WICK_CUTOUT_PX, bodyTop - yHigh);
+        if (yLow > bodyBottom) ctx.fillRect(cx - WICK_CUTOUT_PX / 2, bodyBottom, WICK_CUTOUT_PX, yLow - bodyBottom);
+        ctx.fillRect(cx - barSpacing / 2, bodyTop, barSpacing, Math.max(bodyBottom - bodyTop, 1));
+      }
+      ctx.restore();
+    };
+
     // ドラッグ中は store を経由せずここだけ書き換えて即座に再描画するプレビュー用
     // （他の描画要素と同じ作法。syncVLinesより前で宣言すること——TDZ、平行チャネルで実際に踏んだ）
     let vlineDragPreviewX: { id: number; x: number } | null = null;
@@ -869,20 +890,8 @@ export function CandleChart({
         ctx.restore();
       }
 
-      // ロウソク足（実体＋ヒゲ）と重なった部分を透明に抜く。四角形の縦線カットと同じ方式
-      const barSpacing = chartRef.current.timeScale().options().barSpacing;
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = '#000';
-      for (const c of displayCandlesRef.current) {
-        const cx = timeToX(c.time);
-        if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
-        const yHigh = seriesRef.current.priceToCoordinate(c.high);
-        const yLow = seriesRef.current.priceToCoordinate(c.low);
-        if (yHigh === null || yLow === null) continue;
-        ctx.fillRect(cx - barSpacing / 2, Math.min(yHigh, yLow), barSpacing, Math.abs(yLow - yHigh));
-      }
-      ctx.restore();
+      // ロウソク足と重なった部分を透明に抜く（cutCandlesFromCanvas参照）
+      cutCandlesFromCanvas(ctx, w);
     };
 
     // 水平線の線本体を専用canvasに自前描画する。垂直線・四角形の縦線と全く同じ
@@ -928,20 +937,8 @@ export function CandleChart({
         ctx.restore();
       }
 
-      // ロウソク足（実体＋ヒゲ）と重なった部分を透明に抜く。垂直線・四角形の縦線と同じ方式
-      const barSpacing = chartRef.current.timeScale().options().barSpacing;
-      ctx.save();
-      ctx.globalCompositeOperation = 'destination-out';
-      ctx.fillStyle = '#000';
-      for (const c of displayCandlesRef.current) {
-        const cx = timeToX(c.time);
-        if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
-        const yHigh = seriesRef.current.priceToCoordinate(c.high);
-        const yLow = seriesRef.current.priceToCoordinate(c.low);
-        if (yHigh === null || yLow === null) continue;
-        ctx.fillRect(cx - barSpacing / 2, Math.min(yHigh, yLow), barSpacing, Math.abs(yLow - yHigh));
-      }
-      ctx.restore();
+      // ロウソク足と重なった部分を透明に抜く（cutCandlesFromCanvas参照）
+      cutCandlesFromCanvas(ctx, w);
     };
     drawHLineCanvasRef.current = drawHLineCanvas;
 
@@ -1154,23 +1151,8 @@ export function CandleChart({
       // 常に不透明のまま最前面に出していたが、その扱いをやめた）
       for (const b of boxes) drawHorizontalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
 
-      // ロウソク足（実体＋ヒゲ）と重なった枠線（縦線・横線とも）を透明に抜く。高値〜安値の
-      // 全域をbarSpacing幅で塗ることで、実体・ヒゲを区別せず一度に抜ける
-      if (boxes.length > 0) {
-        const barSpacing = chartRef.current.timeScale().options().barSpacing;
-        ctx.save();
-        ctx.globalCompositeOperation = 'destination-out';
-        ctx.fillStyle = '#000';
-        for (const c of displayCandlesRef.current) {
-          const cx = timeToX(c.time);
-          if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
-          const yHigh = seriesRef.current.priceToCoordinate(c.high);
-          const yLow = seriesRef.current.priceToCoordinate(c.low);
-          if (yHigh === null || yLow === null) continue;
-          ctx.fillRect(cx - barSpacing / 2, Math.min(yHigh, yLow), barSpacing, Math.abs(yLow - yHigh));
-        }
-        ctx.restore();
-      }
+      // ロウソク足と重なった枠線（縦線・横線とも）を透明に抜く（cutCandlesFromCanvas参照）
+      if (boxes.length > 0) cutCandlesFromCanvas(ctx, w);
 
       // ハンドルは選択中の四角形1つぶんだけ使い回す（毎回作り直さない）
       const handles = rectHandleElsRef.current;
