@@ -5263,7 +5263,16 @@ export function CandleChart({
       // 初期フィット処理で既に踏んだのと同種の取り違え——「最新足に固定」ボタンはその後で
       // 別途この頭打ちをかけ直してしまっていたため、ボタンを押すとかえってデカ足になっていた）
       const fullTotal = isMainRef.current ? candles.length : nonMainCandlesRef.current.length;
-      const { span: rawSpan, offset } = followAnchorRef.current;
+      let { span: rawSpan, offset } = followAnchorRef.current;
+      // offsetはパン/ズーム操作時（captureFollowAnchorFromCurrentView）にも「range.to - lastIdx」
+      // として保存されるため、ユーザーがかなり過去へスクロールした直後の値だと大きな負数になり
+      // 得る。その状態でfullTotal + offsetが0以下まで落ちるとspanが負になり、直後の
+      // setVisibleLogicalRangeが「from > to」で例外を投げてチャートごと落ちる（実際に
+      // 発生したクラッシュ）。既定の右寄せオフセットへフォールバックして防ぐ
+      if (fullTotal + offset <= 0) {
+        offset = CHART_RIGHT_OFFSET_BARS;
+        followAnchorRef.current = { span: rawSpan, offset };
+      }
       const span = Math.min(rawSpan, fullTotal + offset);
       const to = lastIdx + offset;
       chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
