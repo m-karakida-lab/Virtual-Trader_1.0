@@ -90,6 +90,12 @@ const CLICK_TOLERANCE_PX = 6;
 const RECT_HANDLE_HIT_PX = 12;
 const MIN_JUMP_SPAN_BARS = 30; // 日時ジャンプ時、表示幅がこの本数分未満にはならないようにする
 const CHART_RIGHT_OFFSET_BARS = 10; // createChartのtimeScale.rightOffsetと同じ値（「最新足に固定」を自前計算するため）
+// 四角形・トレンドライン・平行チャネル・垂直線等、canvas自前描画系の線種→setLineDash変換。
+// syncVLines（垂直線）がこれより前で定義・即時呼び出しされるため、コンポーネント内のローカル
+// constではなくモジュールレベルに置く（TDZ回避——ローカルにして踏んだ経緯があるため要注意）
+const DASH_TO_CANVAS: Record<'solid' | 'dashed' | 'dotted', number[]> = {
+  solid: [], dashed: [7, 5], dotted: [1, 4],
+};
 
 // 一目均衡表「雲」（先行スパンA/B）
 const TENKAN_PERIOD = 9;
@@ -240,6 +246,9 @@ export function CandleChart({
   const orderSlLineMapRef = useRef<Map<number, IPriceLine>>(new Map());
   const draftLineMapRef = useRef<Map<'price' | 'tp' | 'sl', IPriceLine>>(new Map());
   const vlineElsRef = useRef<Map<number, HTMLDivElement>>(new Map());
+  // 垂直線の線本体（見た目）は専用canvasに自前描画し、四角形の縦線と同じdestination-outで
+  // ロウソク足と重なった部分を透明に抜く（vlineElsRef側のDOMはラベルの位置決め用アンカーとして残す）
+  const vlineCanvasRef = useRef<HTMLCanvasElement>(null);
   const lineHandleElRef = useRef<HTMLDivElement | null>(null); // 選択中の水平線/垂直線の中点ハンドル（常に1個分のみ）
   const syncVLinesRef = useRef<() => void>(() => {});
   const rectHandleOverlayRef = useRef<HTMLDivElement>(null);
@@ -766,7 +775,69 @@ export function CandleChart({
       return x0 + frac * (x1 - x0);
     };
 
-    // ── 垂直線の位置を再計算して DOM に反映 ────────────────────────
+    // ドラッグ中は store を経由せずここだけ書き換えて即座に再描画するプレビュー用
+    // （他の描画要素と同じ作法。syncVLinesより前で宣言すること——TDZ、平行チャネルで実際に踏んだ）
+    let vlineDragPreviewX: { id: number; x: number } | null = null;
+
+    // 垂直線の線本体を専用canvasに自前描画する。四角形の縦線と全く同じ理由・同じ方式で
+    // destination-outを使う（グリッド線・標準価格ラインはSeries Primitives対象外で
+    // 常に前面に出るため、DOMのままだとロウソク足と重なった時にロウソク足が隠れて見づらい）
+    const drawVLineCanvas = () => {
+      const canvas = vlineCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const { vlines: currentVLines, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const lines: { x: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
+      for (const v of currentVLines) {
+        const x = vlineDragPreviewX && vlineDragPreviewX.id === v.id ? vlineDragPreviewX.x : timeToX(v.time);
+        if (x === null) continue;
+        lines.push({ x, color: v.color, dash: v.dash, width: v.width });
+      }
+      if (lines.length === 0) return;
+
+      // ラベル表示中は日付軸欄の帯の中央（ラベル位置）まで線を伸ばして隙間なくつなげる
+      // （そのぶん線が少し軸欄に入るのはOKという指示）。非表示時は軸欄の手前で止める
+      const bottom = showVLineDateLabel ? h - bottomMargin / 2 : h - bottomMargin;
+      for (const l of lines) {
+        ctx.save();
+        ctx.strokeStyle = l.color;
+        ctx.lineWidth = l.width;
+        ctx.setLineDash(DASH_TO_CANVAS[l.dash]);
+        ctx.beginPath();
+        ctx.moveTo(l.x, 0);
+        ctx.lineTo(l.x, bottom);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // ロウソク足（実体＋ヒゲ）と重なった部分を透明に抜く。四角形の縦線カットと同じ方式
+      const barSpacing = chartRef.current.timeScale().options().barSpacing;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = '#000';
+      for (const c of displayCandlesRef.current) {
+        const cx = timeToX(c.time);
+        if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
+        const yHigh = seriesRef.current.priceToCoordinate(c.high);
+        const yLow = seriesRef.current.priceToCoordinate(c.low);
+        if (yHigh === null || yLow === null) continue;
+        ctx.fillRect(cx - barSpacing / 2, Math.min(yHigh, yLow), barSpacing, Math.abs(yLow - yHigh));
+      }
+      ctx.restore();
+    };
+
+    // ── 垂直線の位置を再計算して DOM（日付ラベル・ハンドル）に反映 ────────
+    // 線本体の見た目は専用canvas（vlineCanvasRef、上のdrawVLineCanvas）に自前描画する。
+    // DOM（border）のままだとロウソク足のcanvasより手前に出てしまい重なった時に見づらい
+    // という指摘を受け、四角形の縦線と同じdestination-out方式に切り替えた
     const syncVLines = () => {
       if (!chartRef.current || !overlayRef.current || !seriesRef.current) return;
       const { vlines: currentVLines, lines: currentLines, selected, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
@@ -780,25 +851,16 @@ export function CandleChart({
 
       for (const v of currentVLines) {
         let el = existing.get(v.id);
-        let lineEl: HTMLDivElement;
         let label: HTMLDivElement;
         if (!el) {
           // elは位置決め用の0幅アンカー（top:0, height:100%=コンテナ全体）。ラベルはこの
-          // 100%基準で日付軸欄の帯の中央へ配置したいため、線の見た目（border）はelではなく
-          // 中に入れた子要素lineEl側に持たせ、lineElの高さだけ日付軸欄の手前で止める
-          // （ラベルの表示ON/OFFに関わらず、線自体は常に日付軸欄に重ならないようにする）
+          // 100%基準で日付軸欄の帯の中央へ配置する
           el = document.createElement('div');
           el.style.position = 'absolute';
           el.style.top = '0';
           el.style.height = '100%';
           el.style.width = '0px';
           el.style.pointerEvents = 'none';
-
-          lineEl = document.createElement('div');
-          lineEl.style.position = 'absolute';
-          lineEl.style.top = '0';
-          lineEl.style.width = '0px';
-          el.appendChild(lineEl);
 
           // 日付軸欄（chartBottomMargin分の帯）そのものに重ねて表示する日付ラベル
           // （TradingView同様）。帯の垂直中央にあたる1点を基準にtranslateで水平・垂直とも
@@ -817,22 +879,15 @@ export function CandleChart({
           overlay.appendChild(el);
           existing.set(v.id, el);
         } else {
-          lineEl = el.firstChild as HTMLDivElement;
-          label = el.lastChild as HTMLDivElement;
+          label = el.firstChild as HTMLDivElement;
         }
-        const x = timeToX(v.time);
+        const live = vlineDragPreviewX && vlineDragPreviewX.id === v.id ? vlineDragPreviewX.x : timeToX(v.time);
+        const x = live;
         if (x === null) {
           el.style.display = 'none';
         } else {
           el.style.display = 'block';
           el.style.left = `${x}px`;
-          // ラベル表示中は、ラベル（軸欄の垂直中央に配置）まで線を伸ばして隙間なくつなげる
-          // （そのぶん線が少し軸欄に入るのはOKという指示）。ラベル非表示時は従来通り
-          // 軸欄の手前で止め、軸欄には一切入らないようにする
-          lineEl.style.height = showVLineDateLabel
-            ? `calc(100% - ${bottomMargin / 2}px)`
-            : `calc(100% - ${bottomMargin}px)`;
-          lineEl.style.borderLeft = `${v.width}px ${DASH_TO_CSS[v.dash]} ${v.color}`;
           label.style.display = showVLineDateLabel ? 'block' : 'none';
           label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
           label.style.transform = 'translate(-50%, -50%)';
@@ -840,6 +895,7 @@ export function CandleChart({
           label.textContent = formatVLineDate(v.time);
         }
       }
+      drawVLineCanvas();
 
       // 選択中の水平線・垂直線があれば中点にハンドルを1つ表示する（編集モードの目印。
       // 実際の移動は既存のドラッグ判定（findPriceTargetNear/findVLineNear）が
@@ -896,9 +952,6 @@ export function CandleChart({
     // あるため、この方式ならグリッド線より上・ローソク足より下という狙い通りの
     // 重なり順を、Primitivesの制約を受けずに実現できる
     const RECT_HANDLE_SIZE = 10;
-    const DASH_TO_CANVAS: Record<'solid' | 'dashed' | 'dotted', number[]> = {
-      solid: [], dashed: [7, 5], dotted: [1, 4],
-    };
     // ドラッグ中（コーナー/辺リサイズ・移動・新規描画）はstoreを経由せずここだけ書き換えて
     // 即座に再描画するプレビュー用（storeのコミットはmouseupまで行わない、
     // トレンドライン等の他の描画要素と同じ作法）
@@ -3489,6 +3542,10 @@ export function CandleChart({
               if (el) el.style.left = `${pendingVX}px`;
               // 中点ハンドルも同じフレームで追従させる（理由は水平線ドラッグと同じ）
               if (lineHandleElRef.current) lineHandleElRef.current.style.left = `${pendingVX - 4}px`;
+              // 線本体（canvas描画）もこのフレームで追従させないと、DOMのラベル/ハンドルだけ
+              // 動いて線の見た目が古い位置に取り残される
+              vlineDragPreviewX = { id: draggingVId, x: pendingVX };
+              drawVLineCanvas();
             }
           });
         }
@@ -4077,6 +4134,8 @@ export function CandleChart({
         }
         draggingVId = null;
         pendingVX = null;
+        vlineDragPreviewX = null;
+        drawVLineCanvas(); // storeコミット後の実データで再描画（プレビュー座標を使い続けない）
         chart.applyOptions({ handleScroll: true, handleScale: true });
       }
       if (draggingRectCorner !== null) {
@@ -5842,6 +5901,9 @@ export function CandleChart({
       <canvas ref={arrowCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 10, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <canvas ref={brushCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={textOverlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
+      {/* 垂直線の線本体も四角形の縦線と同じ方式（専用canvas、destination-outでローソク足と
+          重なった部分を透明に抜く）。日付ラベル・選択ハンドルは従来通りoverlayRef側のDOMのまま */}
+      <canvas ref={vlineCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={measureOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 12, display: 'none' }}>
         <div ref={measureBoxRef} style={{ position: 'absolute' }} />
