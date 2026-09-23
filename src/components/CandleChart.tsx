@@ -691,14 +691,13 @@ export function CandleChart({
     chart.subscribeCrosshairMove(onCrosshairMove);
 
     // マウスカーソル位置の日付（lightweight-charts組み込みの、日付軸欄に出る
-    // ハイライト表示）と区切り線の自前日付ラベル（DOM、区切り線の方が後から常に
+    // ハイライト表示）と区切り線・垂直線の自前日付ラベル（DOM、これらの方が後から常に
     // 前面に重なる）が同じ位置で衝突すると、カーソル側の日付が隠れて読めなくなって
-    // いた。カーソル位置に近い区切り線ラベルは一時的に隠し、カーソル側を優先する
-    // （区切り線自体は隠さない、ラベルだけ）。sourceEventの有無を問わず全ての
+    // いた。カーソル位置に近いラベルは一時的に隠し、カーソル側を優先する
+    // （線自体は隠さない、ラベルだけ）。sourceEventの有無を問わず全ての
     // crosshair移動（他パネルからの同期含む）で反応させる
-    const onCrosshairMoveForSeparatorLabels: Parameters<typeof chart.subscribeCrosshairMove>[0] = param => {
-      const cx = param.point?.x;
-      for (const el of weekLineElsRef.current) {
+    const hideLabelNearCursor = (els: Iterable<HTMLDivElement>, cx: number | undefined) => {
+      for (const el of els) {
         const label = el.lastChild as HTMLDivElement | undefined;
         if (!label || label.style.display === 'none') continue;
         const elLeft = parseFloat(el.style.left || '');
@@ -706,6 +705,11 @@ export function CandleChart({
           ? 'hidden'
           : 'visible';
       }
+    };
+    const onCrosshairMoveForSeparatorLabels: Parameters<typeof chart.subscribeCrosshairMove>[0] = param => {
+      const cx = param.point?.x;
+      hideLabelNearCursor(weekLineElsRef.current, cx);
+      hideLabelNearCursor(vlineElsRef.current.values(), cx);
     };
     chart.subscribeCrosshairMove(onCrosshairMoveForSeparatorLabels);
 
