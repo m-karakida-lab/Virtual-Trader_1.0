@@ -870,7 +870,7 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { vlines: currentVLines, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { vlines: currentVLines, chartBottomMargin: bottomMargin } = useTraderStore.getState();
       const lines: { x: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
       for (const v of currentVLines) {
         const x = vlineDragPreviewX && vlineDragPreviewX.id === v.id ? vlineDragPreviewX.x : timeToXSnapped(v.time);
@@ -879,9 +879,10 @@ export function CandleChart({
       }
       if (lines.length === 0) return;
 
-      // ラベル表示中は日付軸欄の帯の中央（ラベル位置）まで線を伸ばして隙間なくつなげる
-      // （そのぶん線が少し軸欄に入るのはOKという指示）。非表示時は軸欄の手前で止める
-      const bottom = showVLineDateLabel ? h - bottomMargin / 2 : h - bottomMargin;
+      // 以前はラベル表示中だけ日付軸欄の帯の中央（ラベル位置）まで線を伸ばしていたが、
+      // 軸欄に線が食い込んで見づらいという指摘を受け、ラベルの有無に関わらず軸欄の
+      // 手前で止めるようにした
+      const bottom = h - bottomMargin;
       for (const l of lines) {
         ctx.save();
         ctx.strokeStyle = l.color;
