@@ -167,6 +167,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）とグリッド線（`layout.grid`）はSeries Primitivesの対象外でzOrder制御ができず、常に他の描画物より前面に出る。四角形・週区切り線がPrimitivesではなくDOM/canvasオーバーレイなのはこの制約を回避するため（詳細は主要機能の四角形描画の項）
 - `showFullHistory`は廃止済み。全期間スクラバーの「全体」は常に`cursor+1`、`candles.length`（未来含む全データ）は使わない
 - `setVisibleLogicalRange`へ渡す`from`/`to`は`LogicalRange`型変数に一度代入すると型エラーになる。その場のオブジェクトリテラルで直接渡すこと
+- 追従アンカー（`followAnchorRef`）の`offset`はパン操作時に`range.to - lastIdx`で保存されるため、過去へ大きくスクロールした直後は大きな負数になり得る。`applyLatestViewRef`で`fullTotal + offset`が0以下ならspanが負になり`setVisibleLogicalRange`が`from > to`で例外を投げる——既定オフセットへフォールバックして防いでいる
 - `resetTimeScale()`直後に`getVisibleLogicalRange()`を読んでも古い値が返る（非同期）。`requestAnimationFrame`を挟んでから読むこと
 - 自前`<canvas>`（雲・トレンドライン・ブラシ）は`devicePixelRatio`倍で実解像度を確保し`ctx.setTransform`で描画すること（Retinaでのぼやけ・カクつき防止）
 - BBは`showBB`OFF中も裏で計算継続し`visible:false`で隠すだけ（再計算漏れ防止）
