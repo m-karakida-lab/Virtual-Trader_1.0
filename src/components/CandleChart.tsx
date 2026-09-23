@@ -775,6 +775,28 @@ export function CandleChart({
       return x0 + frac * (x1 - x0);
     };
 
+    // 垂直線専用: timeToXは足と足の間の時刻を線形補間してしまうため、他時間足のパネルで
+    // 見た時（例: 1Hで引いた線を4Hパネルで表示）に足と足の隙間を指してしまっていた
+    // （実際に指摘を受けて判明）。その時刻を含むロウソク足（floor側の足）自体の位置を
+    // 指すようスナップする。線を引いたパネル自身（同じ時間足）では元々ぴったり一致するため
+    // 影響しない
+    const timeToXSnapped = (t: number): number | null => {
+      if (!chartRef.current) return null;
+      const ts = chartRef.current.timeScale();
+      const exact = ts.timeToCoordinate(t as Time);
+      if (exact !== null) return exact;
+      const visible = displayCandlesRef.current;
+      if (visible.length === 0) return null;
+      if (t <= visible[0].time) return ts.timeToCoordinate(visible[0].time as Time);
+      if (t >= visible[visible.length - 1].time) return ts.timeToCoordinate(visible[visible.length - 1].time as Time);
+      let lo = 0, hi = visible.length - 1;
+      while (hi - lo > 1) {
+        const mid = (lo + hi) >> 1;
+        if (visible[mid].time <= t) lo = mid; else hi = mid;
+      }
+      return ts.timeToCoordinate(visible[lo].time as Time);
+    };
+
     // ドラッグ中は store を経由せずここだけ書き換えて即座に再描画するプレビュー用
     // （他の描画要素と同じ作法。syncVLinesより前で宣言すること——TDZ、平行チャネルで実際に踏んだ）
     let vlineDragPreviewX: { id: number; x: number } | null = null;
@@ -797,7 +819,7 @@ export function CandleChart({
       const { vlines: currentVLines, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
       const lines: { x: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
       for (const v of currentVLines) {
-        const x = vlineDragPreviewX && vlineDragPreviewX.id === v.id ? vlineDragPreviewX.x : timeToX(v.time);
+        const x = vlineDragPreviewX && vlineDragPreviewX.id === v.id ? vlineDragPreviewX.x : timeToXSnapped(v.time);
         if (x === null) continue;
         lines.push({ x, color: v.color, dash: v.dash, width: v.width });
       }
@@ -881,7 +903,7 @@ export function CandleChart({
         } else {
           label = el.firstChild as HTMLDivElement;
         }
-        const live = vlineDragPreviewX && vlineDragPreviewX.id === v.id ? vlineDragPreviewX.x : timeToX(v.time);
+        const live = vlineDragPreviewX && vlineDragPreviewX.id === v.id ? vlineDragPreviewX.x : timeToXSnapped(v.time);
         const x = live;
         if (x === null) {
           el.style.display = 'none';
@@ -926,7 +948,7 @@ export function CandleChart({
         if (y !== null) point = [container.clientWidth / 2, y];
       } else if (selected?.kind === 'v') {
         const v = currentVLines.find(vv => vv.id === selected.id);
-        const x = v ? timeToX(v.time) : null;
+        const x = v ? timeToXSnapped(v.time) : null;
         if (x !== null) point = [x, container.clientHeight / 2];
       }
       if (point) {
@@ -2588,7 +2610,9 @@ export function CandleChart({
       if (!chartRef.current) return null;
       const { vlines: currentVLines } = useTraderStore.getState();
       for (const v of currentVLines) {
-        const vx = timeToX(v.time);
+        // 表示位置（timeToXSnapped）と当たり判定は一致させること。timeToXのままだと
+        // 他時間足のパネルでは見た目の線の位置とクリック判定がズレてしまう
+        const vx = timeToXSnapped(v.time);
         if (vx !== null && Math.abs(vx - x) <= DRAG_TOLERANCE_PX) return v.id;
       }
       return null;
