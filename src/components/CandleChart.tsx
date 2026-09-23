@@ -750,6 +750,24 @@ export function CandleChart({
         ctx.closePath();
         ctx.fill();
       }
+
+      // 雲の塗りつぶしに重なったロウソク足を上に見せる。塗りつぶしはSeriesではなく
+      // このcanvasへの直接描画なので、先行スパンA/BのSeries順序を変えただけでは
+      // 塗りつぶし自体はロウソク足を覆ったままになる——四角形の縦線・垂直線と同じ
+      // destination-outで、ロウソク足（高値〜安値の全域）の位置だけ透明に抜く
+      const barSpacing = timeScale.options().barSpacing;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = '#000';
+      for (const c of cs) {
+        const cx = timeToX(c.time);
+        if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
+        const yHigh = series.priceToCoordinate(c.high);
+        const yLow = series.priceToCoordinate(c.low);
+        if (yHigh === null || yLow === null) continue;
+        ctx.fillRect(cx - barSpacing / 2, Math.min(yHigh, yLow), barSpacing, Math.abs(yLow - yHigh));
+      }
+      ctx.restore();
     };
     syncCloudRef.current = syncCloud;
 
