@@ -612,15 +612,10 @@ export function CandleChart({
       height: container.clientHeight,
     });
 
-    const seriesOptions: Partial<CandlestickSeriesOptions> = {
-      upColor: '#26a69a',
-      downColor: '#ef5350',
-      borderUpColor: '#26a69a',
-      borderDownColor: '#ef5350',
-      wickUpColor: '#26a69a',
-      wickDownColor: '#ef5350',
-    };
-    const series = chart.addCandlestickSeries(seriesOptions);
+    // lightweight-chartsは後から追加したSeriesほど上に描かれる仕様のため、ロウソク足
+    // （addCandlestickSeries）はEMA/SMA/BB/雲より後で追加すること——これらが重なった時に
+    // ロウソク足が上に見えるようにしたいという要望を受けた。以前は先頭で追加しており、
+    // インジケーターがロウソク足の実体・ヒゲを覆い隠して見づらいことがあった
     const emaSeries = chart.addLineSeries({
       color: EMA_COLOR,
       lineWidth: 2,
@@ -656,6 +651,16 @@ export function CandleChart({
     };
     const senkouASeries = chart.addLineSeries({ ...cloudLineOptions, color: CLOUD_A_COLOR });
     const senkouBSeries = chart.addLineSeries({ ...cloudLineOptions, color: CLOUD_B_COLOR });
+
+    const seriesOptions: Partial<CandlestickSeriesOptions> = {
+      upColor: '#26a69a',
+      downColor: '#ef5350',
+      borderUpColor: '#26a69a',
+      borderDownColor: '#ef5350',
+      wickUpColor: '#26a69a',
+      wickDownColor: '#ef5350',
+    };
+    const series = chart.addCandlestickSeries(seriesOptions);
 
     chartRef.current = chart;
     seriesRef.current = series;
