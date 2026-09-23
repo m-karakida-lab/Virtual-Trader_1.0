@@ -249,6 +249,11 @@ export function CandleChart({
   // 垂直線の線本体（見た目）は専用canvasに自前描画し、四角形の縦線と同じdestination-outで
   // ロウソク足と重なった部分を透明に抜く（vlineElsRef側のDOMはラベルの位置決め用アンカーとして残す）
   const vlineCanvasRef = useRef<HTMLCanvasElement>(null);
+  // 水平線も同じ理由でcanvas自前描画に切り替える。ただし価格軸のラベル
+  // （axisLabelVisible）はSeries Primitives対象外のcanvas（このオーバーレイの外側）
+  // が描くため、createPriceLine自体は残し lineVisible:false で線本体だけ隠す
+  const hlineCanvasRef = useRef<HTMLCanvasElement>(null);
+  const drawHLineCanvasRef = useRef<() => void>(() => {});
   const lineHandleElRef = useRef<HTMLDivElement | null>(null); // 選択中の水平線/垂直線の中点ハンドル（常に1個分のみ）
   const syncVLinesRef = useRef<() => void>(() => {});
   const rectHandleOverlayRef = useRef<HTMLDivElement>(null);
@@ -823,6 +828,7 @@ export function CandleChart({
     // ドラッグ中は store を経由せずここだけ書き換えて即座に再描画するプレビュー用
     // （他の描画要素と同じ作法。syncVLinesより前で宣言すること——TDZ、平行チャネルで実際に踏んだ）
     let vlineDragPreviewX: { id: number; x: number } | null = null;
+    let hlineDragPreviewPrice: { id: number; price: number } | null = null;
 
     // 垂直線の線本体を専用canvasに自前描画する。四角形の縦線と全く同じ理由・同じ方式で
     // destination-outを使う（グリッド線・標準価格ラインはSeries Primitives対象外で
@@ -878,6 +884,66 @@ export function CandleChart({
       }
       ctx.restore();
     };
+
+    // 水平線の線本体を専用canvasに自前描画する。垂直線・四角形の縦線と全く同じ
+    // destination-out方式に切り替えた——以前は「価格ラインとしての用途を優先し常に
+    // 不透明のまま最前面に出す」という判断だったが、ロウソク足を優先したいという
+    // 要望を受けて変更した。価格軸のラベル（axisLabelVisible）はこのcanvasの外側
+    // （価格軸ペイン）の話なのでcreatePriceLine側は残し、lineVisible:falseで線本体のみ隠す
+    const drawHLineCanvas = () => {
+      const canvas = hlineCanvasRef.current;
+      if (!canvas || !chartRef.current || !seriesRef.current) return;
+      const ctx = canvas.getContext('2d');
+      if (!ctx) return;
+      const dpr = window.devicePixelRatio || 1;
+      const w = canvas.clientWidth, h = canvas.clientHeight;
+      if (canvas.width !== w * dpr) canvas.width = w * dpr;
+      if (canvas.height !== h * dpr) canvas.height = h * dpr;
+      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      ctx.clearRect(0, 0, w, h);
+
+      const { lines: currentLines, overlaysHidden: hidden } = useTraderStore.getState();
+      if (hidden) return;
+      const tf = timeframeSecRef.current;
+      const visibleLines = currentLines.filter(l => isHiddenTimeframesVisibleAt(l, tf));
+      const segs: { y: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
+      for (const line of visibleLines) {
+        const y = hlineDragPreviewPrice && hlineDragPreviewPrice.id === line.id
+          ? seriesRef.current.priceToCoordinate(hlineDragPreviewPrice.price)
+          : seriesRef.current.priceToCoordinate(line.price);
+        if (y === null) continue;
+        segs.push({ y, color: line.color, dash: line.dash, width: line.width });
+      }
+      if (segs.length === 0) return;
+
+      for (const s of segs) {
+        ctx.save();
+        ctx.strokeStyle = s.color;
+        ctx.lineWidth = s.width;
+        ctx.setLineDash(DASH_TO_CANVAS[s.dash]);
+        ctx.beginPath();
+        ctx.moveTo(0, s.y);
+        ctx.lineTo(w, s.y);
+        ctx.stroke();
+        ctx.restore();
+      }
+
+      // ロウソク足（実体＋ヒゲ）と重なった部分を透明に抜く。垂直線・四角形の縦線と同じ方式
+      const barSpacing = chartRef.current.timeScale().options().barSpacing;
+      ctx.save();
+      ctx.globalCompositeOperation = 'destination-out';
+      ctx.fillStyle = '#000';
+      for (const c of displayCandlesRef.current) {
+        const cx = timeToX(c.time);
+        if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
+        const yHigh = seriesRef.current.priceToCoordinate(c.high);
+        const yLow = seriesRef.current.priceToCoordinate(c.low);
+        if (yHigh === null || yLow === null) continue;
+        ctx.fillRect(cx - barSpacing / 2, Math.min(yHigh, yLow), barSpacing, Math.abs(yLow - yHigh));
+      }
+      ctx.restore();
+    };
+    drawHLineCanvasRef.current = drawHLineCanvas;
 
     // ── 垂直線の位置を再計算して DOM（日付ラベル・ハンドル）に反映 ────────
     // 線本体の見た目は専用canvas（vlineCanvasRef、上のdrawVLineCanvas）に自前描画する。
@@ -941,6 +1007,7 @@ export function CandleChart({
         }
       }
       drawVLineCanvas();
+      drawHLineCanvas(); // 水平線も同じsync経路（onRangeChange等）に乗せて再描画する
 
       // 選択中の水平線・垂直線があれば中点にハンドルを1つ表示する（編集モードの目印。
       // 実際の移動は既存のドラッグ判定（findPriceTargetNear/findVLineNear）が
@@ -1039,10 +1106,9 @@ export function CandleChart({
       const handleOverlay = rectHandleOverlayRef.current;
       const selectedRectId = selected?.kind === 'rect' ? selected.id : null;
 
-      // 縦線（左右）と横線（上下）を別々に描く。ロウソク足と重なった部分を透明に抜くのは
-      // 縦線のみとし、横線は常に不透明のまま（ロウソク足の上に出続ける）にしてほしいという
-      // 要望を受けた——横線を消す対象に含めると、水平方向に伸びる罫線としての用途
-      // （レンジの上限/下限ラインの代わり等）で肝心の価格ラインが見えなくなり不便だった
+      // 縦線（左右）と横線（上下）を別々に描く関数。以前は横線だけ「常に不透明のまま
+      // 最前面に出す」扱いだったが、ロウソク足を優先したいという要望を受けて縦線と
+      // 同じdestination-out対象に変更した（下のdrawRects本体側を参照）
       const drawVerticalSides = (x1: number, y1: number, x2: number, y2: number, color: string, dash: 'solid' | 'dashed' | 'dotted', width: number) => {
         ctx.save();
         ctx.strokeStyle = color;
@@ -1083,9 +1149,13 @@ export function CandleChart({
       }
 
       for (const b of boxes) drawVerticalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
+      // 横線も縦線と同じくロウソク足を優先させたいという要望を受け、この下の
+      // destination-out処理より前で描くように変更した（以前は横線だけ処理の後に描いて
+      // 常に不透明のまま最前面に出していたが、その扱いをやめた）
+      for (const b of boxes) drawHorizontalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
 
-      // ロウソク足（実体＋ヒゲ）と重なった縦線を透明に抜く。高値〜安値の全域を
-      // barSpacing幅で塗ることで、実体・ヒゲを区別せず一度に抜ける
+      // ロウソク足（実体＋ヒゲ）と重なった枠線（縦線・横線とも）を透明に抜く。高値〜安値の
+      // 全域をbarSpacing幅で塗ることで、実体・ヒゲを区別せず一度に抜ける
       if (boxes.length > 0) {
         const barSpacing = chartRef.current.timeScale().options().barSpacing;
         ctx.save();
@@ -1101,9 +1171,6 @@ export function CandleChart({
         }
         ctx.restore();
       }
-
-      // 横線は消す対象に含めないため、透明抜き処理の後に描く（常に不透明のまま最前面に出る）
-      for (const b of boxes) drawHorizontalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
 
       // ハンドルは選択中の四角形1つぶんだけ使い回す（毎回作り直さない）
       const handles = rectHandleElsRef.current;
@@ -3572,6 +3639,11 @@ export function CandleChart({
                 const hy = seriesRef.current.priceToCoordinate(pendingPrice);
                 if (hy !== null) lineHandleElRef.current.style.top = `${hy - 4}px`;
               }
+              // 線本体（destination-out描画）もこのフレームで追従させる
+              if (draggingTarget.kind === 'hline') {
+                hlineDragPreviewPrice = { id: draggingTarget.id, price: pendingPrice };
+                drawHLineCanvas();
+              }
             }
           });
         }
@@ -4167,6 +4239,10 @@ export function CandleChart({
           else if (draggingTarget.kind === 'sl') store.setPositionSL(draggingTarget.id, pendingPrice);
           else if (draggingTarget.kind === 'orderTp') store.setOrderTP(draggingTarget.id, pendingPrice);
           else store.setOrderSL(draggingTarget.id, pendingPrice);
+        }
+        if (draggingTarget.kind === 'hline') {
+          hlineDragPreviewPrice = null;
+          drawHLineCanvas(); // storeコミット後の実データで再描画（プレビュー価格を使い続けない）
         }
         draggingTarget = null;
         pendingPrice = null;
@@ -4774,7 +4850,9 @@ export function CandleChart({
           lineWidth: line.width,
           lineStyle: DASH_TO_STYLE[line.dash],
           axisLabelVisible: !overlaysHidden && showHLinePriceLabel,
-          lineVisible: !overlaysHidden,
+          // 線本体は専用canvas（hlineCanvasRef、drawHLineCanvas）で自前描画するため常に隠す。
+          // このcreatePriceLineは価格軸のラベル（axisLabelVisible）を出すためだけに残している
+          lineVisible: false,
         };
         const current = existing.get(line.id);
         if (current) {
@@ -5960,6 +6038,9 @@ export function CandleChart({
       {/* 垂直線の線本体も四角形の縦線と同じ方式（専用canvas、destination-outでローソク足と
           重なった部分を透明に抜く）。日付ラベル・選択ハンドルは従来通りoverlayRef側のDOMのまま */}
       <canvas ref={vlineCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
+      {/* 水平線の線本体も同じ方式（専用canvas、destination-outでローソク足と重なった部分を
+          透明に抜く）。価格軸のラベルはcreatePriceLine（lineVisible:false）のまま残している */}
+      <canvas ref={hlineCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={overlayRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, pointerEvents: 'none', overflow: 'hidden', zIndex: 11, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <div ref={measureOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 12, display: 'none' }}>
         <div ref={measureBoxRef} style={{ position: 'absolute' }} />
