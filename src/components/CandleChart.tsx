@@ -1846,8 +1846,16 @@ export function CandleChart({
         els.pop()?.remove();
       }
 
+      const xs = boundaries.map(t => chartRef.current!.timeScale().timeToCoordinate(t as Time));
+      // ラベルは全区切り線ぶん出すと日付軸欄が文字で埋まって読みづらいという指摘を受け、
+      // 画面内で最も新しい（時系列で最後の）区切り線1本だけに絞った。線自体は間引かず
+      // 全区切り線ぶん描く（ラベルだけの制限）
+      let latestIdx = -1;
+      for (let i = xs.length - 1; i >= 0; i--) {
+        if (xs[i] !== null) { latestIdx = i; break; }
+      }
       boundaries.forEach((t, i) => {
-        const x = chartRef.current!.timeScale().timeToCoordinate(t as Time);
+        const x = xs[i];
         const el = els[i];
         const lineEl = el.firstChild as HTMLDivElement;
         const label = el.lastChild as HTMLDivElement;
@@ -1861,7 +1869,7 @@ export function CandleChart({
           // 土曜の区切りと次の月曜の区切りが画面上で近接し、ラベル同士がぶつかるため
           const isSaturday = new Date(t * 1000).getUTCDay() === 6;
           lineEl.style.height = `calc(100% - ${isSaturday ? bottomMargin : bottomMargin / 2}px)`;
-          if (isSaturday) {
+          if (isSaturday || i !== latestIdx) {
             label.style.display = 'none';
           } else {
             label.style.display = 'block';

@@ -181,7 +181,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `timeToCoordinate`/`priceToCoordinate`は`setData`/`setVisibleRange`/`applyOptions`直後は古い座標を返すことがある。同処理の最後に`requestAnimationFrame`で再同期すること
 - 月境界マークは`tickMarkFormatter`を通らず`localization.dateFormat`を使う。有効トークンは`yyyy/yy/MMMM/MMM/MM/dd`のみ
 - `tickMarkFormatter`の日付/時刻切替は「UTC 00:00かどうか」では判定しないこと。4H/1D/1W/1Mはブローカー時間バケット+JST表示ズレでUTC 00:00にほぼ乗らず、時刻だけが延々表示される。`timeframeSec>=14400`は常に日付表示にする
-- lightweight-charts自身の目盛り（`tickMarkFormatter`）は間隔優先の自動配置のため、区切り線（週/月/年）の位置と必ずしも一致しない。区切り線には専用の日付ラベルをDOMで自前描画する（垂直線の日付ラベルと同じパターン、`syncWeekLines`）。土曜日の日境界は線のみでラベルは出さない（週末で取引が無く月曜の境界と近接し、ラベル同士がぶつかるため）。マウスカーソル位置の組み込み日付表示と自前ラベル（区切り線・垂直線とも）が接近した場合は自前ラベル側を隠す（共通ヘルパー`hideLabelNearCursor`、`subscribeCrosshairMove`で位置比較、しきい値28px）——DOMは常にcanvasより前面に出るため、隠さないとカーソル側の日付が読めなくなる
+- lightweight-charts自身の目盛り（`tickMarkFormatter`）は間隔優先の自動配置のため、区切り線（週/月/年）の位置と必ずしも一致しない。区切り線には専用の日付ラベルをDOMで自前描画する（垂直線の日付ラベルと同じパターン、`syncWeekLines`）。土曜日の日境界は線のみでラベルは出さない（週末で取引が無く月曜の境界と近接し、ラベル同士がぶつかるため）。ラベルは画面内で最も新しい（時系列で最後の）区切り線1本にのみ表示する——全部に出すと軸欄が文字で埋まって読みづらいという指摘を受けた（線自体は間引かない）。マウスカーソル位置の組み込み日付表示と自前ラベル（区切り線・垂直線とも）が接近した場合は自前ラベル側を隠す（共通ヘルパー`hideLabelNearCursor`、`subscribeCrosshairMove`で位置比較、しきい値28px）——DOMは常にcanvasより前面に出るため、隠さないとカーソル側の日付が読めなくなる
 - 非メインの`nonMainVisible`再描画は`length===0`で早期returnしないこと（空でも`setData([])`を呼び画面を空にする）
 - 自動再生は`requestAnimationFrame`（`setInterval`は高速再生時に描画ノイズが出る）
 - ドラッグ系操作は開始時に`handleScroll`/`handleScale`を無効化し終了時に必ず再有効化すること
