@@ -125,6 +125,8 @@ export interface DrawnTrendLine {
   color: string;
   dash: LineDash;
   width: LineWidth;
+  // 水平線のhiddenTimeframesと同じ仕様（DrawnLine参照）
+  hiddenTimeframes?: TimeframeSec[];
 }
 
 // ── 平行チャネル ─────────────────────────────────────────────────────────
@@ -141,6 +143,8 @@ export interface DrawnChannel {
   color: string;
   dash: LineDash;
   width: LineWidth;
+  // 水平線のhiddenTimeframesと同じ仕様（DrawnLine参照）
+  hiddenTimeframes?: TimeframeSec[];
 }
 
 // ── 矢印 ─────────────────────────────────────────────────────────────────

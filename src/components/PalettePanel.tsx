@@ -52,13 +52,22 @@ export function PalettePanel() {
   const setTextDraft = useTraderStore(s => s.setTextDraft);
   const updateLine = useTraderStore(s => s.updateLine);
   const updateRect = useTraderStore(s => s.updateRect);
-  // 水平線・四角形を選択編集中の時だけ使う、時間足ごとの表示ON/OFF（新規配置前のarmed
-  // 状態には対応しない＝常に全時間足ONで配置し、必要なら配置後にここで個別にOFFする運用）
+  const updateTrendLine = useTraderStore(s => s.updateTrendLine);
+  const updateChannel = useTraderStore(s => s.updateChannel);
+  // 水平線・四角形・トレンドライン・平行チャネルを選択編集中の時だけ使う、時間足ごとの
+  // 表示ON/OFF（新規配置前のarmed状態には対応しない＝常に全時間足ONで配置し、必要なら
+  // 配置後にここで個別にOFFする運用）
   const selectedHLineHidden = useTraderStore(s =>
     selected?.kind === 'h' ? (s.lines.find(l => l.id === selected.id)?.hiddenTimeframes ?? []) : []
   );
   const selectedRectHidden = useTraderStore(s =>
     selected?.kind === 'rect' ? (s.rects.find(r => r.id === selected.id)?.hiddenTimeframes ?? []) : []
+  );
+  const selectedTrendHidden = useTraderStore(s =>
+    selected?.kind === 'trend' ? (s.trendLines.find(t => t.id === selected.id)?.hiddenTimeframes ?? []) : []
+  );
+  const selectedChannelHidden = useTraderStore(s =>
+    selected?.kind === 'channel' ? (s.channels.find(c => c.id === selected.id)?.hiddenTimeframes ?? []) : []
   );
 
   // 「書いてから見た目を直す」だけでなく「見た目を決めてから書く」需要があるため、図形を
@@ -294,6 +303,56 @@ export function PalettePanel() {
                         ? [...selectedRectHidden, opt.v]
                         : selectedRectHidden.filter(v => v !== opt.v);
                       updateRect(selected.id, { hiddenTimeframes: next });
+                    }}
+                    title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
+                    style={{
+                      backgroundColor: isOn ? '#202020' : '#161616',
+                      color: isOn ? '#ccc' : '#666',
+                      border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
+                      borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                    }}
+                  >{opt.label}</button>
+                );
+              })}
+            </div>
+          )}
+          {selected?.kind === 'trend' && (
+            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+              {HLINE_TF_OPTIONS.map(opt => {
+                const isOn = !selectedTrendHidden.includes(opt.v);
+                return (
+                  <button
+                    key={opt.v}
+                    onClick={() => {
+                      const next = isOn
+                        ? [...selectedTrendHidden, opt.v]
+                        : selectedTrendHidden.filter(v => v !== opt.v);
+                      updateTrendLine(selected.id, { hiddenTimeframes: next });
+                    }}
+                    title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
+                    style={{
+                      backgroundColor: isOn ? '#202020' : '#161616',
+                      color: isOn ? '#ccc' : '#666',
+                      border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
+                      borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                    }}
+                  >{opt.label}</button>
+                );
+              })}
+            </div>
+          )}
+          {selected?.kind === 'channel' && (
+            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+              {HLINE_TF_OPTIONS.map(opt => {
+                const isOn = !selectedChannelHidden.includes(opt.v);
+                return (
+                  <button
+                    key={opt.v}
+                    onClick={() => {
+                      const next = isOn
+                        ? [...selectedChannelHidden, opt.v]
+                        : selectedChannelHidden.filter(v => v !== opt.v);
+                      updateChannel(selected.id, { hiddenTimeframes: next });
                     }}
                     title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
                     style={{

@@ -1268,10 +1268,20 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { trendLines: currentTrendLines, selected } = useTraderStore.getState();
+      const { trendLines: currentTrendLines, selected, chartBottomMargin: bottomMargin } = useTraderStore.getState();
       const selectedTrendId = selected?.kind === 'trend' ? selected.id : null;
 
+      // 日付軸欄（chartBottomMargin分の帯）に線が食い込まないよう、その手前でクリップする。
+      // 斜め線は四角形のようにy座標をそのままクランプすると角度が変わってしまうため、
+      // canvasのclipで軸欄より上の領域だけに描画を制限する（垂直線・四角形と同じ狙いを
+      // 斜め線でも実現する方式）
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, w, h - bottomMargin);
+      ctx.clip();
+
       for (const tl of currentTrendLines) {
+        if (!isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) continue;
         const live = trendDragPreview && trendDragPreview.id === tl.id ? trendDragPreview : tl;
         const x1 = timeToX(live.time1);
         const x2 = timeToX(live.time2);
@@ -1286,6 +1296,7 @@ export function CandleChart({
         const { x1, y1, x2, y2 } = newTrendDraft;
         drawTrendLineShape(ctx, x1, y1, x2, y2, trendLineDraft.color, trendLineDraft.dash, trendLineDraft.width, false);
       }
+      ctx.restore();
     };
     syncTrendLinesRef.current = syncTrendLines;
     syncTrendLines();
@@ -1313,10 +1324,17 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { channels: currentChannels, selected } = useTraderStore.getState();
+      const { channels: currentChannels, selected, chartBottomMargin: bottomMargin } = useTraderStore.getState();
       const selectedChannelId = selected?.kind === 'channel' ? selected.id : null;
 
+      // トレンドラインと同じ理由・同じ方式で日付軸欄の手前までにクリップする
+      ctx.save();
+      ctx.beginPath();
+      ctx.rect(0, 0, w, h - bottomMargin);
+      ctx.clip();
+
       for (const ch of currentChannels) {
+        if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
         const live = channelDragPreview && channelDragPreview.id === ch.id ? channelDragPreview : ch;
         const x1 = timeToX(live.time1);
         const x2 = timeToX(live.time2);
@@ -1348,6 +1366,7 @@ export function CandleChart({
         const { x1, y1, x2, y2 } = newChannelDraft;
         drawTrendLineShape(ctx, x1, y1, x2, y2, channelDraft.color, channelDraft.dash, channelDraft.width, false);
       }
+      ctx.restore();
     };
     syncChannelsRef.current = syncChannels;
     syncChannels();
@@ -2844,6 +2863,7 @@ export function CandleChart({
       if (!chartRef.current || !seriesRef.current) return null;
       const { trendLines: currentTrendLines, selected } = useTraderStore.getState();
       for (const tl of currentTrendLines.filter(t => selected?.kind === 'trend' && selected.id === t.id)) {
+        if (!isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) continue;
         const x1 = timeToX(tl.time1), x2 = timeToX(tl.time2);
         const y1 = seriesRef.current.priceToCoordinate(tl.price1), y2 = seriesRef.current.priceToCoordinate(tl.price2);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
@@ -2858,6 +2878,7 @@ export function CandleChart({
       if (!chartRef.current || !seriesRef.current) return null;
       const { trendLines: currentTrendLines } = useTraderStore.getState();
       for (const tl of currentTrendLines) {
+        if (!isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) continue;
         const x1 = timeToX(tl.time1), x2 = timeToX(tl.time2);
         const y1 = seriesRef.current.priceToCoordinate(tl.price1), y2 = seriesRef.current.priceToCoordinate(tl.price2);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
@@ -2871,6 +2892,7 @@ export function CandleChart({
       if (!chartRef.current || !seriesRef.current) return null;
       const { channels: currentChannels, selected } = useTraderStore.getState();
       for (const ch of currentChannels.filter(c => selected?.kind === 'channel' && selected.id === c.id)) {
+        if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
         const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
         const y1 = seriesRef.current.priceToCoordinate(ch.price1), y2 = seriesRef.current.priceToCoordinate(ch.price2);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
@@ -2885,6 +2907,7 @@ export function CandleChart({
       if (!chartRef.current || !seriesRef.current) return null;
       const { channels: currentChannels } = useTraderStore.getState();
       for (const ch of currentChannels) {
+        if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
         const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
         const y1 = seriesRef.current.priceToCoordinate(ch.price1), y2 = seriesRef.current.priceToCoordinate(ch.price2);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
@@ -2898,6 +2921,7 @@ export function CandleChart({
       if (!chartRef.current || !seriesRef.current) return null;
       const { channels: currentChannels } = useTraderStore.getState();
       for (const ch of currentChannels) {
+        if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
         const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
         const y1 = seriesRef.current.priceToCoordinate(ch.price1 + ch.offset), y2 = seriesRef.current.priceToCoordinate(ch.price2 + ch.offset);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
