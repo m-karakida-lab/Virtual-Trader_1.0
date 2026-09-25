@@ -1244,6 +1244,20 @@ export function CandleChart({
       ctx.restore();
     };
 
+    // 平行チャネルのオフセット線（2本目）を選択した時の編集マーク。基準線の端点ハンドルと
+    // 違い、オフセット線自体は基準線からの平行移動（幅調整）でしか編集できないため、
+    // 水平線と同じ「中点に1個だけ」の四角ハンドルにする（要望を受けて対応）
+    const drawMidpointHandle = (ctx: CanvasRenderingContext2D, cx: number, cy: number) => {
+      ctx.save();
+      ctx.fillStyle = '#42a5f5';
+      ctx.strokeStyle = '#fff';
+      ctx.lineWidth = 1;
+      const s = TREND_HANDLE_R * 2;
+      ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
+      ctx.strokeRect(cx - s / 2, cy - s / 2, s, s);
+      ctx.restore();
+    };
+
     // ドラッグ中（端点リサイズ・平行移動）は、storeを経由せずここだけ書き換えて即座に
     // 再描画するプレビュー用（storeのコミットはmouseupまで行わない、他の描画要素と同じ作法）
     let trendDragPreview: { id: number; time1: number; price1: number; time2: number; price2: number } | null = null;
@@ -1344,10 +1358,14 @@ export function CandleChart({
         const y2b = seriesRef.current.priceToCoordinate(live.price2 + live.offset);
         if (x1 === null || x2 === null || y1 === null || y2 === null || y1b === null || y2b === null) continue;
         const isSelected = ch.id === selectedChannelId;
-        // 基準線は端点ハンドル付きでトレンドラインと同じ見た目、2本目はオフセット線なので
-        // 端点ハンドルは出さない（掴むのは本体ドラッグのみ＝幅の調整用）
-        drawTrendLineShape(ctx, x1, y1, x2, y2, ch.color, ch.dash, ch.width, isSelected);
+        // 基準線を掴んで選択した時は従来通り端点ハンドル付き。オフセット線（2本目）を
+        // 掴んで選択した時は、オフセット線側に水平線と同じ中点ハンドルを出す
+        // （オフセット線自体は本体ドラッグでの幅調整しかできないため、端点ハンドルではなく
+        // 「選択中である」ことだけを示す中点ハンドルにする——要望を受けて対応）
+        const selectedPart = isSelected && selected?.kind === 'channel' ? (selected.part ?? 'base') : null;
+        drawTrendLineShape(ctx, x1, y1, x2, y2, ch.color, ch.dash, ch.width, selectedPart === 'base');
         drawTrendLineShape(ctx, x1, y1b, x2, y2b, ch.color, ch.dash, ch.width, false);
+        if (selectedPart === 'offset') drawMidpointHandle(ctx, (x1 + x2) / 2, (y1b + y2b) / 2);
       }
 
       if (channelAwaitingOffset) {
@@ -3409,7 +3427,7 @@ export function CandleChart({
         draggingChannelEndpoint = channelEndpoint;
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'nwse-resize';
-        useTraderStore.getState().selectLine({ kind: 'channel', id: channelEndpoint.channelId });
+        useTraderStore.getState().selectLine({ kind: 'channel', id: channelEndpoint.channelId, part: 'base' });
         return;
       }
 
@@ -3427,7 +3445,7 @@ export function CandleChart({
         channelOffsetStart = { baseOffset: ch.offset, startPrice };
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'move';
-        useTraderStore.getState().selectLine({ kind: 'channel', id: channelOffsetId });
+        useTraderStore.getState().selectLine({ kind: 'channel', id: channelOffsetId, part: 'offset' });
         return;
       }
 
@@ -3450,7 +3468,7 @@ export function CandleChart({
         };
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'move';
-        useTraderStore.getState().selectLine({ kind: 'channel', id: channelBaseId });
+        useTraderStore.getState().selectLine({ kind: 'channel', id: channelBaseId, part: 'base' });
         return;
       }
 

@@ -198,4 +198,6 @@ export interface DrawnText {
 }
 
 // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストを問わず「選択中の1つ」を表す
-export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'channel' | 'arrow' | 'brush' | 'text'; id: number };
+// channel選択時のみ使うpart: どちらの線を掴んで選択したか（'base'=基準線、'offset'=2本目の
+// オフセット線）。編集マークの出し方が違う（基準線は端点ハンドル、オフセット線は中点ハンドル）
+export type LineSelection = { kind: 'h' | 'v' | 'rect' | 'trend' | 'channel' | 'arrow' | 'brush' | 'text'; id: number; part?: 'base' | 'offset' };
