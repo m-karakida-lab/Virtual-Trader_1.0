@@ -3444,7 +3444,9 @@ export function CandleChart({
         draggingChannelOffsetId = channelOffsetId;
         channelOffsetStart = { baseOffset: ch.offset, startPrice };
         chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'move';
+        // オフセット線は上下（価格）方向の幅調整専用の操作なので、水平線と同じ
+        // ns-resizeカーソルにする（要望を受けて、基準線と同じmoveカーソルから変更した）
+        container.style.cursor = 'ns-resize';
         useTraderStore.getState().selectLine({ kind: 'channel', id: channelOffsetId, part: 'offset' });
         return;
       }
@@ -4124,7 +4126,7 @@ export function CandleChart({
         const channelEndpointHover = findChannelEndpointNear(x, y);
         if (channelEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const channelOffsetHoverId = findChannelOffsetLineNear(x, y);
-        if (channelOffsetHoverId !== null) { container.style.cursor = 'move'; return; }
+        if (channelOffsetHoverId !== null) { container.style.cursor = 'ns-resize'; return; }
         const channelBaseHoverId = findChannelBaseNear(x, y);
         if (channelBaseHoverId !== null) { container.style.cursor = 'move'; return; }
         const arrowEndpointHover = findArrowEndpointNear(x, y);
