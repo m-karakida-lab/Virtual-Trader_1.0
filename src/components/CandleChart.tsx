@@ -1104,9 +1104,13 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { rects: currentRects, selected, rectDraft } = useTraderStore.getState();
+      const { rects: currentRects, selected, rectDraft, chartBottomMargin: bottomMargin } = useTraderStore.getState();
       const handleOverlay = rectHandleOverlayRef.current;
       const selectedRectId = selected?.kind === 'rect' ? selected.id : null;
+      // 垂直線と同じく、四角形も日付軸欄（chartBottomMargin分の帯）に食い込まないよう
+      // 下端をクランプする（枠線・選択ハンドルとも同じクランプ後の値を使うこと——
+      // 片方だけ変えると枠線とハンドルの位置がズレる）
+      const clampBottom = (y: number) => Math.min(y, h - bottomMargin);
 
       // 縦線（左右）と横線（上下）を別々に描く関数。以前は横線だけ「常に不透明のまま
       // 最前面に出す」扱いだったが、ロウソク足を優先したいという要望を受けて縦線と
@@ -1144,10 +1148,15 @@ export function CandleChart({
         const y1 = live ? live.y1 : seriesRef.current.priceToCoordinate(r.price1);
         const y2 = live ? live.y2 : seriesRef.current.priceToCoordinate(r.price2);
         if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        boxes.push({ x1, y1, x2, y2, color: r.color, dash: r.dash, width: r.width });
+        boxes.push({ x1, y1: clampBottom(y1), x2, y2: clampBottom(y2), color: r.color, dash: r.dash, width: r.width });
       }
       if (newRectDraftPx) {
-        boxes.push({ ...newRectDraftPx, color: rectDraft.color, dash: rectDraft.dash, width: rectDraft.width });
+        boxes.push({
+          ...newRectDraftPx,
+          y1: clampBottom(newRectDraftPx.y1),
+          y2: clampBottom(newRectDraftPx.y2),
+          color: rectDraft.color, dash: rectDraft.dash, width: rectDraft.width,
+        });
       }
 
       for (const b of boxes) drawVerticalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
@@ -1190,7 +1199,7 @@ export function CandleChart({
         const y2 = live ? live.y2 : seriesRef.current.priceToCoordinate(selectedRect.price2);
         if (x1 !== null && x2 !== null && y1 !== null && y2 !== null) {
           hasSelected = true;
-          positionRectHandles(x1, x2, y1, y2);
+          positionRectHandles(x1, x2, clampBottom(y1), clampBottom(y2));
         }
       }
       if (!hasSelected) {
