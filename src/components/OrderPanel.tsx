@@ -32,9 +32,11 @@ const sideBtn = (color: string, active: boolean, disabled: boolean): React.CSSPr
 });
 
 // 値（入力値・ボタンのテキスト）と同じ太さ・大きさだと視線の置きどころが探しづらいという
-// 指摘を受け、構造ラベル側を一段暗く小さくして明度差だけで階層をつけた
+// 指摘を受け、構造ラベル側を一段暗く軽くして明度差だけで階層をつけた。最初11pxまで
+// 縮めたところ「小さすぎる」という指摘を受け、サイズは元の13pxへ戻し色と太さだけで
+// 階層をつける形に調整した
 const rowLabel: React.CSSProperties = {
-  width: '40px', flexShrink: 0, color: '#5a5a5a', fontSize: '11px', fontWeight: 500,
+  width: '40px', flexShrink: 0, color: '#6e6e6e', fontSize: '13px', fontWeight: 500,
 };
 
 const inputStyle = (color: string, borderColor: string, width: string): React.CSSProperties => ({
