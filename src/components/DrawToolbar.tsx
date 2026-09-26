@@ -18,13 +18,15 @@ const ICONS: Record<string, JSX.Element> = {
   hline: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="3" y1="12" x2="21" y2="12" />
-      <circle cx="7" cy="12" r="2" fill="currentColor" stroke="none" />
+      {/* ドットは線の端寄りではなく中央に置くこと。端寄りだと矢じりに見えて
+          矢印アイコンと誤認される（実際に指摘を受けて判明） */}
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
     </svg>
   ),
   vline: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="12" y1="3" x2="12" y2="21" />
-      <circle cx="12" cy="7" r="2" fill="currentColor" stroke="none" />
+      <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
     </svg>
   ),
   ruler: (
