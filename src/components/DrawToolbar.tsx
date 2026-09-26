@@ -493,9 +493,13 @@ export function DrawToolbar() {
       <ToolButton icon="arrow" title="矢印（特定の足を指し示す）" active={isDrawingArrow} disabled={!isLoaded} onClick={toggleDrawArrow} />
       <ToolButton icon="brush" title="ブラシ" active={isDrawingBrush} disabled={!isLoaded} onClick={toggleDrawBrush} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
-      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <DrawnObjectsPopup disabled={!isLoaded} />
-      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
+      {/* 以前はこの下の5アイコン（一覧/ジャンプ/連続描画/マグネット/表示切替）が1個ずつ
+          区切り線で仕切られていたが、低コントラストで実質見えないうえアイコン数の割に
+          線が多く、逆にノイズになっていた。「描画系ツール＋一覧」「動作モードの切替
+          （ジャンプ/連続描画/マグネット）」「全体の表示切替」の3グループにまとめ、
+          区切り線自体も2本だけに減らしてコントラストを上げた */}
+      <span style={{ height: '1px', margin: '4px 6px', backgroundColor: '#3a3a3a' }} />
       <ToolButton
         icon="jumpSync"
         title={chartLayout !== '1' ? 'ジャンプモード（有効化後、いずれかのパネルで足をクリックすると他の枠がその時刻へ移動します）' : 'ジャンプモード（3画面/4画面表示でのみ使えます）'}
@@ -503,14 +507,12 @@ export function DrawToolbar() {
         disabled={!isLoaded || chartLayout === '1'}
         onClick={toggleJumpSync}
       />
-      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <ToolButton icon="lock" title="連続描画（配置してもツールを維持する）" active={continuousDrawing} disabled={!isLoaded} onClick={toggleContinuousDrawing} />
-      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
       <div style={{ display: 'flex', alignItems: 'center' }}>
         <ToolButton icon="magnet" title="マグネット（足のOHLCに吸着）" active={magnetMode !== 'off'} disabled={!isLoaded} onClick={toggleMagnet} />
         <MagnetStrengthPopup disabled={!isLoaded} />
       </div>
-      <span style={{ height: '1px', margin: '2px 4px', backgroundColor: '#2a2a2a' }} />
+      <span style={{ height: '1px', margin: '4px 6px', backgroundColor: '#3a3a3a' }} />
       <ToolButton icon={overlaysHidden ? 'eyeOff' : 'eye'} title="インジケータ・描画を全て非表示（データは消えない）" active={overlaysHidden} disabled={!isLoaded} onClick={toggleOverlaysHidden} />
     </div>
   );

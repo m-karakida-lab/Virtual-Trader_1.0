@@ -31,8 +31,10 @@ const sideBtn = (color: string, active: boolean, disabled: boolean): React.CSSPr
   fontSize: '16px', fontWeight: 700, letterSpacing: '0.05em',
 });
 
+// 値（入力値・ボタンのテキスト）と同じ太さ・大きさだと視線の置きどころが探しづらいという
+// 指摘を受け、構造ラベル側を一段暗く小さくして明度差だけで階層をつけた
 const rowLabel: React.CSSProperties = {
-  width: '40px', flexShrink: 0, color: '#666', fontSize: '13px', fontWeight: 700,
+  width: '40px', flexShrink: 0, color: '#5a5a5a', fontSize: '11px', fontWeight: 500,
 };
 
 const inputStyle = (color: string, borderColor: string, width: string): React.CSSProperties => ({
@@ -323,7 +325,9 @@ export function OrderPanel() {
         <button
           onClick={() => setSelectedSide('BUY')}
           disabled={!isLoaded || atEnd}
-          style={sideBtn('#1565c0', selectedSide === 'BUY', !isLoaded || atEnd)}
+          // 陽線・TPと同じティール（#26a69a）にして、チャート全体で「上＝ティール」の
+          // 色の意味を統一する（以前はBUYだけ青で、色の対応をもう1つ覚える必要があった）
+          style={sideBtn('#26a69a', selectedSide === 'BUY', !isLoaded || atEnd)}
         >BUY</button>
         <button
           onClick={() => setSelectedSide('SELL')}
@@ -346,7 +350,7 @@ export function OrderPanel() {
         <button
           onClick={handleExecute}
           disabled={!isLoaded || atEnd}
-          style={orderBtn(selectedSide === 'BUY' ? '#0d47a1' : '#b71c1c', !isLoaded || atEnd)}
+          style={orderBtn(selectedSide === 'BUY' ? '#00695c' : '#b71c1c', !isLoaded || atEnd)}
         >注文執行</button>
         {positions.length > 1 && (
           <button onClick={closeAll} style={orderBtn('#333', false)}>全決済</button>
