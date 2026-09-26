@@ -2398,6 +2398,27 @@ export function CandleChart({
     window.addEventListener('mousemove', onWindowMouseMoveForFollow);
     window.addEventListener('mouseup', onWindowMouseUpForFollow);
 
+    // 価格軸のドラッグ（縦方向のスケール変更）だけは時間軸の可視範囲が変わらないため、
+    // onRangeChange（timeScale.subscribeVisibleLogicalRangeChange）が発火せず、水平線・
+    // 垂直線・四角形・トレンドライン・平行チャネル・雲など全てのcanvas自前描画が
+    // 追従しないままになっていた（実際に「時間軸には追従するのに価格軸だけ追従しない」
+    // という指摘を受けて判明）。lightweight-charts自体は価格軸変更を購読できる
+    // イベントを公開していないため、コンテナ内でのマウスドラッグ中は常にonRangeChangeと
+    // 同じ再同期をかけることで代用する（通常の時間軸パン/ズーム中は二重に呼ばれるだけで
+    // 実害はない）
+    let isMouseDownInContainerForPriceScale = false;
+    const onContainerMouseDownForPriceScale = () => { isMouseDownInContainerForPriceScale = true; };
+    const onWindowMouseMoveForPriceScale = () => {
+      if (isMouseDownInContainerForPriceScale) onRangeChange();
+    };
+    const onWindowMouseUpForPriceScale = () => { isMouseDownInContainerForPriceScale = false; };
+    container.addEventListener('mousedown', onContainerMouseDownForPriceScale);
+    window.addEventListener('mousemove', onWindowMouseMoveForPriceScale);
+    window.addEventListener('mouseup', onWindowMouseUpForPriceScale);
+    // マウスホイールでの価格軸ズームも同じ理由でonRangeChangeが発火しないため、
+    // wheelイベントでも同様に再同期する
+    container.addEventListener('wheel', onRangeChange, { passive: true });
+
     // クリックで水平線 / 垂直線を配置、または 指値・TP・SL の価格を取得（各モード中のみ）
     chart.subscribeClick(param => {
       // Phase 2: 非メインパネルでも水平線/垂直線/テキスト配置・pickTargetでの価格指定を許可する
@@ -4797,6 +4818,10 @@ export function CandleChart({
       container.removeEventListener('mousedown', onContainerMouseDownForFollow);
       window.removeEventListener('mousemove', onWindowMouseMoveForFollow);
       window.removeEventListener('mouseup', onWindowMouseUpForFollow);
+      container.removeEventListener('mousedown', onContainerMouseDownForPriceScale);
+      window.removeEventListener('mousemove', onWindowMouseMoveForPriceScale);
+      window.removeEventListener('mouseup', onWindowMouseUpForPriceScale);
+      container.removeEventListener('wheel', onRangeChange);
       chart.unsubscribeCrosshairMove(onCrosshairMove);
       chart.unsubscribeCrosshairMove(onCrosshairMoveForSeparatorLabels);
       if (saveViewTimerRef.current !== undefined) window.clearTimeout(saveViewTimerRef.current);
