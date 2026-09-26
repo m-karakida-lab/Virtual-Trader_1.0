@@ -499,11 +499,15 @@ export function DrawToolbar() {
           線が多く、逆にノイズになっていた。「描画系ツール＋一覧」「動作モードの切替
           （ジャンプ/連続描画/マグネット）」「全体の表示切替」の3グループにまとめ、
           区切り線自体も2本だけに減らしてコントラストを上げた。幅はToolButton本体と同じ
-          40pxに固定し中央寄せする——デフォルトのstretchだと、矢印付きの行（水平線の
-          価格ラベル切替等、ToolButtonの右にさらに矢印ボタンが並ぶ行）の幅に合わせて
-          伸びてしまい、アイコン部分だけより右にはみ出してバランスが悪く見える（指摘を
-          受けて判明） */}
-      <span style={{ height: '1px', width: '40px', alignSelf: 'center', margin: '4px 0', backgroundColor: '#3a3a3a' }} />
+          40pxに固定する——デフォルトのstretchだと、矢印付きの行（水平線の価格ラベル
+          切替等、ToolButtonの右にさらに矢印ボタンが並ぶ行）の幅に合わせて伸びてしまい、
+          アイコン部分だけより右にはみ出してバランスが悪く見える（指摘を受けて判明）。
+          alignSelfはcenterではなくflex-startにすること——ToolButton自体は明示的な
+          width指定によりstretchされず常にflex-start（左端＝アイコン本体の位置）に
+          揃うため、区切り線もcenterにすると数px右へズレてアイコンの真下から外れてしまう
+          （実際に指摘を受けて判明。center指定は見た目上わずかな差だが、揃えるなら
+          flex-startで統一すること） */}
+      <span style={{ height: '1px', width: '40px', alignSelf: 'flex-start', margin: '4px 0', backgroundColor: '#3a3a3a' }} />
       <ToolButton
         icon="jumpSync"
         title={chartLayout !== '1' ? 'ジャンプモード（有効化後、いずれかのパネルで足をクリックすると他の枠がその時刻へ移動します）' : 'ジャンプモード（3画面/4画面表示でのみ使えます）'}
@@ -516,7 +520,7 @@ export function DrawToolbar() {
         <ToolButton icon="magnet" title="マグネット（足のOHLCに吸着）" active={magnetMode !== 'off'} disabled={!isLoaded} onClick={toggleMagnet} />
         <MagnetStrengthPopup disabled={!isLoaded} />
       </div>
-      <span style={{ height: '1px', width: '40px', alignSelf: 'center', margin: '4px 0', backgroundColor: '#3a3a3a' }} />
+      <span style={{ height: '1px', width: '40px', alignSelf: 'flex-start', margin: '4px 0', backgroundColor: '#3a3a3a' }} />
       <ToolButton icon={overlaysHidden ? 'eyeOff' : 'eye'} title="インジケータ・描画を全て非表示（データは消えない）" active={overlaysHidden} disabled={!isLoaded} onClick={toggleOverlaysHidden} />
     </div>
   );
