@@ -2839,24 +2839,6 @@ export function CandleChart({
       return null;
     };
 
-    const findRectBodyNear = (x: number, y: number): number | null => {
-      if (!chartRef.current || !seriesRef.current) return null;
-      const { rects: currentRects } = useTraderStore.getState();
-      for (const r of currentRects) {
-        // この時間足では非表示の四角形は当たり判定も無効にする
-        if (!isHiddenTimeframesVisibleAt(r, timeframeSecRef.current)) continue;
-        const x1 = timeToX(r.time1);
-        const x2 = timeToX(r.time2);
-        const y1 = seriesRef.current.priceToCoordinate(r.price1);
-        const y2 = seriesRef.current.priceToCoordinate(r.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        const left = Math.min(x1, x2) - DRAG_TOLERANCE_PX, right = Math.max(x1, x2) + DRAG_TOLERANCE_PX;
-        const top = Math.min(y1, y2) - DRAG_TOLERANCE_PX, bottom = Math.max(y1, y2) + DRAG_TOLERANCE_PX;
-        if (x >= left && x <= right && y >= top && y <= bottom) return r.id;
-      }
-      return null;
-    };
-
     // 点(px,py)から線分(x1,y1)-(x2,y2)までの最短距離
     function distanceToSegment(px: number, py: number, x1: number, y1: number, x2: number, y2: number): number {
       const dx = x2 - x1, dy = y2 - y1;
@@ -3381,12 +3363,6 @@ export function CandleChart({
         chart.applyOptions({ handleScroll: false, handleScale: false });
         container.style.cursor = 'move';
         useTraderStore.getState().selectLine({ kind: 'rect', id: borderRectId });
-        return;
-      }
-
-      const bodyRectId = findRectBodyNear(x, y);
-      if (bodyRectId !== null) {
-        useTraderStore.getState().selectLine({ kind: 'rect', id: bodyRectId });
         return;
       }
 
@@ -4117,8 +4093,6 @@ export function CandleChart({
         if (edge !== null) { container.style.cursor = edge.field === 'time1' || edge.field === 'time2' ? 'ew-resize' : 'ns-resize'; return; }
         const border = findRectBorderNear(x, y);
         if (border !== null) { container.style.cursor = 'move'; return; }
-        const bodyRectId = findRectBodyNear(x, y);
-        if (bodyRectId !== null) { container.style.cursor = 'default'; return; }
         const trendEndpointHover = findTrendEndpointNear(x, y);
         if (trendEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const trendLineHoverId = findTrendLineNear(x, y);
