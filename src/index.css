@@ -37,3 +37,16 @@ body {
   color: #666;
   pointer-events: none;
 }
+
+/* 全ボタン共通のホバーフィードバック。個々のボタンは色をinline styleで動的に
+   （active/inactive等）持っているため、ここでは色そのものには触れずbrightnessの
+   フィルタとtransitionだけを足す——カーソルを乗せただけで「押せる」ことが分かり、
+   状態が切り替わる瞬間も一瞬のフェードになる。以前はホバーしても見た目が一切
+   変わらず、クリックした瞬間だけ色が切り替わっていた（指摘を受けて追加）。
+   disabledボタンは対象外（brightnessを上げると押せそうに見えてしまうため） */
+button:not(:disabled) {
+  transition: filter 0.1s ease, background-color 0.1s ease, border-color 0.1s ease, color 0.1s ease;
+}
+button:not(:disabled):hover {
+  filter: brightness(1.25);
+}
