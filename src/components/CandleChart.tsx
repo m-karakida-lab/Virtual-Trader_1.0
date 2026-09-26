@@ -3943,9 +3943,29 @@ export function CandleChart({
 
       if (draggingArrowEndpoint !== null) {
         if (!seriesRef.current || !chartRef.current) return;
-        const price = magnetSnap(x, y)?.price ?? null;
-        const time = pixelToTime(x);
+        let price = magnetSnap(x, y)?.price ?? null;
+        let time = pixelToTime(x);
         if (price === null || time === null) return;
+        // Shiftを押しながら端点をドラッグすると、もう一方の端点（固定点）を基準に
+        // 水平（同じ価格）か垂直（同じ時刻）のどちらか一方に強制する。カーソルの実際の
+        // 移動方向（ピクセル距離が大きい方の軸）で水平/垂直を自動判定する（要望を受けて対応）
+        if (e.shiftKey) {
+          const { arrows: currentArrowsForShift } = useTraderStore.getState();
+          const arForShift = currentArrowsForShift.find(a => a.id === draggingArrowEndpoint!.arrowId);
+          if (arForShift) {
+            const fixedTime = draggingArrowEndpoint.timeField === 'time1' ? arForShift.time2 : arForShift.time1;
+            const fixedPrice = draggingArrowEndpoint.priceField === 'price1' ? arForShift.price2 : arForShift.price1;
+            const fixedX = timeToX(fixedTime);
+            const fixedY = seriesRef.current.priceToCoordinate(fixedPrice);
+            if (fixedX !== null && fixedY !== null) {
+              if (Math.abs(x - fixedX) >= Math.abs(y - fixedY)) {
+                price = fixedPrice; // 水平: 固定点と同じ価格
+              } else {
+                time = fixedTime; // 垂直: 固定点と同じ時刻
+              }
+            }
+          }
+        }
         pendingArrowEndpointPos = { time, price };
         if (!rafScheduled) {
           rafScheduled = true;
