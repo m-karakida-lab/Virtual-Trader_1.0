@@ -820,6 +820,21 @@ export function CandleChart({
       return ts.timeToCoordinate(visible[lo].time as Time);
     };
 
+    // hiddenTimeframesを持つ4種（水平線・四角形・トレンドライン・平行チャネル）について、
+    // このパネルの時間足で非表示にしている図形を除いた配列を返す。描画・当たり判定・
+    // 選択ハンドルは必ずstoreの生配列ではなくこれから図形を取ること——非表示の図形が最初から
+    // 含まれないので、選択中の図形をfindで探す箇所も自動的に「見つからない＝ハンドルを出さない」
+    // になる。以前は各ループで個別にisHiddenTimeframesVisibleAtを呼んでおり、1箇所の
+    // 入れ忘れで「非表示の図形がクリックに反応する」「ハンドルだけ残る」不具合を踏んでいた。
+    // syncVLines等から即時に呼ばれるため、それらより前に宣言すること（TDZ）
+    const getVisibleDrawings = () => {
+      const { lines, rects, trendLines, channels } = useTraderStore.getState();
+      const tf = timeframeSecRef.current;
+      const visible = <T extends { hiddenTimeframes?: TimeframeSec[] }>(arr: T[]): T[] =>
+        arr.filter(o => isHiddenTimeframesVisibleAt(o, tf));
+      return { lines: visible(lines), rects: visible(rects), trendLines: visible(trendLines), channels: visible(channels) };
+    };
+
     // 水平線・垂直線・雲の塗りつぶし・四角形が共通で使うロウソク足の透明抜き。以前は
     // 高値〜安値の全域を実体と同じbarSpacing幅で一律に抜いていたため、ヒゲだけの区間
     // （高値〜実体上端、実体下端〜安値）でも本体1本ぶんの幅で避けてしまい、線が必要以上に
@@ -916,10 +931,9 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { lines: currentLines, overlaysHidden: hidden } = useTraderStore.getState();
+      const { overlaysHidden: hidden } = useTraderStore.getState();
       if (hidden) return;
-      const tf = timeframeSecRef.current;
-      const visibleLines = currentLines.filter(l => isHiddenTimeframesVisibleAt(l, tf));
+      const { lines: visibleLines } = getVisibleDrawings();
       const segs: { y: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
       for (const line of visibleLines) {
         const y = hlineDragPreviewPrice && hlineDragPreviewPrice.id === line.id
@@ -953,7 +967,8 @@ export function CandleChart({
     // という指摘を受け、四角形の縦線と同じdestination-out方式に切り替えた
     const syncVLines = () => {
       if (!chartRef.current || !overlayRef.current || !seriesRef.current) return;
-      const { vlines: currentVLines, lines: currentLines, selected, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { vlines: currentVLines, selected, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { lines: visibleLines } = getVisibleDrawings();
       const overlay = overlayRef.current;
       const existing = vlineElsRef.current;
       const nextIds = new Set(currentVLines.map(v => v.id));
@@ -1030,13 +1045,9 @@ export function CandleChart({
       }
       let point: [number, number] | null = null;
       if (selected?.kind === 'h') {
-        const line = currentLines.find(l => l.id === selected.id);
-        // この時間足で非表示に設定されている水平線を選択中の場合、線自体は
-        // isHiddenTimeframesVisibleAtでフィルタされ描画されないのに、中点ハンドルだけが
-        // 判定を経由せず残ってしまっていた（実際に指摘を受けて判明）
-        const y = line && isHiddenTimeframesVisibleAt(line, timeframeSecRef.current)
-          ? seriesRef.current.priceToCoordinate(line.price)
-          : null;
+        // 非表示中の水平線はvisibleLinesに含まれないので、選択中でもハンドルは出ない
+        const line = visibleLines.find(l => l.id === selected.id);
+        const y = line ? seriesRef.current.priceToCoordinate(line.price) : null;
         if (y !== null) point = [container.clientWidth / 2, y];
       } else if (selected?.kind === 'v') {
         const v = currentVLines.find(vv => vv.id === selected.id);
@@ -1104,7 +1115,8 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { rects: currentRects, selected, rectDraft, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { selected, rectDraft, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { rects: visibleRects } = getVisibleDrawings();
       const handleOverlay = rectHandleOverlayRef.current;
       const selectedRectId = selected?.kind === 'rect' ? selected.id : null;
       // 垂直線と同じく、四角形も日付軸欄（chartBottomMargin分の帯）に食い込まないよう
@@ -1139,9 +1151,7 @@ export function CandleChart({
       };
 
       const boxes: { x1: number; y1: number; x2: number; y2: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
-      for (const r of currentRects) {
-        // 水平線と同じく、この時間足では非表示に設定した四角形は描画しない
-        if (!isHiddenTimeframesVisibleAt(r, timeframeSecRef.current)) continue;
+      for (const r of visibleRects) {
         const live = rectDragPreviewPx && rectDragPreviewPx.id === r.id ? rectDragPreviewPx : null;
         const x1 = live ? live.x1 : timeToX(r.time1);
         const x2 = live ? live.x2 : timeToX(r.time2);
@@ -1185,12 +1195,8 @@ export function CandleChart({
       }
 
       let hasSelected = false;
-      const selectedRectRaw = selectedRectId !== null ? currentRects.find(r => r.id === selectedRectId) : undefined;
-      // 水平線の中点ハンドルと同じ理由で、この時間足で非表示中の四角形を選択していても
-      // リサイズハンドルは出さない
-      const selectedRect = selectedRectRaw && isHiddenTimeframesVisibleAt(selectedRectRaw, timeframeSecRef.current)
-        ? selectedRectRaw
-        : undefined;
+      // 非表示中の四角形はvisibleRectsに含まれないので、選択中でもリサイズハンドルは出ない
+      const selectedRect = selectedRectId !== null ? visibleRects.find(r => r.id === selectedRectId) : undefined;
       if (selectedRect) {
         const live = rectDragPreviewPx && rectDragPreviewPx.id === selectedRect.id ? rectDragPreviewPx : null;
         const x1 = live ? live.x1 : timeToX(selectedRect.time1);
@@ -1282,7 +1288,8 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { trendLines: currentTrendLines, selected, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { selected, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { trendLines: visibleTrendLines } = getVisibleDrawings();
       const selectedTrendId = selected?.kind === 'trend' ? selected.id : null;
 
       // 日付軸欄（chartBottomMargin分の帯）に線が食い込まないよう、その手前でクリップする。
@@ -1294,8 +1301,7 @@ export function CandleChart({
       ctx.rect(0, 0, w, h - bottomMargin);
       ctx.clip();
 
-      for (const tl of currentTrendLines) {
-        if (!isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) continue;
+      for (const tl of visibleTrendLines) {
         const live = trendDragPreview && trendDragPreview.id === tl.id ? trendDragPreview : tl;
         const x1 = timeToX(live.time1);
         const x2 = timeToX(live.time2);
@@ -1338,7 +1344,8 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { channels: currentChannels, selected, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { selected, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { channels: visibleChannels } = getVisibleDrawings();
       const selectedChannelId = selected?.kind === 'channel' ? selected.id : null;
 
       // トレンドラインと同じ理由・同じ方式で日付軸欄の手前までにクリップする
@@ -1347,8 +1354,7 @@ export function CandleChart({
       ctx.rect(0, 0, w, h - bottomMargin);
       ctx.clip();
 
-      for (const ch of currentChannels) {
-        if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
+      for (const ch of visibleChannels) {
         const live = channelDragPreview && channelDragPreview.id === ch.id ? channelDragPreview : ch;
         const x1 = timeToX(live.time1);
         const x2 = timeToX(live.time2);
@@ -2720,11 +2726,7 @@ export function CandleChart({
     // （四角形の編集を優先する）
     const findHLineNear = (y: number): number | null => {
       if (!seriesRef.current) return null;
-      const { lines: currentLines } = useTraderStore.getState();
-      const tf = timeframeSecRef.current;
-      for (const line of currentLines) {
-        // このパネルの時間足では非表示（hiddenTimeframes設定で除外）のラインは当たり判定も無効にする
-        if (!isHiddenTimeframesVisibleAt(line, tf)) continue;
+      for (const line of getVisibleDrawings().lines) {
         const ly = seriesRef.current.priceToCoordinate(line.price);
         if (ly !== null && Math.abs(ly - y) <= DRAG_TOLERANCE_PX) return line.id;
       }
@@ -2774,11 +2776,11 @@ export function CandleChart({
     // 四角形の4つの角のいずれかの近くか判定（リサイズハンドル）
     const findRectCornerNear = (x: number, y: number): RectCorner | null => {
       if (!chartRef.current || !seriesRef.current) return null;
-      const { rects: currentRects, selected } = useTraderStore.getState();
+      const { selected } = useTraderStore.getState();
       // ハンドル（角の小さな四角）は選択中の四角形にしか表示されないため、判定も選択中のものだけに
       // 限定する。そうしないと未選択の四角形の辺のちょうど中央あたりを「枠を掴んで移動」しようとした
       // 際に、見えないハンドルに引っかかって意図せずリサイズされてしまう
-      for (const r of currentRects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id && isHiddenTimeframesVisibleAt(rr, timeframeSecRef.current))) {
+      for (const r of getVisibleDrawings().rects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id)) {
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
@@ -2805,9 +2807,9 @@ export function CandleChart({
     // （四角形の中身をドラッグで反転させても、その後は同じフィールドを更新し続ける。角のドラッグと同じ考え方）
     const findRectEdgeNear = (x: number, y: number): RectEdge | null => {
       if (!chartRef.current || !seriesRef.current) return null;
-      const { rects: currentRects, selected } = useTraderStore.getState();
+      const { selected } = useTraderStore.getState();
       // 角のハンドルと同じ理由で、選択中の四角形の辺だけを対象にする
-      for (const r of currentRects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id && isHiddenTimeframesVisibleAt(rr, timeframeSecRef.current))) {
+      for (const r of getVisibleDrawings().rects.filter(rr => selected?.kind === 'rect' && selected.id === rr.id)) {
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
@@ -2841,10 +2843,7 @@ export function CandleChart({
     // クリックは常にリサイズが優先され、それ以外の枠線上のクリックだけが平行移動になる
     const findRectBorderNear = (x: number, y: number): number | null => {
       if (!chartRef.current || !seriesRef.current) return null;
-      const { rects: currentRects } = useTraderStore.getState();
-      for (const r of currentRects) {
-        // この時間足では非表示の四角形は当たり判定も無効にする
-        if (!isHiddenTimeframesVisibleAt(r, timeframeSecRef.current)) continue;
+      for (const r of getVisibleDrawings().rects) {
         const x1 = timeToX(r.time1);
         const x2 = timeToX(r.time2);
         const y1 = seriesRef.current.priceToCoordinate(r.price1);
@@ -2908,10 +2907,10 @@ export function CandleChart({
     // トレンドラインの端点近傍判定（リサイズハンドル）。四角形の角ハンドルと同じ理由で、
     // 選択中のトレンドラインにしか効かない（見た目のハンドルも選択中にしか出さないため）
     const findTrendEndpointNear = (x: number, y: number): TrendEndpoint | null => {
-      const { trendLines: currentTrendLines, selected } = useTraderStore.getState();
+      const { selected } = useTraderStore.getState();
       if (selected?.kind !== 'trend') return null;
-      const tl = currentTrendLines.find(t => t.id === selected.id);
-      if (!tl || !isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) return null;
+      const tl = getVisibleDrawings().trendLines.find(t => t.id === selected.id);
+      if (!tl) return null;
       const seg = projectSegment(tl.time1, tl.price1, tl.time2, tl.price2);
       const hit = seg && hitSegmentEndpoint(seg, x, y);
       return hit ? { trendId: tl.id, ...hit } : null;
@@ -2919,9 +2918,7 @@ export function CandleChart({
 
     // トレンドライン本体（線分）の近傍判定。ヒットしたら選択、掴んだままドラッグすると平行移動
     const findTrendLineNear = (x: number, y: number): number | null => {
-      const { trendLines: currentTrendLines } = useTraderStore.getState();
-      for (const tl of currentTrendLines) {
-        if (!isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) continue;
+      for (const tl of getVisibleDrawings().trendLines) {
         const seg = projectSegment(tl.time1, tl.price1, tl.time2, tl.price2);
         if (seg && hitSegmentBody(seg, x, y)) return tl.id;
       }
@@ -2930,10 +2927,10 @@ export function CandleChart({
 
     // 平行チャネルの基準線の端点近傍判定（選択中のみ、トレンドラインと同じ）
     const findChannelEndpointNear = (x: number, y: number): ChannelEndpoint | null => {
-      const { channels: currentChannels, selected } = useTraderStore.getState();
+      const { selected } = useTraderStore.getState();
       if (selected?.kind !== 'channel') return null;
-      const ch = currentChannels.find(c => c.id === selected.id);
-      if (!ch || !isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) return null;
+      const ch = getVisibleDrawings().channels.find(c => c.id === selected.id);
+      if (!ch) return null;
       const seg = projectSegment(ch.time1, ch.price1, ch.time2, ch.price2);
       const hit = seg && hitSegmentEndpoint(seg, x, y);
       return hit ? { channelId: ch.id, ...hit } : null;
@@ -2941,9 +2938,7 @@ export function CandleChart({
 
     // 平行チャネルの基準線本体の近傍判定。ヒットしたら選択、掴んだままドラッグすると平行移動
     const findChannelBaseNear = (x: number, y: number): number | null => {
-      const { channels: currentChannels } = useTraderStore.getState();
-      for (const ch of currentChannels) {
-        if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
+      for (const ch of getVisibleDrawings().channels) {
         const seg = projectSegment(ch.time1, ch.price1, ch.time2, ch.price2);
         if (seg && hitSegmentBody(seg, x, y)) return ch.id;
       }
@@ -2952,9 +2947,7 @@ export function CandleChart({
 
     // 平行チャネルの2本目（オフセット線）本体の近傍判定。掴んだままドラッグするとオフセット（幅）調整
     const findChannelOffsetLineNear = (x: number, y: number): number | null => {
-      const { channels: currentChannels } = useTraderStore.getState();
-      for (const ch of currentChannels) {
-        if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
+      for (const ch of getVisibleDrawings().channels) {
         const seg = projectSegment(ch.time1, ch.price1 + ch.offset, ch.time2, ch.price2 + ch.offset);
         if (seg && hitSegmentBody(seg, x, y)) return ch.id;
       }
