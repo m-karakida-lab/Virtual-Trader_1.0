@@ -6,7 +6,7 @@ import {
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, LineSelection, TimeframeSec } from '../types';
-import { TIMEFRAMES, DEFAULT_BRUSH_SMOOTHING } from '../types';
+import { TIMEFRAMES } from '../types';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
@@ -28,6 +28,7 @@ import { createRectsOverlay } from './chart/rectsOverlay';
 import { createSyncTrendLines } from './chart/trendLinesOverlay';
 import { createSyncChannels } from './chart/channelsOverlay';
 import { createSyncArrows } from './chart/arrowsOverlay';
+import { createSyncBrushes } from './chart/brushesOverlay';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -925,149 +926,15 @@ export function CandleChart({
     syncArrowsRef.current = syncArrows;
     syncArrows();
 
-    // ── ブラシ（フリーハンド、TradingViewの「ブラシ」相当） ────────────────
-    // トレンドラインと同じcanvas方式だが、2点ではなくドラッグの軌跡をそのまま
-    // 点列として繋いで描く。線種の概念は無い（フリーハンドに破線/点線は馴染まない）
-
-    // マウスの生の点列をそのまま繋ぐと手ブレがそのまま線に出る。TradingView等は
-    // 描画前に点を平滑化（移動平均）してからなめらかな曲線を引いている模様なので、
-    // ここでも描画直前（記録データ自体はいじらない）にボックスフィルタをpassesパスかける。
-    // 通過回数は以前は固定12だったが、ブラシごとにパレットで自由に調整できるようにした
-    // （DrawnBrush.smoothing、未設定時はDEFAULT_BRUSH_SMOOTHING＝旧デフォルト値の12）。
-    // 両端は動かさない（ストロークの始点・終点がズレると選択リング等とズレて見える）
-    const smoothPixelPoints = (pts: { x: number; y: number }[], passes: number): { x: number; y: number }[] => {
-      if (pts.length < 3 || passes <= 0) return pts;
-      let cur = pts;
-      for (let pass = 0; pass < passes; pass++) {
-        const next: { x: number; y: number }[] = [cur[0]];
-        for (let i = 1; i < cur.length - 1; i++) {
-          next.push({
-            x: (cur[i - 1].x + cur[i].x + cur[i + 1].x) / 3,
-            y: (cur[i - 1].y + cur[i].y + cur[i + 1].y) / 3,
-          });
-        }
-        next.push(cur[cur.length - 1]);
-        cur = next;
-      }
-      return cur;
-    };
-
-    const BRUSH_HANDLE_R = 5;
-
-    const drawBrushStroke = (
-      points: { time: number; price: number }[],
-      color: string, width: number, selected: boolean, shape?: 'triangle' | 'circle', smoothing: number = DEFAULT_BRUSH_SMOOTHING,
-    ) => {
-      if (!seriesRef.current || points.length < 2) return;
-      const canvas = brushCanvasRef.current;
-      const ctx = canvas?.getContext('2d');
-      if (!ctx) return;
-      const pixelPoints: { x: number; y: number }[] = [];
-      for (const p of points) {
-        const x = timeToX(p.time);
-        const y = seriesRef.current.priceToCoordinate(p.price);
-        if (x === null || y === null) continue;
-        pixelPoints.push({ x, y });
-      }
-      if (pixelPoints.length < 2) return;
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width;
-      ctx.lineCap = 'round';
-      ctx.lineJoin = 'round';
-      ctx.beginPath();
-      if (shape) {
-        // 図形認識（三角形/円）でスナップされた点列: 手ブレ補正や曲線化はせず、
-        // 点同士をそのまま直線で結ぶ（角を丸めると「綺麗な図形」に見えなくなる。
-        // 円は点数が多いため直線つなぎでも見た目には滑らか）
-        ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
-        for (let i = 1; i < pixelPoints.length; i++) ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
-      } else {
-        const smoothed = smoothPixelPoints(pixelPoints, smoothing);
-        ctx.moveTo(smoothed[0].x, smoothed[0].y);
-        // 隣接点同士をただの直線（lineTo）で繋ぐと、点の間隔が粗い時にカクカクした
-        // 多角形に見えてしまう。各点をコントロールポイントに、次の点との中点までを
-        // 2次ベジェで繋ぐ定番の手書き線平滑化（各セグメントの継ぎ目で接線が連続になる）
-        for (let i = 1; i < smoothed.length - 1; i++) {
-          const midX = (smoothed[i].x + smoothed[i + 1].x) / 2;
-          const midY = (smoothed[i].y + smoothed[i + 1].y) / 2;
-          ctx.quadraticCurveTo(smoothed[i].x, smoothed[i].y, midX, midY);
-        }
-        const last = smoothed[smoothed.length - 1];
-        ctx.lineTo(last.x, last.y);
-      }
-      ctx.stroke();
-      if (selected) {
-        ctx.fillStyle = '#42a5f5';
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 1;
-        // 図形認識で作った三角形/円は専用の編集ハンドルを出す（掴んで再編集できる）。
-        // それ以外の普通のフリーハンドは端点が無数にあるので、始点・終点に単なる
-        // 選択の目印（ハンドルではない）を出すだけに留める
-        if (shape === 'triangle') {
-          for (const p of [pixelPoints[0], pixelPoints[1], pixelPoints[2]]) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, BRUSH_HANDLE_R, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          }
-        } else if (shape === 'circle') {
-          const xs = pixelPoints.map(p => p.x), ys = pixelPoints.map(p => p.y);
-          const minX = Math.min(...xs), maxX = Math.max(...xs);
-          const minY = Math.min(...ys), maxY = Math.max(...ys);
-          for (const p of [{ x: minX, y: minY }, { x: maxX, y: minY }, { x: minX, y: maxY }, { x: maxX, y: maxY }]) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, BRUSH_HANDLE_R, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          }
-        } else {
-          for (const p of [pixelPoints[0], pixelPoints[pixelPoints.length - 1]]) {
-            ctx.beginPath();
-            ctx.arc(p.x, p.y, 5, 0, Math.PI * 2);
-            ctx.fill();
-            ctx.stroke();
-          }
-        }
-      }
-      ctx.restore();
-    };
-
+    // ── ブラシ（chart/brushesOverlay.ts、フリーハンド） ─────────────────────
     // ドラッグ中の平行移動プレビュー（storeを経由しない、他の描画要素と同じ作法）
     let brushDragPreview: { id: number; points: { time: number; price: number }[] } | null = null;
     // 新規描画中（まだstoreに存在しない）の軌跡。ドラッグしている間だけ生きる
     let newBrushDraft: { time: number; price: number }[] | null = null;
-
-    const syncBrushes = () => {
-      const canvas = brushCanvasRef.current;
-      if (!canvas || !chartRef.current || !seriesRef.current) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      // devicePixelRatioを考慮せずcanvas.widthをCSSピクセル数のまま設定すると、
-      // Retina等の高DPI画面ではブラウザがcanvasのビットマップを拡大表示することになり、
-      // 線が全体的にぼやけて特に斜め線・曲線がカクカクした階段状に見えてしまう
-      // （実際に指摘を受けて判明した）。実解像度をdpr倍で確保し、setTransformで
-      // 描画側の座標系はCSSピクセルのまま（w,hがそのまま使える）にしておく
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w * dpr) canvas.width = w * dpr;
-      if (canvas.height !== h * dpr) canvas.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-
-      const { selected } = useTraderStore.getState();
-      const selectedBrushId = selected?.kind === 'brush' ? selected.id : null;
-
-      for (const b of getVisibleDrawings().brushes) {
-        const live = brushDragPreview && brushDragPreview.id === b.id ? brushDragPreview.points : b.points;
-        drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId, b.shape, b.smoothing ?? DEFAULT_BRUSH_SMOOTHING);
-      }
-
-      if (newBrushDraft) {
-        const { brushDraft } = useTraderStore.getState();
-        drawBrushStroke(newBrushDraft, brushDraft.color, brushDraft.width, false, undefined, brushDraft.smoothing);
-      }
-    };
+    const syncBrushes = createSyncBrushes({
+      chartRef, seriesRef, canvasRef: brushCanvasRef, timeToX, getVisibleDrawings,
+      getDragPreview: () => brushDragPreview, getNewDraft: () => newBrushDraft,
+    });
     syncBrushesRef.current = syncBrushes;
     syncBrushes();
 
