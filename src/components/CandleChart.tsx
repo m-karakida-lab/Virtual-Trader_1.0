@@ -6,7 +6,7 @@ import {
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, LineSelection, TimeframeSec } from '../types';
-import { TIMEFRAMES } from '../types';
+import { TIMEFRAMES, DEFAULT_BRUSH_SMOOTHING } from '../types';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE, DASH_TO_CSS } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
@@ -1483,13 +1483,14 @@ export function CandleChart({
 
     // マウスの生の点列をそのまま繋ぐと手ブレがそのまま線に出る。TradingView等は
     // 描画前に点を平滑化（移動平均）してからなめらかな曲線を引いている模様なので、
-    // ここでも描画直前（記録データ自体はいじらない）にボックスフィルタを12パスかける
-    // （手ブレ補正をもう一段強く、という要望を受けて8→12に増やした）。
+    // ここでも描画直前（記録データ自体はいじらない）にボックスフィルタをpassesパスかける。
+    // 通過回数は以前は固定12だったが、ブラシごとにパレットで自由に調整できるようにした
+    // （DrawnBrush.smoothing、未設定時はDEFAULT_BRUSH_SMOOTHING＝旧デフォルト値の12）。
     // 両端は動かさない（ストロークの始点・終点がズレると選択リング等とズレて見える）
-    const smoothPixelPoints = (pts: { x: number; y: number }[]): { x: number; y: number }[] => {
-      if (pts.length < 3) return pts;
+    const smoothPixelPoints = (pts: { x: number; y: number }[], passes: number): { x: number; y: number }[] => {
+      if (pts.length < 3 || passes <= 0) return pts;
       let cur = pts;
-      for (let pass = 0; pass < 12; pass++) {
+      for (let pass = 0; pass < passes; pass++) {
         const next: { x: number; y: number }[] = [cur[0]];
         for (let i = 1; i < cur.length - 1; i++) {
           next.push({
@@ -1507,7 +1508,7 @@ export function CandleChart({
 
     const drawBrushStroke = (
       points: { time: number; price: number }[],
-      color: string, width: number, selected: boolean, shape?: 'triangle' | 'circle',
+      color: string, width: number, selected: boolean, shape?: 'triangle' | 'circle', smoothing: number = DEFAULT_BRUSH_SMOOTHING,
     ) => {
       if (!seriesRef.current || points.length < 2) return;
       const canvas = brushCanvasRef.current;
@@ -1534,7 +1535,7 @@ export function CandleChart({
         ctx.moveTo(pixelPoints[0].x, pixelPoints[0].y);
         for (let i = 1; i < pixelPoints.length; i++) ctx.lineTo(pixelPoints[i].x, pixelPoints[i].y);
       } else {
-        const smoothed = smoothPixelPoints(pixelPoints);
+        const smoothed = smoothPixelPoints(pixelPoints, smoothing);
         ctx.moveTo(smoothed[0].x, smoothed[0].y);
         // 隣接点同士をただの直線（lineTo）で繋ぐと、点の間隔が粗い時にカクカクした
         // 多角形に見えてしまう。各点をコントロールポイントに、次の点との中点までを
@@ -1611,12 +1612,12 @@ export function CandleChart({
 
       for (const b of currentBrushes) {
         const live = brushDragPreview && brushDragPreview.id === b.id ? brushDragPreview.points : b.points;
-        drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId, b.shape);
+        drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId, b.shape, b.smoothing ?? DEFAULT_BRUSH_SMOOTHING);
       }
 
       if (newBrushDraft) {
         const { brushDraft } = useTraderStore.getState();
-        drawBrushStroke(newBrushDraft, brushDraft.color, brushDraft.width, false);
+        drawBrushStroke(newBrushDraft, brushDraft.color, brushDraft.width, false, undefined, brushDraft.smoothing);
       }
     };
     syncBrushesRef.current = syncBrushes;

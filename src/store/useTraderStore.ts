@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, ChartLayout, DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnChannel, DrawnArrow, DrawnBrush, DrawnText, LineDash, LineWidth, LineSelection, MagnetMode, TextFontSize, TextBorderStyle } from '../types';
-import { LINE_COLORS, TIMEFRAMES } from '../types';
+import { LINE_COLORS, TIMEFRAMES, DEFAULT_BRUSH_SMOOTHING } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
 import { splitVtdBundle, buildVtdBundle } from '../lib/vtd';
@@ -320,7 +320,7 @@ interface TraderState {
   trendLineDraft: { color: string; dash: LineDash; width: LineWidth };
   channelDraft: { color: string; dash: LineDash; width: LineWidth };
   arrowDraft: { color: string; dash: LineDash; width: LineWidth };
-  brushDraft: { color: string; width: LineWidth };
+  brushDraft: { color: string; width: LineWidth; smoothing: number };
   textDraft: { color: string; fontSize: TextFontSize; border: TextBorderStyle };
   // パレットモード: ONの間、水平線・垂直線・四角形・トレンドライン・ブラシ・テキストをクリックして
   // 選択（編集モード）に入れるたびpaletteStyleの内容をその図形へ即座に反映する（一括塗り替え用）。
@@ -446,7 +446,7 @@ interface TraderState {
   removeBrush: (id: number) => void;
   duplicateBrush: (id: number, points: { time: number; price: number }[]) => void;
   toggleDrawBrush: () => void;
-  setBrushDraft: (patch: Partial<{ color: string; width: LineWidth }>) => void;
+  setBrushDraft: (patch: Partial<{ color: string; width: LineWidth; smoothing: number }>) => void;
   addText: (time: number, price: number, text: string) => void;
   updateText: (id: number, patch: Partial<Omit<DrawnText, 'id'>>) => void;
   removeText: (id: number) => void;
@@ -695,7 +695,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   trendLineDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
   channelDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
   arrowDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
-  brushDraft: { color: LINE_COLORS[3], width: 2 },
+  brushDraft: { color: LINE_COLORS[3], width: 2, smoothing: DEFAULT_BRUSH_SMOOTHING },
   textDraft: { color: '#e0e0e0', fontSize: 18, border: 'solid' },
   paletteMode: false,
   paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2, fontSize: 18, border: 'solid' },

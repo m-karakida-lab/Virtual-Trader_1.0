@@ -1,6 +1,6 @@
 import { useRef, useState, useEffect } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
-import { LINE_COLORS, TEXT_FONT_SIZES, WEEK_SEC, MONTH_SEC, type LineDash, type LineWidth, type TextBorderStyle, type TimeframeSec } from '../types';
+import { LINE_COLORS, TEXT_FONT_SIZES, WEEK_SEC, MONTH_SEC, DEFAULT_BRUSH_SMOOTHING, type LineDash, type LineWidth, type TextBorderStyle, type TimeframeSec } from '../types';
 
 const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
 const DASH_OPTIONS: { v: LineDash; label: string }[] = [
@@ -54,6 +54,7 @@ export function PalettePanel() {
   const updateRect = useTraderStore(s => s.updateRect);
   const updateTrendLine = useTraderStore(s => s.updateTrendLine);
   const updateChannel = useTraderStore(s => s.updateChannel);
+  const updateBrush = useTraderStore(s => s.updateBrush);
   // 水平線・四角形・トレンドライン・平行チャネルを選択編集中の時だけ使う、時間足ごとの
   // 表示ON/OFF（新規配置前のarmed状態には対応しない＝常に全時間足ONで配置し、必要なら
   // 配置後にここで個別にOFFする運用）
@@ -68,6 +69,11 @@ export function PalettePanel() {
   );
   const selectedChannelHidden = useTraderStore(s =>
     selected?.kind === 'channel' ? (s.channels.find(c => c.id === selected.id)?.hiddenTimeframes ?? []) : []
+  );
+  // ブラシの手ブレ補正（ボックスフィルタの通過回数）。選択中の既存ブラシはその値、
+  // 配置前（armed）は次に置くブラシ用のbrushDraft.smoothingを見る
+  const selectedBrushSmoothing = useTraderStore(s =>
+    selected?.kind === 'brush' ? (s.brushes.find(b => b.id === selected.id)?.smoothing ?? DEFAULT_BRUSH_SMOOTHING) : DEFAULT_BRUSH_SMOOTHING
   );
 
   // 「書いてから見た目を直す」だけでなく「見た目を決めてから書く」需要があるため、図形を
@@ -101,6 +107,10 @@ export function PalettePanel() {
   const activeWidth = armedDraft && 'width' in armedDraft ? armedDraft.width : paletteStyle.width;
   const activeFontSize = armedDraft && 'fontSize' in armedDraft ? armedDraft.fontSize : paletteStyle.fontSize;
   const activeBorder = armedDraft && 'border' in armedDraft ? armedDraft.border : paletteStyle.border;
+  // 手ブレ補正はcolor/dash/width等と違い全図形種で共有するpaletteStyleの一部ではなく
+  // ブラシだけが持つ値のため、armed中はbrushDraft、選択中の既存ブラシは直接その値を見る
+  // （hiddenTimeframesと同じ「専用フィールドを個別に読み書きする」方式）
+  const activeSmoothing = armedKind === 'brush' ? brushDraft.smoothing : selectedBrushSmoothing;
 
   type StylePatch = Partial<{ color: string; dash: LineDash; width: LineWidth; fontSize: typeof paletteStyle.fontSize; border: TextBorderStyle }>;
   const setStyle = (patch: StylePatch) => {
@@ -118,6 +128,12 @@ export function PalettePanel() {
   const setWidth = (width: LineWidth) => setStyle({ width });
   const setFontSize = (fontSize: typeof paletteStyle.fontSize) => setStyle({ fontSize });
   const setBorder = (border: TextBorderStyle) => setStyle({ border });
+  // 手ブレ補正はpaletteStyle経由のsetStyleに乗せず、ブラシ専用に直接読み書きする
+  // （armed中はbrushDraft、選択中の既存ブラシはupdateBrushで即時反映）
+  const setSmoothing = (smoothing: number) => {
+    if (selected?.kind === 'brush') updateBrush(selected.id, { smoothing });
+    else setBrushDraft({ smoothing });
+  };
 
   const [pos, setPos] = useState<{ x: number; y: number } | null>(null);
   const dragRef = useRef<{ startX: number; startY: number; origX: number; origY: number; el: HTMLDivElement } | null>(null);
@@ -222,20 +238,37 @@ export function PalettePanel() {
           </div>
         </>
       ) : isBrush ? (
-        <div style={{ display: 'flex', gap: '3px' }}>
-          {WIDTH_OPTIONS.map(w => (
-            <button
-              key={w}
-              onClick={() => setWidth(w)}
-              style={{
-                backgroundColor: activeWidth === w ? '#202020' : '#161616',
-                color: activeWidth === w ? '#ccc' : '#666',
-                border: activeWidth === w ? '1px solid #3a3a3a' : '1px solid #222',
-                borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-              }}
-            >{w}px</button>
-          ))}
-        </div>
+        <>
+          <div style={{ display: 'flex', gap: '3px' }}>
+            {WIDTH_OPTIONS.map(w => (
+              <button
+                key={w}
+                onClick={() => setWidth(w)}
+                style={{
+                  backgroundColor: activeWidth === w ? '#202020' : '#161616',
+                  color: activeWidth === w ? '#ccc' : '#666',
+                  border: activeWidth === w ? '1px solid #3a3a3a' : '1px solid #222',
+                  borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                }}
+              >{w}px</button>
+            ))}
+          </div>
+          {/* 手ブレ補正（ボックスフィルタの通過回数）。以前は12固定だったが、
+              自由に調整できるようにしてほしいという要望を受けてスライダーにした。
+              0=補正なし（生の軌跡のまま）、大きいほど滑らかだが元の軌跡から離れる */}
+          <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+            <span style={{ color: '#666', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap' }}>補正</span>
+            <input
+              type="range" min={0} max={24} step={1}
+              value={activeSmoothing}
+              onChange={e => setSmoothing(Number(e.target.value))}
+              style={{ flex: 1, accentColor: '#42a5f5', cursor: 'pointer' }}
+            />
+            <span style={{ color: '#888', fontSize: '13px', fontVariantNumeric: 'tabular-nums', width: '20px', textAlign: 'right' }}>
+              {activeSmoothing}
+            </span>
+          </div>
+        </>
       ) : (
         <>
           <div style={{ display: 'flex', gap: '3px' }}>
