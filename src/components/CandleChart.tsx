@@ -1109,7 +1109,7 @@ export function CandleChart({
     // 週区切り線・セッション帯のDOMオーバーレイ（実装は./chart/配下。描画ツールと絡まない
     // 表示専用の要素なので、共有状態をrefで受け取る関数として切り出してある）
     const syncWeekLines = createSyncWeekLines({
-      chartRef, overlayRef: weekOverlayRef, boundariesRef: weekBoundariesRef, elsRef: weekLineElsRef,
+      chartRef, overlayRef: weekOverlayRef, boundariesRef: weekBoundariesRef, elsRef: weekLineElsRef, displayCandlesRef, effectiveCursorRef,
     });
     syncWeekLinesRef.current = syncWeekLines;
     syncWeekLines();

@@ -1,4 +1,5 @@
 import type { IChartApi, Time } from 'lightweight-charts';
+import type { Candle } from '../../types';
 import { useTraderStore } from '../../store/useTraderStore';
 import type { ReadRef } from './refs';
 
@@ -18,6 +19,9 @@ export interface WeekLinesOverlayDeps {
   boundariesRef: ReadRef<number[]>;
   // 区切り線ごとのDOM要素（0幅アンカー＞線本体＋ラベル）。十字カーソル接近時のラベル隠しでも参照される
   elsRef: ReadRef<HTMLDivElement[]>;
+  // 現在足の判定用（メインのdisplayCandlesは未来分も含む全期間なので、cursorより先の区切りは隠す）
+  displayCandlesRef: ReadRef<Candle[]>;
+  effectiveCursorRef: ReadRef<number>;
 }
 
 // ── 週区切り線の位置を再計算して DOM に反映（控えめな破線、固定スタイル） ──
@@ -26,7 +30,7 @@ export interface WeekLinesOverlayDeps {
 // 同化して見づらくなる不具合になった。四角形と同じ理由でDOMオーバーレイに戻す
 // （区切り線はローソク足の下である必要はなく、そもそも常時前面表示で問題なかった機能。
 // 四角形のcanvas（zIndex:9）より下＝zIndex:8にして「四角形が区切り線より上」だけ維持する）
-export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRef }: WeekLinesOverlayDeps): () => void {
+export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRef, displayCandlesRef, effectiveCursorRef }: WeekLinesOverlayDeps): () => void {
   return () => {
     if (!chartRef.current || !overlayRef.current) return;
     const { showWeekLines: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
@@ -78,13 +82,20 @@ export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRe
       els.pop()?.remove();
     }
 
-    const xs = boundaries.map(t => chartRef.current!.timeScale().timeToCoordinate(t as Time));
-    // ラベルは全区切り線ぶん出すと日付軸欄が文字で埋まって読みづらいという指摘を受け、
-    // 画面内で最も新しい（時系列で最後の）区切り線1本だけに絞った。線自体は間引かず
-    // 全区切り線ぶん描く（ラベルだけの制限）
+    const timeScale = chartRef.current.timeScale();
+    // まだ表示していない未来の区切りは線ごと出さない（雲が時間軸を未来側へ延ばしているため、
+    // 未来の時刻にもtimeToCoordinateが座標を返してしまう）
+    const currentTime = displayCandlesRef.current[effectiveCursorRef.current]?.time ?? Infinity;
+    const xs = boundaries.map(t => (t <= currentTime ? timeScale.timeToCoordinate(t as Time) : null));
+    const isSaturday = (t: number) => new Date(t * 1000).getUTCDay() === 6;
+    // ラベルは画面内で最も新しい区切り線1本だけに出す（線自体は全区切り線ぶん描く）。
+    // timeToCoordinateは画面外の時刻にも座標を返すため、表示幅の範囲内に絞ること。
+    // 土曜日はラベルを出さない区切りなので、その1本前の平日の区切り線に譲る
+    const paneWidth = timeScale.width();
     let latestIdx = -1;
     for (let i = xs.length - 1; i >= 0; i--) {
-      if (xs[i] !== null) { latestIdx = i; break; }
+      const x = xs[i];
+      if (x !== null && x >= 0 && x <= paneWidth && !isSaturday(boundaries[i])) { latestIdx = i; break; }
     }
     boundaries.forEach((t, i) => {
       const x = xs[i];
@@ -99,9 +110,9 @@ export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRe
         // 土曜日の区切り線はラベルを出さず線だけにする（線自体は削らず、ラベルの
         // 有無に関わらず常に軸欄手前ギリギリまで伸ばす）。週末は取引が無いため
         // 土曜の区切りと次の月曜の区切りが画面上で近接し、ラベル同士がぶつかるため
-        const isSaturday = new Date(t * 1000).getUTCDay() === 6;
-        lineEl.style.height = `calc(100% - ${isSaturday ? bottomMargin : bottomMargin / 2}px)`;
-        if (isSaturday || i !== latestIdx) {
+        const saturday = isSaturday(t);
+        lineEl.style.height = `calc(100% - ${saturday ? bottomMargin : bottomMargin / 2}px)`;
+        if (saturday || i !== latestIdx) {
           label.style.display = 'none';
         } else {
           label.style.display = 'block';

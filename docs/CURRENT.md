@@ -168,7 +168,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 十字カーソル同期effect（`crosshairSourceId`/`crosshairTime`依存）は、メイン/非メインどちらの`series.setData()`effectよりも**後ろ**で宣言すること（宣言順だけでは解決しない場合あり、下記参照）
 - `setCrosshairPosition`はsetData直後の同一コミット内で同期呼び出しすると、時刻が正しくても価格スケールの`firstValue`キャッシュが未確定でensureNotNullがnullを投げることがある。`requestAnimationFrame`で1フレーム後に呼ぶこと。メインパネルはcursorより先の未来足を`effectiveCursorRef`でクリップしてから`priceAtTime`に渡すこと（`candles`はcursor以降も含む全期間配列のため）
 - 1画面表示中の非メイン3枠、3画面表示中の枠3は`width:0/height:0`で非表示のままマウントされ続ける（remount回避のため）。サイズ0のペインは価格スケールの`firstValue`が恒久的にnullなので、十字カーソル同期はこれら非表示パネルでスキップすること（どれだけ待っても解決しない・同期する意味もない）
-- `timeToCoordinate`は時刻が実在かつ開示済み（setData済み）の足と完全一致しないとnullを返す。セッション帯のようにcursorより未来の時刻（NYの終了=翌7時等）を扱う描画は、`timeToX`に渡す前に開示済みの範囲へクランプすること。クランプ先は開示済み最後の足の**開始時刻ではなくその足の終わり**（`currentTime + timeframeSec`）にする（開始時刻でクランプすると、セッション開始のちょうどその足では帯幅が0になり1本分遅れて表示される）
+- `timeToCoordinate`は時刻が実在かつ開示済み（setData済み）の足と完全一致しないとnullを返す（例外: 雲が先行26本ぶん未来へ時間軸を延ばしているため、その範囲の未来時刻には座標が返る。また画面外の時刻にも座標が返る）。セッション帯のようにcursorより未来の時刻（NYの終了=翌7時等）を扱う描画は、`timeToX`に渡す前に開示済みの範囲へクランプすること。クランプ先は開示済み最後の足の**開始時刻ではなくその足の終わり**（`currentTime + timeframeSec`）にする（開始時刻でクランプすると、セッション開始のちょうどその足では帯幅が0になり1本分遅れて表示される）
 - `App.tsx`のツールバー列を囲むフレックス行が`overflow:hidden`のため、`DrawToolbar.tsx`のポップアップは`position:absolute`だと画面下寄りで開いた時にmaxHeight+overflowYより先に祖先でクリップされ、スクロールバーごと消える。`position:fixed`＋`getBoundingClientRect`基準の座標計算で回避する
 - lightweight-charts標準の最終値価格ライン（`priceLineVisible`のデフォルト、水平の破線＋現在値ラベル）とグリッド線（`layout.grid`）はSeries Primitivesの対象外でzOrder制御ができず、常に他の描画物より前面に出る。四角形・週区切り線がPrimitivesではなくDOM/canvasオーバーレイなのはこの制約を回避するため（詳細は主要機能の四角形描画の項）
 - `showFullHistory`は廃止済み。全期間スクラバーの「全体」は常に`cursor+1`、`candles.length`（未来含む全データ）は使わない
@@ -187,7 +187,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `timeToCoordinate`/`priceToCoordinate`は`setData`/`setVisibleRange`/`applyOptions`直後は古い座標を返すことがある。同処理の最後に`requestAnimationFrame`で再同期すること
 - 月境界マークは`tickMarkFormatter`を通らず`localization.dateFormat`を使う。有効トークンは`yyyy/yy/MMMM/MMM/MM/dd`のみ
 - `tickMarkFormatter`の日付/時刻切替は「UTC 00:00かどうか」では判定しないこと。4H/1D/1W/1Mはブローカー時間バケット+JST表示ズレでUTC 00:00にほぼ乗らず、時刻だけが延々表示される。`timeframeSec>=14400`は常に日付表示にする
-- lightweight-charts自身の目盛り（`tickMarkFormatter`）は間隔優先の自動配置のため、区切り線（週/月/年）の位置と必ずしも一致しない。区切り線には専用の日付ラベルをDOMで自前描画する（垂直線の日付ラベルと同じパターン、`syncWeekLines`）。土曜日の日境界は線のみでラベルは出さない（週末で取引が無く月曜の境界と近接し、ラベル同士がぶつかるため）。ラベルは画面内で最も新しい（時系列で最後の）区切り線1本にのみ表示する——全部に出すと軸欄が文字で埋まって読みづらいという指摘を受けた（線自体は間引かない）。マウスカーソル位置の組み込み日付表示と自前ラベル（区切り線・垂直線とも）が接近した場合は自前ラベル側を隠す（共通ヘルパー`hideLabelNearCursor`、`subscribeCrosshairMove`で位置比較、しきい値28px）——DOMは常にcanvasより前面に出るため、隠さないとカーソル側の日付が読めなくなる
+- lightweight-charts自身の目盛り（`tickMarkFormatter`）は間隔優先の自動配置のため、区切り線（週/月/年）の位置と必ずしも一致しない。区切り線には専用の日付ラベルをDOMで自前描画する（垂直線の日付ラベルと同じパターン、`syncWeekLines`）。土曜日の日境界は線のみでラベルは出さない（週末で取引が無く月曜の境界と近接し、ラベル同士がぶつかるため）。ラベルは「表示幅内・土曜以外」で最も新しい区切り線1本にのみ出す（線自体は間引かない）。cursorより未来の区切りは線ごと出さない（メインの`displayCandles`は未来分を含む全期間のため）。マウスカーソル位置の組み込み日付表示と自前ラベル（区切り線・垂直線とも）が接近した場合は自前ラベル側を隠す（共通ヘルパー`hideLabelNearCursor`、`subscribeCrosshairMove`で位置比較、しきい値28px）——DOMは常にcanvasより前面に出るため、隠さないとカーソル側の日付が読めなくなる
 - 非メインの`nonMainVisible`再描画は`length===0`で早期returnしないこと（空でも`setData([])`を呼び画面を空にする）
 - 自動再生は`requestAnimationFrame`（`setInterval`は高速再生時に描画ノイズが出る）
 - ドラッグ系操作は開始時に`handleScroll`/`handleScale`を無効化し終了時に必ず再有効化すること
