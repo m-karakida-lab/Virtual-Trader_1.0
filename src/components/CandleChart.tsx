@@ -23,7 +23,7 @@ import { createSyncWeekLines } from './chart/weekLinesOverlay';
 import { createSyncSessions } from './chart/sessionsOverlay';
 import { createSyncTradeMarkers } from './chart/tradeMarkersOverlay';
 import { createScrubber } from './chart/scrubber';
-import { createLinesOverlay, type LineDragPreview } from './chart/linesOverlay';
+import { createLinesOverlay } from './chart/linesOverlay';
 import { createRectsOverlay } from './chart/rectsOverlay';
 import { createSyncTrendLines } from './chart/trendLinesOverlay';
 import { createSyncChannels } from './chart/channelsOverlay';
@@ -852,14 +852,16 @@ export function CandleChart({
     };
 
     // 水平線・垂直線の描画（線本体は専用canvas、垂直線の日付ラベルと選択ハンドルのみDOM）。
-    // ドラッグ中のプレビュー座標はlineDragPreviewを直接書き換えてから再描画する。
-    // syncVLinesより前で宣言すること——TDZ、平行チャネルで実際に踏んだ
-    const lineDragPreview: LineDragPreview = { vline: null, hline: null };
+    // ドラッグ中は store を経由せずここだけ書き換えて即座に再描画するプレビュー用
+    // （他の描画要素と同じ作法）。syncVLinesより前で宣言すること——TDZ、平行チャネルで実際に踏んだ
+    let vlineDragPreviewX: { id: number; x: number } | null = null;
+    let hlineDragPreviewPrice: { id: number; price: number } | null = null;
     const {
       sync: syncVLines, drawVLineCanvas, drawHLineCanvas,
     } = createLinesOverlay({
       chartRef, seriesRef, overlayRef, container, vlineCanvasRef, hlineCanvasRef,
-      vlineElsRef, lineHandleElRef, preview: lineDragPreview,
+      vlineElsRef, lineHandleElRef,
+      getVLineDragPreview: () => vlineDragPreviewX, getHLineDragPreview: () => hlineDragPreviewPrice,
       timeToXSnapped, getVisibleDrawings, cutCandlesFromCanvas,
     });
     drawHLineCanvasRef.current = drawHLineCanvas;
@@ -2549,7 +2551,7 @@ export function CandleChart({
               }
               // 線本体（destination-out描画）もこのフレームで追従させる
               if (draggingTarget.kind === 'hline') {
-                lineDragPreview.hline = { id: draggingTarget.id, price: pendingPrice };
+                hlineDragPreviewPrice = { id: draggingTarget.id, price: pendingPrice };
                 drawHLineCanvas();
               }
             }
@@ -2571,7 +2573,7 @@ export function CandleChart({
               if (lineHandleElRef.current) lineHandleElRef.current.style.left = `${pendingVX - 4}px`;
               // 線本体（canvas描画）もこのフレームで追従させないと、DOMのラベル/ハンドルだけ
               // 動いて線の見た目が古い位置に取り残される
-              lineDragPreview.vline = { id: draggingVId, x: pendingVX };
+              vlineDragPreviewX = { id: draggingVId, x: pendingVX };
               drawVLineCanvas();
             }
           });
@@ -3167,7 +3169,7 @@ export function CandleChart({
           else store.setOrderSL(draggingTarget.id, pendingPrice);
         }
         if (draggingTarget.kind === 'hline') {
-          lineDragPreview.hline = null;
+          hlineDragPreviewPrice = null;
           drawHLineCanvas(); // storeコミット後の実データで再描画（プレビュー価格を使い続けない）
         }
         draggingTarget = null;
@@ -3183,7 +3185,7 @@ export function CandleChart({
         }
         draggingVId = null;
         pendingVX = null;
-        lineDragPreview.vline = null;
+        vlineDragPreviewX = null;
         drawVLineCanvas(); // storeコミット後の実データで再描画（プレビュー座標を使い続けない）
         chart.applyOptions({ handleScroll: true, handleScale: true });
       }

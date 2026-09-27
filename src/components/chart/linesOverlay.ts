@@ -1,15 +1,7 @@
 import type { IChartApi, ISeriesApi } from 'lightweight-charts';
-import type { DrawnLine, DrawnVLine } from '../../types';
 import { useTraderStore } from '../../store/useTraderStore';
-import type { ReadRef, TimeToX } from './refs';
-import { DASH_TO_CANVAS, type CutCandles } from './canvas';
-
-// ドラッグ中は store を経由せずここだけ書き換えて即座に再描画するプレビュー用。
-// CandleChart側のドラッグ処理が直接書き換える（他の描画要素と同じ作法）
-export interface LineDragPreview {
-  vline: { id: number; x: number } | null;
-  hline: { id: number; price: number } | null;
-}
+import type { Getter, GetVisibleDrawings, ReadRef, TimeToX } from './refs';
+import { DASH_TO_CANVAS, beginCanvasFrame, type CutCandles } from './canvas';
 
 export interface LinesOverlayDeps {
   chartRef: ReadRef<IChartApi | null>;
@@ -22,9 +14,11 @@ export interface LinesOverlayDeps {
   vlineElsRef: ReadRef<Map<number, HTMLDivElement>>;
   // 選択中の水平線/垂直線の中点ハンドル（常に1個分のみ、初回syncで生成）
   lineHandleElRef: { current: HTMLDivElement | null };
-  preview: LineDragPreview;
+  // ドラッグ中の垂直線のX座標・水平線の価格（書き換えはCandleChart側のドラッグ処理）
+  getVLineDragPreview: Getter<{ id: number; x: number } | null>;
+  getHLineDragPreview: Getter<{ id: number; price: number } | null>;
   timeToXSnapped: TimeToX;
-  getVisibleDrawings: () => { lines: DrawnLine[]; vlines: DrawnVLine[] };
+  getVisibleDrawings: GetVisibleDrawings;
   cutCandlesFromCanvas: CutCandles;
 }
 
@@ -49,25 +43,21 @@ function formatVLineDate(sec: number): string {
 export function createLinesOverlay(deps: LinesOverlayDeps) {
   const {
     chartRef, seriesRef, overlayRef, container, vlineCanvasRef, hlineCanvasRef,
-    vlineElsRef, lineHandleElRef, preview, timeToXSnapped, getVisibleDrawings, cutCandlesFromCanvas,
+    vlineElsRef, lineHandleElRef, getVLineDragPreview, getHLineDragPreview, timeToXSnapped, getVisibleDrawings, cutCandlesFromCanvas,
   } = deps;
 
   const drawVLineCanvas = () => {
     const canvas = vlineCanvasRef.current;
     if (!canvas || !chartRef.current || !seriesRef.current) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (canvas.width !== w * dpr) canvas.width = w * dpr;
-    if (canvas.height !== h * dpr) canvas.height = h * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+    const frame = beginCanvasFrame(canvas);
+    if (!frame) return;
+    const { ctx, w, h } = frame;
 
     const { chartBottomMargin: bottomMargin } = useTraderStore.getState();
+    const dragPreview = getVLineDragPreview();
     const lines: { x: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
     for (const v of getVisibleDrawings().vlines) {
-      const x = preview.vline && preview.vline.id === v.id ? preview.vline.x : timeToXSnapped(v.time);
+      const x = dragPreview && dragPreview.id === v.id ? dragPreview.x : timeToXSnapped(v.time);
       if (x === null) continue;
       lines.push({ x, color: v.color, dash: v.dash, width: v.width });
     }
@@ -95,22 +85,18 @@ export function createLinesOverlay(deps: LinesOverlayDeps) {
   const drawHLineCanvas = () => {
     const canvas = hlineCanvasRef.current;
     if (!canvas || !chartRef.current || !seriesRef.current) return;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    const dpr = window.devicePixelRatio || 1;
-    const w = canvas.clientWidth, h = canvas.clientHeight;
-    if (canvas.width !== w * dpr) canvas.width = w * dpr;
-    if (canvas.height !== h * dpr) canvas.height = h * dpr;
-    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.clearRect(0, 0, w, h);
+    const frame = beginCanvasFrame(canvas);
+    if (!frame) return;
+    const { ctx, w } = frame;
 
     const { overlaysHidden: hidden } = useTraderStore.getState();
     if (hidden) return;
     const { lines: visibleLines } = getVisibleDrawings();
+    const dragPreview = getHLineDragPreview();
     const segs: { y: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
     for (const line of visibleLines) {
-      const y = preview.hline && preview.hline.id === line.id
-        ? seriesRef.current.priceToCoordinate(preview.hline.price)
+      const y = dragPreview && dragPreview.id === line.id
+        ? seriesRef.current.priceToCoordinate(dragPreview.price)
         : seriesRef.current.priceToCoordinate(line.price);
       if (y === null) continue;
       segs.push({ y, color: line.color, dash: line.dash, width: line.width });
@@ -142,6 +128,7 @@ export function createLinesOverlay(deps: LinesOverlayDeps) {
     // 非表示中の垂直線の日付ラベルは、削除された垂直線と同じくDOMごと取り除く
     // （表示に戻れば次のsyncで作り直される）
     const nextIds = new Set(visibleVLines.map(v => v.id));
+    const vlineDragPreview = getVLineDragPreview();
 
     for (const [id, el] of existing) {
       if (!nextIds.has(id)) { el.remove(); existing.delete(id); }
@@ -179,7 +166,7 @@ export function createLinesOverlay(deps: LinesOverlayDeps) {
       } else {
         label = el.firstChild as HTMLDivElement;
       }
-      const x = preview.vline && preview.vline.id === v.id ? preview.vline.x : timeToXSnapped(v.time);
+      const x = vlineDragPreview && vlineDragPreview.id === v.id ? vlineDragPreview.x : timeToXSnapped(v.time);
       if (x === null) {
         el.style.display = 'none';
       } else {
