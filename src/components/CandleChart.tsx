@@ -2879,102 +2879,105 @@ export function CandleChart({
       return price1 + t * (price2 - price1);
     }
 
+    // ── 2点図形（トレンドライン・平行チャネル・矢印）の当たり判定の共通部品 ──
+    // どれも(time1,price1)-(time2,price2)の線分なので、ピクセル変換・端点判定・本体判定を
+    // ここに集約し、各findXxxNearは「どの図形の、どの2点を判定するか」だけを書く
+    type SegmentPx = { x1: number; y1: number; x2: number; y2: number };
+    type EndpointFields = { timeField: 'time1' | 'time2'; priceField: 'price1' | 'price2' };
+
+    // 両端をピクセル座標に変換する。どちらかが変換できない（表示範囲外等）ならnull
+    const projectSegment = (time1: number, price1: number, time2: number, price2: number): SegmentPx | null => {
+      if (!seriesRef.current) return null;
+      const x1 = timeToX(time1), x2 = timeToX(time2);
+      const y1 = seriesRef.current.priceToCoordinate(price1), y2 = seriesRef.current.priceToCoordinate(price2);
+      if (x1 === null || x2 === null || y1 === null || y2 === null) return null;
+      return { x1, y1, x2, y2 };
+    };
+
+    // 端点ハンドル（RECT_HANDLE_HIT_PX以内）のどちらに当たったか。始点を先に判定する
+    const hitSegmentEndpoint = (seg: SegmentPx, x: number, y: number): EndpointFields | null => {
+      if (Math.hypot(seg.x1 - x, seg.y1 - y) <= RECT_HANDLE_HIT_PX) return { timeField: 'time1', priceField: 'price1' };
+      if (Math.hypot(seg.x2 - x, seg.y2 - y) <= RECT_HANDLE_HIT_PX) return { timeField: 'time2', priceField: 'price2' };
+      return null;
+    };
+
+    // 線分本体（DRAG_TOLERANCE_PX以内）に当たったか
+    const hitSegmentBody = (seg: SegmentPx, x: number, y: number): boolean =>
+      distanceToSegment(x, y, seg.x1, seg.y1, seg.x2, seg.y2) <= DRAG_TOLERANCE_PX;
+
     // トレンドラインの端点近傍判定（リサイズハンドル）。四角形の角ハンドルと同じ理由で、
     // 選択中のトレンドラインにしか効かない（見た目のハンドルも選択中にしか出さないため）
     const findTrendEndpointNear = (x: number, y: number): TrendEndpoint | null => {
-      if (!chartRef.current || !seriesRef.current) return null;
       const { trendLines: currentTrendLines, selected } = useTraderStore.getState();
-      for (const tl of currentTrendLines.filter(t => selected?.kind === 'trend' && selected.id === t.id)) {
-        if (!isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) continue;
-        const x1 = timeToX(tl.time1), x2 = timeToX(tl.time2);
-        const y1 = seriesRef.current.priceToCoordinate(tl.price1), y2 = seriesRef.current.priceToCoordinate(tl.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        if (Math.hypot(x1 - x, y1 - y) <= RECT_HANDLE_HIT_PX) return { trendId: tl.id, timeField: 'time1', priceField: 'price1' };
-        if (Math.hypot(x2 - x, y2 - y) <= RECT_HANDLE_HIT_PX) return { trendId: tl.id, timeField: 'time2', priceField: 'price2' };
-      }
-      return null;
+      if (selected?.kind !== 'trend') return null;
+      const tl = currentTrendLines.find(t => t.id === selected.id);
+      if (!tl || !isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) return null;
+      const seg = projectSegment(tl.time1, tl.price1, tl.time2, tl.price2);
+      const hit = seg && hitSegmentEndpoint(seg, x, y);
+      return hit ? { trendId: tl.id, ...hit } : null;
     };
 
     // トレンドライン本体（線分）の近傍判定。ヒットしたら選択、掴んだままドラッグすると平行移動
     const findTrendLineNear = (x: number, y: number): number | null => {
-      if (!chartRef.current || !seriesRef.current) return null;
       const { trendLines: currentTrendLines } = useTraderStore.getState();
       for (const tl of currentTrendLines) {
         if (!isHiddenTimeframesVisibleAt(tl, timeframeSecRef.current)) continue;
-        const x1 = timeToX(tl.time1), x2 = timeToX(tl.time2);
-        const y1 = seriesRef.current.priceToCoordinate(tl.price1), y2 = seriesRef.current.priceToCoordinate(tl.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return tl.id;
+        const seg = projectSegment(tl.time1, tl.price1, tl.time2, tl.price2);
+        if (seg && hitSegmentBody(seg, x, y)) return tl.id;
       }
       return null;
     };
 
     // 平行チャネルの基準線の端点近傍判定（選択中のみ、トレンドラインと同じ）
     const findChannelEndpointNear = (x: number, y: number): ChannelEndpoint | null => {
-      if (!chartRef.current || !seriesRef.current) return null;
       const { channels: currentChannels, selected } = useTraderStore.getState();
-      for (const ch of currentChannels.filter(c => selected?.kind === 'channel' && selected.id === c.id)) {
-        if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
-        const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
-        const y1 = seriesRef.current.priceToCoordinate(ch.price1), y2 = seriesRef.current.priceToCoordinate(ch.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        if (Math.hypot(x1 - x, y1 - y) <= RECT_HANDLE_HIT_PX) return { channelId: ch.id, timeField: 'time1', priceField: 'price1' };
-        if (Math.hypot(x2 - x, y2 - y) <= RECT_HANDLE_HIT_PX) return { channelId: ch.id, timeField: 'time2', priceField: 'price2' };
-      }
-      return null;
+      if (selected?.kind !== 'channel') return null;
+      const ch = currentChannels.find(c => c.id === selected.id);
+      if (!ch || !isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) return null;
+      const seg = projectSegment(ch.time1, ch.price1, ch.time2, ch.price2);
+      const hit = seg && hitSegmentEndpoint(seg, x, y);
+      return hit ? { channelId: ch.id, ...hit } : null;
     };
 
     // 平行チャネルの基準線本体の近傍判定。ヒットしたら選択、掴んだままドラッグすると平行移動
     const findChannelBaseNear = (x: number, y: number): number | null => {
-      if (!chartRef.current || !seriesRef.current) return null;
       const { channels: currentChannels } = useTraderStore.getState();
       for (const ch of currentChannels) {
         if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
-        const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
-        const y1 = seriesRef.current.priceToCoordinate(ch.price1), y2 = seriesRef.current.priceToCoordinate(ch.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return ch.id;
+        const seg = projectSegment(ch.time1, ch.price1, ch.time2, ch.price2);
+        if (seg && hitSegmentBody(seg, x, y)) return ch.id;
       }
       return null;
     };
 
     // 平行チャネルの2本目（オフセット線）本体の近傍判定。掴んだままドラッグするとオフセット（幅）調整
     const findChannelOffsetLineNear = (x: number, y: number): number | null => {
-      if (!chartRef.current || !seriesRef.current) return null;
       const { channels: currentChannels } = useTraderStore.getState();
       for (const ch of currentChannels) {
         if (!isHiddenTimeframesVisibleAt(ch, timeframeSecRef.current)) continue;
-        const x1 = timeToX(ch.time1), x2 = timeToX(ch.time2);
-        const y1 = seriesRef.current.priceToCoordinate(ch.price1 + ch.offset), y2 = seriesRef.current.priceToCoordinate(ch.price2 + ch.offset);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return ch.id;
+        const seg = projectSegment(ch.time1, ch.price1 + ch.offset, ch.time2, ch.price2 + ch.offset);
+        if (seg && hitSegmentBody(seg, x, y)) return ch.id;
       }
       return null;
     };
 
     // 矢印の端点近傍判定（トレンドラインと同じ、選択中の矢印のみ対象）
     const findArrowEndpointNear = (x: number, y: number): ArrowEndpoint | null => {
-      if (!chartRef.current || !seriesRef.current) return null;
       const { arrows: currentArrows, selected } = useTraderStore.getState();
-      for (const ar of currentArrows.filter(a => selected?.kind === 'arrow' && selected.id === a.id)) {
-        const x1 = timeToX(ar.time1), x2 = timeToX(ar.time2);
-        const y1 = seriesRef.current.priceToCoordinate(ar.price1), y2 = seriesRef.current.priceToCoordinate(ar.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        if (Math.hypot(x1 - x, y1 - y) <= RECT_HANDLE_HIT_PX) return { arrowId: ar.id, timeField: 'time1', priceField: 'price1' };
-        if (Math.hypot(x2 - x, y2 - y) <= RECT_HANDLE_HIT_PX) return { arrowId: ar.id, timeField: 'time2', priceField: 'price2' };
-      }
-      return null;
+      if (selected?.kind !== 'arrow') return null;
+      const ar = currentArrows.find(a => a.id === selected.id);
+      if (!ar) return null;
+      const seg = projectSegment(ar.time1, ar.price1, ar.time2, ar.price2);
+      const hit = seg && hitSegmentEndpoint(seg, x, y);
+      return hit ? { arrowId: ar.id, ...hit } : null;
     };
 
     // 矢印本体（線分）の近傍判定。ヒットしたら選択、掴んだままドラッグすると平行移動
     const findArrowNear = (x: number, y: number): number | null => {
-      if (!chartRef.current || !seriesRef.current) return null;
       const { arrows: currentArrows } = useTraderStore.getState();
       for (const ar of currentArrows) {
-        const x1 = timeToX(ar.time1), x2 = timeToX(ar.time2);
-        const y1 = seriesRef.current.priceToCoordinate(ar.price1), y2 = seriesRef.current.priceToCoordinate(ar.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        if (distanceToSegment(x, y, x1, y1, x2, y2) <= DRAG_TOLERANCE_PX) return ar.id;
+        const seg = projectSegment(ar.time1, ar.price1, ar.time2, ar.price2);
+        if (seg && hitSegmentBody(seg, x, y)) return ar.id;
       }
       return null;
     };
