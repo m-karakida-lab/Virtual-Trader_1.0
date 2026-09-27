@@ -1,0 +1,115 @@
+import type { IChartApi, Time } from 'lightweight-charts';
+import { useTraderStore } from '../../store/useTraderStore';
+import type { ReadRef } from './refs';
+
+// 週/月/年区切り線のラベル用（時刻は含めない、日付のみ）
+function formatSeparatorDate(sec: number): string {
+  const d = new Date(sec * 1000);
+  const yy = String(d.getUTCFullYear()).slice(2);
+  const M = d.getUTCMonth() + 1;
+  const D = d.getUTCDate();
+  return `${yy} ${M}/${D}`;
+}
+
+export interface WeekLinesOverlayDeps {
+  chartRef: ReadRef<IChartApi | null>;
+  overlayRef: ReadRef<HTMLDivElement | null>;
+  // 区切り線の時刻（computeSeparatorBoundariesの結果）。CandleChart側のeffectが足の更新時に差し替える
+  boundariesRef: ReadRef<number[]>;
+  // 区切り線ごとのDOM要素（0幅アンカー＞線本体＋ラベル）。十字カーソル接近時のラベル隠しでも参照される
+  elsRef: ReadRef<HTMLDivElement[]>;
+}
+
+// ── 週区切り線の位置を再計算して DOM に反映（控えめな破線、固定スタイル） ──
+// Series Primitivesで描く方式を試したが、グリッド線がPrimitivesの対象外で常に
+// その上に描画されるため、グリッド線との交差点で区切り線が削れて見える・グリッドと
+// 同化して見づらくなる不具合になった。四角形と同じ理由でDOMオーバーレイに戻す
+// （区切り線はローソク足の下である必要はなく、そもそも常時前面表示で問題なかった機能。
+// 四角形のcanvas（zIndex:9）より下＝zIndex:8にして「四角形が区切り線より上」だけ維持する）
+export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRef }: WeekLinesOverlayDeps): () => void {
+  return () => {
+    if (!chartRef.current || !overlayRef.current) return;
+    const { showWeekLines: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+    const overlay = overlayRef.current;
+    overlay.style.display = show ? 'block' : 'none';
+    if (!show) return;
+
+    const boundaries = boundariesRef.current;
+    const els = elsRef.current;
+
+    // lightweight-charts自身の目盛り（tickMarkFormatter）は間隔優先の自動配置のため、
+    // 区切り線の位置と必ずしも一致しない（区切り線はあるのに真上の目盛りは別の日、という
+    // ズレが起きる）。区切り線の位置には必ず日付が出るよう、線ごとに専用の日付ラベルを
+    // 自前で表示する（垂直線の日付ラベルと同じDOMパターン: elが位置決め用の0幅アンカー、
+    // 中のlineEl/labelがそれぞれ線本体とラベル）
+    while (els.length < boundaries.length) {
+      const el = document.createElement('div');
+      el.style.position = 'absolute';
+      el.style.top = '0';
+      el.style.height = '100%';
+      el.style.width = '0px';
+      el.style.pointerEvents = 'none';
+
+      const lineEl = document.createElement('div');
+      lineEl.style.position = 'absolute';
+      lineEl.style.top = '0';
+      lineEl.style.width = '0px';
+      lineEl.style.borderLeft = '1px dashed #4a4a4a';
+      el.appendChild(lineEl);
+
+      const label = document.createElement('div');
+      label.style.position = 'absolute';
+      label.style.left = '0';
+      label.style.whiteSpace = 'nowrap';
+      label.style.fontSize = '10px';
+      label.style.fontWeight = '700';
+      label.style.lineHeight = '1.4';
+      label.style.padding = '1px 4px';
+      label.style.borderRadius = '3px';
+      label.style.color = '#e0e0e0';
+      label.style.backgroundColor = '#4a4a4a';
+      label.style.border = '1px solid #666';
+      el.appendChild(label);
+
+      overlay.appendChild(el);
+      els.push(el);
+    }
+    while (els.length > boundaries.length) {
+      els.pop()?.remove();
+    }
+
+    const xs = boundaries.map(t => chartRef.current!.timeScale().timeToCoordinate(t as Time));
+    // ラベルは全区切り線ぶん出すと日付軸欄が文字で埋まって読みづらいという指摘を受け、
+    // 画面内で最も新しい（時系列で最後の）区切り線1本だけに絞った。線自体は間引かず
+    // 全区切り線ぶん描く（ラベルだけの制限）
+    let latestIdx = -1;
+    for (let i = xs.length - 1; i >= 0; i--) {
+      if (xs[i] !== null) { latestIdx = i; break; }
+    }
+    boundaries.forEach((t, i) => {
+      const x = xs[i];
+      const el = els[i];
+      const lineEl = el.firstChild as HTMLDivElement;
+      const label = el.lastChild as HTMLDivElement;
+      if (x === null) {
+        el.style.display = 'none';
+      } else {
+        el.style.display = 'block';
+        el.style.left = `${x}px`;
+        // 土曜日の区切り線はラベルを出さず線だけにする（線自体は削らず、ラベルの
+        // 有無に関わらず常に軸欄手前ギリギリまで伸ばす）。週末は取引が無いため
+        // 土曜の区切りと次の月曜の区切りが画面上で近接し、ラベル同士がぶつかるため
+        const isSaturday = new Date(t * 1000).getUTCDay() === 6;
+        lineEl.style.height = `calc(100% - ${isSaturday ? bottomMargin : bottomMargin / 2}px)`;
+        if (isSaturday || i !== latestIdx) {
+          label.style.display = 'none';
+        } else {
+          label.style.display = 'block';
+          label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
+          label.style.transform = 'translate(-50%, -50%)';
+          label.textContent = formatSeparatorDate(t);
+        }
+      }
+    });
+  };
+}

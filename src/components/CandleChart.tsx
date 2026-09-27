@@ -13,12 +13,16 @@ import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { recognizeShape } from '../lib/shapeRecognition';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
-import { SESSIONS, computeSessionBands, type SessionBand } from '../lib/sessions';
+import { computeSessionBands, type SessionBand } from '../lib/sessions';
 import { cloudDisplacedTime, computeEMA, computeSMA, computeBB, computeCloud, computeATR } from '../lib/indicators';
 import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
 import { findBucketIndexContaining, buildPartialCandle } from '../lib/partialCandle';
+import { createSyncWeekLines } from './chart/weekLinesOverlay';
+import {
+  createSyncSessions, SESSION_ROW_HEIGHT, SCRUBBER_TRACK_HEIGHT, SESSION_ROW_GAP, SESSION_MARKER_GAP, SESSION_MARKER_HEIGHT,
+} from './chart/sessionsOverlay';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -134,15 +138,6 @@ function formatVLineDate(sec: number): string {
   const hh = String(d.getUTCHours()).padStart(2, '0');
   const mm = String(d.getUTCMinutes()).padStart(2, '0');
   return `${yy} ${M}/${D} ${hh}:${mm}`;
-}
-
-// 週/月/年区切り線のラベル用（時刻は含めない、日付のみ）
-function formatSeparatorDate(sec: number): string {
-  const d = new Date(sec * 1000);
-  const yy = String(d.getUTCFullYear()).slice(2);
-  const M = d.getUTCMonth() + 1;
-  const D = d.getUTCDate();
-  return `${yy} ${M}/${D}`;
 }
 
 // 直近 period 本（idx を含む）の高値・安値
@@ -1855,208 +1850,18 @@ export function CandleChart({
       beginEditExistingText(newId);
     };
 
-    // ── 週区切り線の位置を再計算して DOM に反映（控えめな破線、固定スタイル） ──
-    // Series Primitivesで描く方式を試したが、グリッド線がPrimitivesの対象外で常に
-    // その上に描画されるため、グリッド線との交差点で区切り線が削れて見える・グリッドと
-    // 同化して見づらくなる不具合になった。四角形と同じ理由でDOMオーバーレイに戻す
-    // （区切り線はローソク足の下である必要はなく、そもそも常時前面表示で問題なかった機能。
-    // 四角形のcanvas（zIndex:9）より下＝zIndex:8にして「四角形が区切り線より上」だけ維持する）
-    const syncWeekLines = () => {
-      if (!chartRef.current || !weekOverlayRef.current) return;
-      const { showWeekLines: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
-      const overlay = weekOverlayRef.current;
-      overlay.style.display = show ? 'block' : 'none';
-      if (!show) return;
-
-      const boundaries = weekBoundariesRef.current;
-      const els = weekLineElsRef.current;
-
-      // lightweight-charts自身の目盛り（tickMarkFormatter）は間隔優先の自動配置のため、
-      // 区切り線の位置と必ずしも一致しない（区切り線はあるのに真上の目盛りは別の日、という
-      // ズレが起きる）。区切り線の位置には必ず日付が出るよう、線ごとに専用の日付ラベルを
-      // 自前で表示する（垂直線の日付ラベルと同じDOMパターン: elが位置決め用の0幅アンカー、
-      // 中のlineEl/labelがそれぞれ線本体とラベル）
-      while (els.length < boundaries.length) {
-        const el = document.createElement('div');
-        el.style.position = 'absolute';
-        el.style.top = '0';
-        el.style.height = '100%';
-        el.style.width = '0px';
-        el.style.pointerEvents = 'none';
-
-        const lineEl = document.createElement('div');
-        lineEl.style.position = 'absolute';
-        lineEl.style.top = '0';
-        lineEl.style.width = '0px';
-        lineEl.style.borderLeft = '1px dashed #4a4a4a';
-        el.appendChild(lineEl);
-
-        const label = document.createElement('div');
-        label.style.position = 'absolute';
-        label.style.left = '0';
-        label.style.whiteSpace = 'nowrap';
-        label.style.fontSize = '10px';
-        label.style.fontWeight = '700';
-        label.style.lineHeight = '1.4';
-        label.style.padding = '1px 4px';
-        label.style.borderRadius = '3px';
-        label.style.color = '#e0e0e0';
-        label.style.backgroundColor = '#4a4a4a';
-        label.style.border = '1px solid #666';
-        el.appendChild(label);
-
-        overlay.appendChild(el);
-        els.push(el);
-      }
-      while (els.length > boundaries.length) {
-        els.pop()?.remove();
-      }
-
-      const xs = boundaries.map(t => chartRef.current!.timeScale().timeToCoordinate(t as Time));
-      // ラベルは全区切り線ぶん出すと日付軸欄が文字で埋まって読みづらいという指摘を受け、
-      // 画面内で最も新しい（時系列で最後の）区切り線1本だけに絞った。線自体は間引かず
-      // 全区切り線ぶん描く（ラベルだけの制限）
-      let latestIdx = -1;
-      for (let i = xs.length - 1; i >= 0; i--) {
-        if (xs[i] !== null) { latestIdx = i; break; }
-      }
-      boundaries.forEach((t, i) => {
-        const x = xs[i];
-        const el = els[i];
-        const lineEl = el.firstChild as HTMLDivElement;
-        const label = el.lastChild as HTMLDivElement;
-        if (x === null) {
-          el.style.display = 'none';
-        } else {
-          el.style.display = 'block';
-          el.style.left = `${x}px`;
-          // 土曜日の区切り線はラベルを出さず線だけにする（線自体は削らず、ラベルの
-          // 有無に関わらず常に軸欄手前ギリギリまで伸ばす）。週末は取引が無いため
-          // 土曜の区切りと次の月曜の区切りが画面上で近接し、ラベル同士がぶつかるため
-          const isSaturday = new Date(t * 1000).getUTCDay() === 6;
-          lineEl.style.height = `calc(100% - ${isSaturday ? bottomMargin : bottomMargin / 2}px)`;
-          if (isSaturday || i !== latestIdx) {
-            label.style.display = 'none';
-          } else {
-            label.style.display = 'block';
-            label.style.top = `calc(100% - ${bottomMargin / 2}px)`;
-            label.style.transform = 'translate(-50%, -50%)';
-            label.textContent = formatSeparatorDate(t);
-          }
-        }
-      });
-    };
+    // 週区切り線・セッション帯のDOMオーバーレイ（実装は./chart/配下。描画ツールと絡まない
+    // 表示専用の要素なので、共有状態をrefで受け取る関数として切り出してある）
+    const syncWeekLines = createSyncWeekLines({
+      chartRef, overlayRef: weekOverlayRef, boundariesRef: weekBoundariesRef, elsRef: weekLineElsRef,
+    });
     syncWeekLinesRef.current = syncWeekLines;
     syncWeekLines();
 
-    // ── 東京/ロンドン/NYセッション帯の位置を再計算してDOMに反映 ──
-    // 全面を覆う薄い背景帯だと見づらいという指摘を受け、下の全期間スクラバー（YouTubeの
-    // シークバーと同じ見た目・高さ）の少し上に、それと同じ太さの1行で濃い色で描く方式に
-    // 変更した。日足以上は1本のローソク足が1日分になり表示する意味が無いため、その時間軸
-    // では隠す。週区切り線と同じくDOMオーバーレイ方式
-    const SESSION_ROW_HEIGHT = 4; // px。下のスクラバー本体（bar、太さ4px）と揃える
-    const SCRUBBER_TRACK_HEIGHT = 20; // px。下のscrubberTrackRefの高さと揃える（判定域込み）
-    const SESSION_ROW_GAP = 6; // px。スクラバーとの間隔
-    const SESSION_MARKER_GAP = 3; // px。セッション帯の上端から現在足の白い縦目印までの間隔
-    const SESSION_MARKER_HEIGHT = 8; // px。現在足の白い縦目印の高さ
-    const syncSessions = () => {
-      if (!chartRef.current || !sessionOverlayRef.current) return;
-      const { showSessions: show, chartBottomMargin: bottomMargin } = useTraderStore.getState();
-      const visible = show && timeframeSecRef.current < 86400;
-      const overlay = sessionOverlayRef.current;
-      overlay.style.display = visible ? 'block' : 'none';
-      if (!visible) return;
-
-      const bands = sessionBandsRef.current;
-      const els = sessionElsRef.current;
-
-      while (els.length < bands.length) {
-        const el = document.createElement('div');
-        el.style.position = 'absolute';
-        el.style.height = `${SESSION_ROW_HEIGHT}px`;
-        el.style.borderRadius = '2px';
-        el.style.pointerEvents = 'none';
-        overlay.appendChild(el);
-        els.push(el);
-      }
-      while (els.length > bands.length) {
-        els.pop()?.remove();
-      }
-
-      // 現在足（メインはcursor、非メインは表示中の末尾＝effectiveCursorRef）がどのセッションに
-      // 属するか（境目にいる時にどちらのセッションか分かりにくいという指摘対策）。
-      // 各セッションは[start, end)の半開区間で重ならないよう定義済みなので、含む帯は必ず1つ
-      const currentCandle = displayCandlesRef.current[effectiveCursorRef.current];
-      const currentTime = currentCandle?.time;
-      const activeIdx = currentTime === undefined
-        ? -1
-        : bands.findIndex(b => currentTime >= b.start && currentTime < b.end);
-
-      bands.forEach((band, i) => {
-        const el = els[i];
-        const isActive = i === activeIdx;
-        el.style.bottom = `${bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP}px`;
-        // band.endがまだ先の未来（リプレイでcursorより先＝未開示）だと、その時刻のローソク足が
-        // まだseriesにsetDataされておらずtimeToCoordinateが解決できずnullになる（timeToXの
-        // 補間フォールバックも両隣の足が未開示だと同様に失敗する）。そのため「東京・ロンドンは
-        // すぐ出るのにNY（終了が翌7時で一番長く未来にはみ出す）だけ、cursorが実際に翌7時
-        // 付近まで進まないと帯が出ない」という不具合になっていた。帯の終端をcurrentTime
-        // （このパネルで実際に開示済みの最後の足）にクランプし、開示済みの範囲までだけ
-        // 描画することで回避する（開示が進むにつれ帯が右へ伸びていく形になる）。
-        // クランプ先はcurrentTime（開示済み最後の足の"開始"時刻）ではなく、その足の"終わり"
-        // （+timeframeSec）にすること。開始時刻のままだと、セッション開始のちょうどその足に
-        // cursorが来た瞬間はband.start===currentTimeでクランプ後の帯幅が0になり、次の足まで
-        // 進むまで帯が出ない（1H足で1時間分遅れて表示される）不具合になっていた
-        if (currentTime !== undefined && band.start > currentTime) {
-          el.style.display = 'none';
-          return;
-        }
-        const revealedEnd = currentTime !== undefined ? currentTime + timeframeSecRef.current : undefined;
-        const clampedEnd = revealedEnd !== undefined ? Math.min(band.end, revealedEnd) : band.end;
-        const x0 = timeToX(band.start);
-        const x1 = timeToX(clampedEnd);
-        if (x0 === null || x1 === null || x1 <= x0) {
-          el.style.display = 'none';
-          return;
-        }
-        el.style.display = 'block';
-        el.style.left = `${x0}px`;
-        el.style.width = `${x1 - x0}px`;
-        el.style.background = SESSIONS.find(s => s.key === band.key)!.color;
-        // 白枠＋発光は撤回。今いるセッションの帯だけ不透明度を上げて色を濃く見せるだけの
-        // 演出にする（他の帯は薄く、境目でもどちらが濃いかで一目で分かる）。
-        // NY終了(7時)〜アジア開始(9時)のようにどのセッションにも属さない時間帯
-        // （activeIdx===-1）は、どれも「今いる」わけではないので全部薄くする
-        // （以前はここを「判定できない＝全部濃く」にしていたため、セッション外の時間で
-        // 全帯が濃く見える不具合になっていた）
-        el.style.opacity = isActive ? '1' : '0.45';
-      });
-
-      // 現在足の位置に白い縦の目印を立てる（進捗バーはやりすぎという指摘で撤回し、線1本に戻した）
-      if (!sessionMarkerElRef.current) {
-        const marker = document.createElement('div');
-        marker.style.position = 'absolute';
-        marker.style.width = '2px';
-        marker.style.pointerEvents = 'none';
-        marker.style.backgroundColor = '#fff';
-        marker.style.boxShadow = '0 0 3px rgba(255,255,255,0.9)';
-        overlay.appendChild(marker);
-        sessionMarkerElRef.current = marker;
-      }
-      const marker = sessionMarkerElRef.current;
-      const mx = currentTime !== undefined ? timeToX(currentTime) : null;
-      const rowBottom = bottomMargin + SCRUBBER_TRACK_HEIGHT + SESSION_ROW_GAP;
-      if (mx === null) {
-        marker.style.display = 'none';
-      } else {
-        marker.style.display = 'block';
-        marker.style.left = `${mx - 1}px`;
-        // アクティブな帯の白枠（outline）と同じ位置・同じ白だと埋もれて見えなくなるため、
-        // 帯の上端よりさらに上に離して配置する（帯と重ねない）
-        marker.style.bottom = `${rowBottom + SESSION_ROW_HEIGHT + SESSION_MARKER_GAP}px`;
-        marker.style.height = `${SESSION_MARKER_HEIGHT}px`;
-      }
-    };
+    const syncSessions = createSyncSessions({
+      chartRef, overlayRef: sessionOverlayRef, bandsRef: sessionBandsRef, elsRef: sessionElsRef,
+      markerElRef: sessionMarkerElRef, displayCandlesRef, effectiveCursorRef, timeframeSecRef, timeToX,
+    });
     syncSessionsRef.current = syncSessions;
     syncSessions();
 
