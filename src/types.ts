@@ -96,6 +96,8 @@ export interface DrawnVLine {
   color: string;
   dash: LineDash;
   width: LineWidth;
+  // 水平線のhiddenTimeframesと同じ仕様（DrawnLine参照）
+  hiddenTimeframes?: TimeframeSec[];
 }
 
 // 赤→黄→ティール→青→紫→黄緑→グレー→白の順（指定された表示順。
@@ -161,6 +163,8 @@ export interface DrawnArrow {
   color: string;
   dash: LineDash;
   width: LineWidth;
+  // 水平線のhiddenTimeframesと同じ仕様（DrawnLine参照）
+  hiddenTimeframes?: TimeframeSec[];
 }
 
 // ── ブラシ（フリーハンド） ───────────────────────────────────────────────
@@ -186,6 +190,8 @@ export interface DrawnBrush {
   // 角が残るため、点数の多い直線つなぎで代用する）。選択中はこの種類に応じた専用の
   // 編集ハンドル（三角形=各頂点、円=バウンディングボックスの角）を出して再編集できる
   shape?: 'triangle' | 'circle';
+  // 水平線のhiddenTimeframesと同じ仕様（DrawnLine参照）
+  hiddenTimeframes?: TimeframeSec[];
 }
 
 // ── テキストボックス ─────────────────────────────────────────────────────
@@ -206,6 +212,8 @@ export interface DrawnText {
   color: string;
   fontSize: TextFontSize;
   border: TextBorderStyle;
+  // 水平線のhiddenTimeframesと同じ仕様（DrawnLine参照）
+  hiddenTimeframes?: TimeframeSec[];
 }
 
 // 水平線・垂直線・四角形・トレンドライン・ブラシ・テキストを問わず「選択中の1つ」を表す

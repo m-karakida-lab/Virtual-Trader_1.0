@@ -820,7 +820,8 @@ export function CandleChart({
       return ts.timeToCoordinate(visible[lo].time as Time);
     };
 
-    // hiddenTimeframesを持つ4種（水平線・四角形・トレンドライン・平行チャネル）について、
+    // hiddenTimeframesを持つ全描画要素（水平線・垂直線・四角形・トレンドライン・平行チャネル・
+    // 矢印・ブラシ・テキスト）について、
     // このパネルの時間足で非表示にしている図形を除いた配列を返す。描画・当たり判定・
     // 選択ハンドルは必ずstoreの生配列ではなくこれから図形を取ること——非表示の図形が最初から
     // 含まれないので、選択中の図形をfindで探す箇所も自動的に「見つからない＝ハンドルを出さない」
@@ -828,11 +829,15 @@ export function CandleChart({
     // 入れ忘れで「非表示の図形がクリックに反応する」「ハンドルだけ残る」不具合を踏んでいた。
     // syncVLines等から即時に呼ばれるため、それらより前に宣言すること（TDZ）
     const getVisibleDrawings = () => {
-      const { lines, rects, trendLines, channels } = useTraderStore.getState();
+      const { lines, vlines, rects, trendLines, channels, arrows, brushes, texts } = useTraderStore.getState();
       const tf = timeframeSecRef.current;
       const visible = <T extends { hiddenTimeframes?: TimeframeSec[] }>(arr: T[]): T[] =>
         arr.filter(o => isHiddenTimeframesVisibleAt(o, tf));
-      return { lines: visible(lines), rects: visible(rects), trendLines: visible(trendLines), channels: visible(channels) };
+      return {
+        lines: visible(lines), vlines: visible(vlines), rects: visible(rects),
+        trendLines: visible(trendLines), channels: visible(channels),
+        arrows: visible(arrows), brushes: visible(brushes), texts: visible(texts),
+      };
     };
 
     // 水平線・垂直線・雲の塗りつぶし・四角形が共通で使うロウソク足の透明抜き。以前は
@@ -885,9 +890,9 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { vlines: currentVLines, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { chartBottomMargin: bottomMargin } = useTraderStore.getState();
       const lines: { x: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
-      for (const v of currentVLines) {
+      for (const v of getVisibleDrawings().vlines) {
         const x = vlineDragPreviewX && vlineDragPreviewX.id === v.id ? vlineDragPreviewX.x : timeToXSnapped(v.time);
         if (x === null) continue;
         lines.push({ x, color: v.color, dash: v.dash, width: v.width });
@@ -967,17 +972,19 @@ export function CandleChart({
     // という指摘を受け、四角形の縦線と同じdestination-out方式に切り替えた
     const syncVLines = () => {
       if (!chartRef.current || !overlayRef.current || !seriesRef.current) return;
-      const { vlines: currentVLines, selected, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
-      const { lines: visibleLines } = getVisibleDrawings();
+      const { selected, showVLineDateLabel, chartBottomMargin: bottomMargin } = useTraderStore.getState();
+      const { lines: visibleLines, vlines: visibleVLines } = getVisibleDrawings();
       const overlay = overlayRef.current;
       const existing = vlineElsRef.current;
-      const nextIds = new Set(currentVLines.map(v => v.id));
+      // 非表示中の垂直線の日付ラベルは、削除された垂直線と同じくDOMごと取り除く
+      // （表示に戻れば次のsyncで作り直される）
+      const nextIds = new Set(visibleVLines.map(v => v.id));
 
       for (const [id, el] of existing) {
         if (!nextIds.has(id)) { el.remove(); existing.delete(id); }
       }
 
-      for (const v of currentVLines) {
+      for (const v of visibleVLines) {
         let el = existing.get(v.id);
         let label: HTMLDivElement;
         if (!el) {
@@ -1050,7 +1057,7 @@ export function CandleChart({
         const y = line ? seriesRef.current.priceToCoordinate(line.price) : null;
         if (y !== null) point = [container.clientWidth / 2, y];
       } else if (selected?.kind === 'v') {
-        const v = currentVLines.find(vv => vv.id === selected.id);
+        const v = visibleVLines.find(vv => vv.id === selected.id);
         const x = v ? timeToXSnapped(v.time) : null;
         if (x !== null) point = [x, container.clientHeight / 2];
       }
@@ -1461,10 +1468,10 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { arrows: currentArrows, selected } = useTraderStore.getState();
+      const { selected } = useTraderStore.getState();
       const selectedArrowId = selected?.kind === 'arrow' ? selected.id : null;
 
-      for (const ar of currentArrows) {
+      for (const ar of getVisibleDrawings().arrows) {
         const live = arrowDragPreview && arrowDragPreview.id === ar.id ? arrowDragPreview : ar;
         const x1 = timeToX(live.time1);
         const x2 = timeToX(live.time2);
@@ -1613,10 +1620,10 @@ export function CandleChart({
       ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx.clearRect(0, 0, w, h);
 
-      const { brushes: currentBrushes, selected } = useTraderStore.getState();
+      const { selected } = useTraderStore.getState();
       const selectedBrushId = selected?.kind === 'brush' ? selected.id : null;
 
-      for (const b of currentBrushes) {
+      for (const b of getVisibleDrawings().brushes) {
         const live = brushDragPreview && brushDragPreview.id === b.id ? brushDragPreview.points : b.points;
         drawBrushStroke(live, b.color, b.width, b.id === selectedBrushId, b.shape, b.smoothing ?? DEFAULT_BRUSH_SMOOTHING);
       }
@@ -1646,6 +1653,11 @@ export function CandleChart({
     const syncTexts = () => {
       if (!chartRef.current || !seriesRef.current || !textOverlayRef.current) return;
       const { texts: currentTexts, selected } = useTraderStore.getState();
+      // hiddenTimeframesで非表示のテキストは、他の図形と違いDOM要素を削除せずdisplay:noneで
+      // 隠すだけにする。要素がそのままcontentEditableの編集対象になるため、入力中に
+      // 時間足ボタンを押して要素ごと消すと編集中の要素が宙に浮いてしまう。同じ理由で、
+      // 編集中のテキストは非表示設定でも入力が終わるまでは表示し続ける
+      const visibleTextIds = new Set(getVisibleDrawings().texts.map(t => t.id));
       const overlay = textOverlayRef.current;
       const existing = textElsRef.current;
       const nextIds = new Set(currentTexts.map(t => t.id));
@@ -1675,6 +1687,7 @@ export function CandleChart({
           overlay.appendChild(el);
           existing.set(t.id, el);
         }
+        if (!visibleTextIds.has(t.id) && !isEditing) { el.style.display = 'none'; continue; }
         const x = timeToX(t.time);
         const y = seriesRef.current.priceToCoordinate(t.price);
         if (x === null || y === null) { el.style.display = 'none'; continue; }
@@ -2763,8 +2776,7 @@ export function CandleChart({
 
     const findVLineNear = (x: number): number | null => {
       if (!chartRef.current) return null;
-      const { vlines: currentVLines } = useTraderStore.getState();
-      for (const v of currentVLines) {
+      for (const v of getVisibleDrawings().vlines) {
         // 表示位置（timeToXSnapped）と当たり判定は一致させること。timeToXのままだと
         // 他時間足のパネルでは見た目の線の位置とクリック判定がズレてしまう
         const vx = timeToXSnapped(v.time);
@@ -2956,9 +2968,9 @@ export function CandleChart({
 
     // 矢印の端点近傍判定（トレンドラインと同じ、選択中の矢印のみ対象）
     const findArrowEndpointNear = (x: number, y: number): ArrowEndpoint | null => {
-      const { arrows: currentArrows, selected } = useTraderStore.getState();
+      const { selected } = useTraderStore.getState();
       if (selected?.kind !== 'arrow') return null;
-      const ar = currentArrows.find(a => a.id === selected.id);
+      const ar = getVisibleDrawings().arrows.find(a => a.id === selected.id);
       if (!ar) return null;
       const seg = projectSegment(ar.time1, ar.price1, ar.time2, ar.price2);
       const hit = seg && hitSegmentEndpoint(seg, x, y);
@@ -2967,8 +2979,7 @@ export function CandleChart({
 
     // 矢印本体（線分）の近傍判定。ヒットしたら選択、掴んだままドラッグすると平行移動
     const findArrowNear = (x: number, y: number): number | null => {
-      const { arrows: currentArrows } = useTraderStore.getState();
-      for (const ar of currentArrows) {
+      for (const ar of getVisibleDrawings().arrows) {
         const seg = projectSegment(ar.time1, ar.price1, ar.time2, ar.price2);
         if (seg && hitSegmentBody(seg, x, y)) return ar.id;
       }
@@ -2979,8 +2990,8 @@ export function CandleChart({
     // 端点判定と同じ考え方）
     const findBrushVertexNear = (x: number, y: number): BrushVertex | null => {
       if (!chartRef.current || !seriesRef.current) return null;
-      const { brushes: currentBrushes, selected } = useTraderStore.getState();
-      for (const b of currentBrushes.filter(bb => bb.shape === 'triangle' && selected?.kind === 'brush' && selected.id === bb.id)) {
+      const { selected } = useTraderStore.getState();
+      for (const b of getVisibleDrawings().brushes.filter(bb => bb.shape === 'triangle' && selected?.kind === 'brush' && selected.id === bb.id)) {
         for (let i = 0; i < 3; i++) {
           const px = timeToX(b.points[i].time);
           const py = seriesRef.current.priceToCoordinate(b.points[i].price);
@@ -2994,8 +3005,8 @@ export function CandleChart({
     // 図形認識で作った円ブラシのバウンディングボックス角の近傍判定（選択中の円のみ対象）
     const findBrushCircleCornerNear = (x: number, y: number): BrushCircleCorner | null => {
       if (!chartRef.current || !seriesRef.current) return null;
-      const { brushes: currentBrushes, selected } = useTraderStore.getState();
-      for (const b of currentBrushes.filter(bb => bb.shape === 'circle' && selected?.kind === 'brush' && selected.id === bb.id)) {
+      const { selected } = useTraderStore.getState();
+      for (const b of getVisibleDrawings().brushes.filter(bb => bb.shape === 'circle' && selected?.kind === 'brush' && selected.id === bb.id)) {
         const pxPts: { x: number; y: number }[] = [];
         for (const p of b.points) {
           const px = timeToX(p.time), py = seriesRef.current.priceToCoordinate(p.price);
@@ -3043,8 +3054,7 @@ export function CandleChart({
     // 最短距離がしきい値以内ならヒットとする（トレンドラインと同じdistanceToSegmentを使う）
     const findBrushNear = (x: number, y: number): number | null => {
       if (!chartRef.current || !seriesRef.current) return null;
-      const { brushes: currentBrushes } = useTraderStore.getState();
-      for (const b of currentBrushes) {
+      for (const b of getVisibleDrawings().brushes) {
         const pts = b.points.map(p => ({ x: timeToX(p.time), y: seriesRef.current!.priceToCoordinate(p.price) }));
         for (let i = 0; i < pts.length - 1; i++) {
           const p0 = pts[i], p1 = pts[i + 1];
@@ -3059,8 +3069,7 @@ export function CandleChart({
     // 直接そのDOM要素の実測位置・サイズ（offsetLeft/Top/Width/Height）を使う
     // （文字数でサイズが変わるため、rectのような座標計算では判定できない）
     const findTextNear = (x: number, y: number): number | null => {
-      const { texts: currentTexts } = useTraderStore.getState();
-      for (const t of currentTexts) {
+      for (const t of getVisibleDrawings().texts) {
         const el = textElsRef.current.get(t.id);
         if (!el || el.style.display === 'none') continue;
         const left = el.offsetLeft - DRAG_TOLERANCE_PX;

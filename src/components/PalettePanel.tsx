@@ -6,7 +6,7 @@ const WIDTH_OPTIONS: LineWidth[] = [1, 2, 3, 4];
 const DASH_OPTIONS: { v: LineDash; label: string }[] = [
   { v: 'solid', label: '実線' }, { v: 'dashed', label: '破線' }, { v: 'dotted', label: '点線' },
 ];
-// 水平線・四角形の表示時間足。個別にON/OFFでき、デフォルトは全部ON（全時間足で表示）。
+// 描画要素（全8種共通）の表示時間足。個別にON/OFFでき、デフォルトは全部ON（全時間足で表示）。
 // 1HをOFFにすると5m/15mも連動して非表示になる（5m/15mは単独指定不可）
 const HLINE_TF_OPTIONS: { v: TimeframeSec; label: string }[] = [
   { v: 3600, label: '1H' },
@@ -50,26 +50,39 @@ export function PalettePanel() {
   const setArrowDraft = useTraderStore(s => s.setArrowDraft);
   const setBrushDraft = useTraderStore(s => s.setBrushDraft);
   const setTextDraft = useTraderStore(s => s.setTextDraft);
-  const updateLine = useTraderStore(s => s.updateLine);
-  const updateRect = useTraderStore(s => s.updateRect);
-  const updateTrendLine = useTraderStore(s => s.updateTrendLine);
-  const updateChannel = useTraderStore(s => s.updateChannel);
   const updateBrush = useTraderStore(s => s.updateBrush);
-  // 水平線・四角形・トレンドライン・平行チャネルを選択編集中の時だけ使う、時間足ごとの
-  // 表示ON/OFF（新規配置前のarmed状態には対応しない＝常に全時間足ONで配置し、必要なら
-  // 配置後にここで個別にOFFする運用）
-  const selectedHLineHidden = useTraderStore(s =>
-    selected?.kind === 'h' ? (s.lines.find(l => l.id === selected.id)?.hiddenTimeframes ?? []) : []
-  );
-  const selectedRectHidden = useTraderStore(s =>
-    selected?.kind === 'rect' ? (s.rects.find(r => r.id === selected.id)?.hiddenTimeframes ?? []) : []
-  );
-  const selectedTrendHidden = useTraderStore(s =>
-    selected?.kind === 'trend' ? (s.trendLines.find(t => t.id === selected.id)?.hiddenTimeframes ?? []) : []
-  );
-  const selectedChannelHidden = useTraderStore(s =>
-    selected?.kind === 'channel' ? (s.channels.find(c => c.id === selected.id)?.hiddenTimeframes ?? []) : []
-  );
+  // 選択編集中の図形の、時間足ごとの表示ON/OFF。全8種の描画要素が同じ仕様で持つので、
+  // 選択中の種類に応じた配列から現在値を引くだけにして、ボタン列のUIは1つにまとめている
+  // （以前は種類ごとにほぼ同じブロックがコピペされていた）。新規配置前のarmed状態には
+  // 対応しない＝常に全時間足ONで配置し、必要なら配置後にここで個別にOFFする運用
+  const selectedHidden = useTraderStore(s => {
+    if (!selected) return [];
+    const list =
+      selected.kind === 'h' ? s.lines
+      : selected.kind === 'v' ? s.vlines
+      : selected.kind === 'rect' ? s.rects
+      : selected.kind === 'trend' ? s.trendLines
+      : selected.kind === 'channel' ? s.channels
+      : selected.kind === 'arrow' ? s.arrows
+      : selected.kind === 'brush' ? s.brushes
+      : s.texts;
+    return list.find(o => o.id === selected.id)?.hiddenTimeframes ?? [];
+  });
+  const setSelectedHidden = (next: TimeframeSec[]) => {
+    if (!selected) return;
+    const st = useTraderStore.getState();
+    const patch = { hiddenTimeframes: next };
+    switch (selected.kind) {
+      case 'h': st.updateLine(selected.id, patch); break;
+      case 'v': st.updateVLine(selected.id, patch); break;
+      case 'rect': st.updateRect(selected.id, patch); break;
+      case 'trend': st.updateTrendLine(selected.id, patch); break;
+      case 'channel': st.updateChannel(selected.id, patch); break;
+      case 'arrow': st.updateArrow(selected.id, patch); break;
+      case 'brush': st.updateBrush(selected.id, patch); break;
+      case 'text': st.updateText(selected.id, patch); break;
+    }
+  };
   // ブラシの手ブレ補正（ボックスフィルタの通過回数）。選択中の既存ブラシはその値、
   // 配置前（armed）は次に置くブラシ用のbrushDraft.smoothingを見る
   const selectedBrushSmoothing = useTraderStore(s =>
@@ -299,107 +312,30 @@ export function PalettePanel() {
               >{w}px</button>
             ))}
           </div>
-          {selected?.kind === 'h' && (
-            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-              {HLINE_TF_OPTIONS.map(opt => {
-                const isOn = !selectedHLineHidden.includes(opt.v);
-                return (
-                  <button
-                    key={opt.v}
-                    onClick={() => {
-                      const next = isOn
-                        ? [...selectedHLineHidden, opt.v]
-                        : selectedHLineHidden.filter(v => v !== opt.v);
-                      updateLine(selected.id, { hiddenTimeframes: next });
-                    }}
-                    title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
-                    style={{
-                      backgroundColor: isOn ? '#202020' : '#161616',
-                      color: isOn ? '#ccc' : '#666',
-                      border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
-                      borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-                    }}
-                  >{opt.label}</button>
-                );
-              })}
-            </div>
-          )}
-          {selected?.kind === 'rect' && (
-            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-              {HLINE_TF_OPTIONS.map(opt => {
-                const isOn = !selectedRectHidden.includes(opt.v);
-                return (
-                  <button
-                    key={opt.v}
-                    onClick={() => {
-                      const next = isOn
-                        ? [...selectedRectHidden, opt.v]
-                        : selectedRectHidden.filter(v => v !== opt.v);
-                      updateRect(selected.id, { hiddenTimeframes: next });
-                    }}
-                    title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
-                    style={{
-                      backgroundColor: isOn ? '#202020' : '#161616',
-                      color: isOn ? '#ccc' : '#666',
-                      border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
-                      borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-                    }}
-                  >{opt.label}</button>
-                );
-              })}
-            </div>
-          )}
-          {selected?.kind === 'trend' && (
-            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-              {HLINE_TF_OPTIONS.map(opt => {
-                const isOn = !selectedTrendHidden.includes(opt.v);
-                return (
-                  <button
-                    key={opt.v}
-                    onClick={() => {
-                      const next = isOn
-                        ? [...selectedTrendHidden, opt.v]
-                        : selectedTrendHidden.filter(v => v !== opt.v);
-                      updateTrendLine(selected.id, { hiddenTimeframes: next });
-                    }}
-                    title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
-                    style={{
-                      backgroundColor: isOn ? '#202020' : '#161616',
-                      color: isOn ? '#ccc' : '#666',
-                      border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
-                      borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-                    }}
-                  >{opt.label}</button>
-                );
-              })}
-            </div>
-          )}
-          {selected?.kind === 'channel' && (
-            <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
-              {HLINE_TF_OPTIONS.map(opt => {
-                const isOn = !selectedChannelHidden.includes(opt.v);
-                return (
-                  <button
-                    key={opt.v}
-                    onClick={() => {
-                      const next = isOn
-                        ? [...selectedChannelHidden, opt.v]
-                        : selectedChannelHidden.filter(v => v !== opt.v);
-                      updateChannel(selected.id, { hiddenTimeframes: next });
-                    }}
-                    title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
-                    style={{
-                      backgroundColor: isOn ? '#202020' : '#161616',
-                      color: isOn ? '#ccc' : '#666',
-                      border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
-                      borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
-                    }}
-                  >{opt.label}</button>
-                );
-              })}
-            </div>
-          )}
         </>
+      )}
+      {/* 時間足ごとの表示ON/OFF。全8種の描画要素で共通（選択中のみ） */}
+      {selected && (
+        <div style={{ display: 'flex', gap: '3px', flexWrap: 'wrap' }}>
+          {HLINE_TF_OPTIONS.map(opt => {
+            const isOn = !selectedHidden.includes(opt.v);
+            return (
+              <button
+                key={opt.v}
+                onClick={() => setSelectedHidden(isOn
+                  ? [...selectedHidden, opt.v]
+                  : selectedHidden.filter(v => v !== opt.v))}
+                title={opt.v === 3600 ? '1Hをオフにすると15m/5mも連動して非表示になります' : 'クリックでこの時間足での表示をON/OFF'}
+                style={{
+                  backgroundColor: isOn ? '#202020' : '#161616',
+                  color: isOn ? '#ccc' : '#666',
+                  border: isOn ? '1px solid #3a3a3a' : '1px solid #222',
+                  borderRadius: '3px', padding: '5px 10px', cursor: 'pointer', fontSize: '13px', fontWeight: 700,
+                }}
+              >{opt.label}</button>
+            );
+          })}
+        </div>
       )}
     </div>
   );
