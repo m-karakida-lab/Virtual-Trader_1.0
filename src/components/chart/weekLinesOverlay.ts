@@ -90,13 +90,18 @@ export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRe
     const isSaturday = (t: number) => new Date(t * 1000).getUTCDay() === 6;
     // ラベルは画面内で最も新しい区切り線1本だけに出す（線自体は全区切り線ぶん描く）。
     // timeToCoordinateは画面外の時刻にも座標を返すため、表示幅の範囲内に絞ること。
-    // 土曜日はラベルを出さない区切りなので、その1本前の平日の区切り線に譲る
+    // 土曜日は月曜の区切りと近接してラベル同士がぶつかるため、1本前の平日の区切り線に譲る。
+    // ただし画面内の区切り線が土曜日だけの時は、ぶつかる相手がいないので土曜日に出す
     const paneWidth = timeScale.width();
     let latestIdx = -1;
+    let latestSaturdayIdx = -1;
     for (let i = xs.length - 1; i >= 0; i--) {
       const x = xs[i];
-      if (x !== null && x >= 0 && x <= paneWidth && !isSaturday(boundaries[i])) { latestIdx = i; break; }
+      if (x === null || x < 0 || x > paneWidth) continue;
+      if (!isSaturday(boundaries[i])) { latestIdx = i; break; }
+      if (latestSaturdayIdx < 0) latestSaturdayIdx = i;
     }
+    if (latestIdx < 0) latestIdx = latestSaturdayIdx;
     boundaries.forEach((t, i) => {
       const x = xs[i];
       const el = els[i];
@@ -107,12 +112,11 @@ export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRe
       } else {
         el.style.display = 'block';
         el.style.left = `${x}px`;
-        // 土曜日の区切り線はラベルを出さず線だけにする（線自体は削らず、ラベルの
-        // 有無に関わらず常に軸欄手前ギリギリまで伸ばす）。週末は取引が無いため
-        // 土曜の区切りと次の月曜の区切りが画面上で近接し、ラベル同士がぶつかるため
-        const saturday = isSaturday(t);
-        lineEl.style.height = `calc(100% - ${saturday ? bottomMargin : bottomMargin / 2}px)`;
-        if (saturday || i !== latestIdx) {
+        // ラベルを出さない土曜日の区切り線は軸欄手前ギリギリで止める（平日の区切り線は
+        // ラベルの有無に関わらず軸欄の帯の中央＝ラベル位置まで伸ばす）
+        const labeled = i === latestIdx;
+        lineEl.style.height = `calc(100% - ${isSaturday(t) && !labeled ? bottomMargin : bottomMargin / 2}px)`;
+        if (!labeled) {
           label.style.display = 'none';
         } else {
           label.style.display = 'block';
