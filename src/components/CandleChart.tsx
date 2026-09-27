@@ -26,7 +26,8 @@ import { createScrubber } from './chart/scrubber';
 import { createLinesOverlay, type LineDragPreview } from './chart/linesOverlay';
 import { DASH_TO_CANVAS } from './chart/canvas';
 import { createRectsOverlay } from './chart/rectsOverlay';
-import { createSyncTrendLines, drawTrendLineShape, drawMidpointHandle, TREND_HANDLE_R } from './chart/trendLinesOverlay';
+import { createSyncTrendLines, TREND_HANDLE_R } from './chart/trendLinesOverlay';
+import { createSyncChannels } from './chart/channelsOverlay';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -890,7 +891,7 @@ export function CandleChart({
     syncTrendLinesRef.current = syncTrendLines;
     syncTrendLines();
 
-    // ── 平行チャネル（基準線＋価格オフセットした2本目の平行線） ──────────
+    // ── 平行チャネル（chart/channelsOverlay.ts、基準線＋価格オフセットした2本目の平行線） ──
     // ドラッグ中（端点リサイズ・平行移動・オフセット調整）は、storeを経由せずここだけ
     // 書き換えて即座に再描画するプレビュー用（トレンドラインと同じ作法）
     let channelDragPreview: { id: number; time1: number; price1: number; time2: number; price2: number; offset: number } | null = null;
@@ -901,66 +902,11 @@ export function CandleChart({
     let channelAwaitingOffset: { time1: number; price1: number; time2: number; price2: number } | null = null;
     let channelOffsetPreview: number | null = null; // 待機中のマウス移動プレビュー（価格差、クリック確定前）
 
-    const syncChannels = () => {
-      const canvas = channelCanvasRef.current;
-      if (!canvas || !chartRef.current || !seriesRef.current) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w * dpr) canvas.width = w * dpr;
-      if (canvas.height !== h * dpr) canvas.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-
-      const { selected, chartBottomMargin: bottomMargin } = useTraderStore.getState();
-      const { channels: visibleChannels } = getVisibleDrawings();
-      const selectedChannelId = selected?.kind === 'channel' ? selected.id : null;
-
-      // トレンドラインと同じ理由・同じ方式で日付軸欄の手前までにクリップする
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, w, h - bottomMargin);
-      ctx.clip();
-
-      for (const ch of visibleChannels) {
-        const live = channelDragPreview && channelDragPreview.id === ch.id ? channelDragPreview : ch;
-        const x1 = timeToX(live.time1);
-        const x2 = timeToX(live.time2);
-        const y1 = seriesRef.current.priceToCoordinate(live.price1);
-        const y2 = seriesRef.current.priceToCoordinate(live.price2);
-        const y1b = seriesRef.current.priceToCoordinate(live.price1 + live.offset);
-        const y2b = seriesRef.current.priceToCoordinate(live.price2 + live.offset);
-        if (x1 === null || x2 === null || y1 === null || y2 === null || y1b === null || y2b === null) continue;
-        const isSelected = ch.id === selectedChannelId;
-        // 基準線を掴んで選択した時は従来通り端点ハンドル付き。オフセット線（2本目）を
-        // 掴んで選択した時は、オフセット線側に水平線と同じ中点ハンドルを出す
-        // （オフセット線自体は本体ドラッグでの幅調整しかできないため、端点ハンドルではなく
-        // 「選択中である」ことだけを示す中点ハンドルにする——要望を受けて対応）
-        const selectedPart = isSelected && selected?.kind === 'channel' ? (selected.part ?? 'base') : null;
-        drawTrendLineShape(ctx, x1, y1, x2, y2, ch.color, ch.dash, ch.width, selectedPart === 'base');
-        drawTrendLineShape(ctx, x1, y1b, x2, y2b, ch.color, ch.dash, ch.width, false);
-        if (selectedPart === 'offset') drawMidpointHandle(ctx, (x1 + x2) / 2, (y1b + y2b) / 2);
-      }
-
-      if (channelAwaitingOffset) {
-        const { channelDraft } = useTraderStore.getState();
-        const { time1, price1, time2, price2 } = channelAwaitingOffset;
-        const offset = channelOffsetPreview ?? 0;
-        const x1 = timeToX(time1), x2 = timeToX(time2);
-        const y1 = seriesRef.current.priceToCoordinate(price1), y2 = seriesRef.current.priceToCoordinate(price2);
-        const y1b = seriesRef.current.priceToCoordinate(price1 + offset), y2b = seriesRef.current.priceToCoordinate(price2 + offset);
-        if (x1 !== null && x2 !== null && y1 !== null && y2 !== null) {
-          drawTrendLineShape(ctx, x1, y1, x2, y2, channelDraft.color, channelDraft.dash, channelDraft.width, false);
-          if (y1b !== null && y2b !== null) drawTrendLineShape(ctx, x1, y1b, x2, y2b, channelDraft.color, channelDraft.dash, channelDraft.width, false);
-        }
-      } else if (newChannelDraft) {
-        const { channelDraft } = useTraderStore.getState();
-        const { x1, y1, x2, y2 } = newChannelDraft;
-        drawTrendLineShape(ctx, x1, y1, x2, y2, channelDraft.color, channelDraft.dash, channelDraft.width, false);
-      }
-      ctx.restore();
-    };
+    const syncChannels = createSyncChannels({
+      chartRef, seriesRef, canvasRef: channelCanvasRef, timeToX, getVisibleDrawings,
+      getDragPreview: () => channelDragPreview, getNewDraft: () => newChannelDraft,
+      getAwaitingOffset: () => channelAwaitingOffset, getOffsetPreview: () => channelOffsetPreview,
+    });
     syncChannelsRef.current = syncChannels;
     syncChannels();
     cancelChannelAwaitRef.current = () => {
