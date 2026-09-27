@@ -24,10 +24,10 @@ import { createSyncSessions } from './chart/sessionsOverlay';
 import { createSyncTradeMarkers } from './chart/tradeMarkersOverlay';
 import { createScrubber } from './chart/scrubber';
 import { createLinesOverlay, type LineDragPreview } from './chart/linesOverlay';
-import { DASH_TO_CANVAS } from './chart/canvas';
 import { createRectsOverlay } from './chart/rectsOverlay';
-import { createSyncTrendLines, TREND_HANDLE_R } from './chart/trendLinesOverlay';
+import { createSyncTrendLines } from './chart/trendLinesOverlay';
 import { createSyncChannels } from './chart/channelsOverlay';
+import { createSyncArrows } from './chart/arrowsOverlay';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -915,86 +915,13 @@ export function CandleChart({
       syncChannels();
     };
 
-    // ── 矢印（特定の足を指し示す） ───────────────────────────────────────
-    // トレンドラインと全く同じ2点構造・操作性（新規描画/端点リサイズ/平行移動）だが、
-    // 終点（矢先）に三角形の矢印ヘッドを描き足す点だけが違う
-    const ARROW_HEAD_LEN = 12; // 矢印ヘッドの長さの基準値（線の太さに応じて少し太らせる）
-    const ARROW_HEAD_ANGLE = Math.PI / 7; // 矢印ヘッドの開き角（左右それぞれ約25.7度）
-
-    const drawArrowShape = (
-      ctx: CanvasRenderingContext2D,
-      x1: number, y1: number, x2: number, y2: number,
-      color: string, dash: 'solid' | 'dashed' | 'dotted', width: number, selected: boolean,
-    ) => {
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.fillStyle = color;
-      ctx.lineWidth = width;
-      ctx.setLineDash(DASH_TO_CANVAS[dash]);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-
-      // 矢先（終点=x2,y2）に、線の向きを軸にした二等辺三角形を塗りつぶして矢印ヘッドにする
-      const angle = Math.atan2(y2 - y1, x2 - x1);
-      const headLen = ARROW_HEAD_LEN + width * 2;
-      ctx.setLineDash([]);
-      ctx.beginPath();
-      ctx.moveTo(x2, y2);
-      ctx.lineTo(x2 - headLen * Math.cos(angle - ARROW_HEAD_ANGLE), y2 - headLen * Math.sin(angle - ARROW_HEAD_ANGLE));
-      ctx.lineTo(x2 - headLen * Math.cos(angle + ARROW_HEAD_ANGLE), y2 - headLen * Math.sin(angle + ARROW_HEAD_ANGLE));
-      ctx.closePath();
-      ctx.fill();
-
-      if (selected) {
-        ctx.fillStyle = '#42a5f5';
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 1;
-        for (const [ex, ey] of [[x1, y1], [x2, y2]]) {
-          ctx.beginPath();
-          ctx.arc(ex, ey, TREND_HANDLE_R, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-        }
-      }
-      ctx.restore();
-    };
-
+    // ── 矢印（chart/arrowsOverlay.ts、特定の足を指し示す） ─────────────────
     let arrowDragPreview: { id: number; time1: number; price1: number; time2: number; price2: number } | null = null;
     let newArrowDraft: { x1: number; y1: number; x2: number; y2: number } | null = null;
-
-    const syncArrows = () => {
-      const canvas = arrowCanvasRef.current;
-      if (!canvas || !chartRef.current || !seriesRef.current) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w * dpr) canvas.width = w * dpr;
-      if (canvas.height !== h * dpr) canvas.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-
-      const { selected } = useTraderStore.getState();
-      const selectedArrowId = selected?.kind === 'arrow' ? selected.id : null;
-
-      for (const ar of getVisibleDrawings().arrows) {
-        const live = arrowDragPreview && arrowDragPreview.id === ar.id ? arrowDragPreview : ar;
-        const x1 = timeToX(live.time1);
-        const x2 = timeToX(live.time2);
-        const y1 = seriesRef.current.priceToCoordinate(live.price1);
-        const y2 = seriesRef.current.priceToCoordinate(live.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        drawArrowShape(ctx, x1, y1, x2, y2, ar.color, ar.dash, ar.width, ar.id === selectedArrowId);
-      }
-
-      if (newArrowDraft) {
-        const { arrowDraft } = useTraderStore.getState();
-        const { x1, y1, x2, y2 } = newArrowDraft;
-        drawArrowShape(ctx, x1, y1, x2, y2, arrowDraft.color, arrowDraft.dash, arrowDraft.width, false);
-      }
-    };
+    const syncArrows = createSyncArrows({
+      chartRef, seriesRef, canvasRef: arrowCanvasRef, timeToX, getVisibleDrawings,
+      getDragPreview: () => arrowDragPreview, getNewDraft: () => newArrowDraft,
+    });
     syncArrowsRef.current = syncArrows;
     syncArrows();
 
