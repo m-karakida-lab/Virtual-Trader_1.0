@@ -26,6 +26,7 @@ import { createScrubber } from './chart/scrubber';
 import { createLinesOverlay, type LineDragPreview } from './chart/linesOverlay';
 import { DASH_TO_CANVAS } from './chart/canvas';
 import { createRectsOverlay } from './chart/rectsOverlay';
+import { createSyncTrendLines, drawTrendLineShape, drawMidpointHandle, TREND_HANDLE_R } from './chart/trendLinesOverlay';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -876,108 +877,16 @@ export function CandleChart({
     syncRectsRef.current = syncRects;
     syncRects();
 
-    // ── トレンドライン（2点を結ぶ斜めの線分） ────────────────────────────
-    // 四角形と違い対角の矩形ではなく斜めの線分なので、DOMのborderでは表現できず
-    // 専用canvasに毎回ctx.lineTo()で描き直す（雲の塗りつぶしcanvasと同じ方式）。
-    // 選択中の端点ハンドルもDOM要素ではなく同じcanvas上に円で描く
-    const TREND_HANDLE_R = 5;
-
-    const drawTrendLineShape = (
-      ctx: CanvasRenderingContext2D,
-      x1: number, y1: number, x2: number, y2: number,
-      color: string, dash: 'solid' | 'dashed' | 'dotted', width: number, selected: boolean,
-    ) => {
-      ctx.save();
-      ctx.strokeStyle = color;
-      ctx.lineWidth = width;
-      ctx.setLineDash(DASH_TO_CANVAS[dash]);
-      ctx.beginPath();
-      ctx.moveTo(x1, y1);
-      ctx.lineTo(x2, y2);
-      ctx.stroke();
-      if (selected) {
-        ctx.setLineDash([]);
-        ctx.fillStyle = '#42a5f5';
-        ctx.strokeStyle = '#fff';
-        ctx.lineWidth = 1;
-        for (const [ex, ey] of [[x1, y1], [x2, y2]]) {
-          ctx.beginPath();
-          ctx.arc(ex, ey, TREND_HANDLE_R, 0, Math.PI * 2);
-          ctx.fill();
-          ctx.stroke();
-        }
-      }
-      ctx.restore();
-    };
-
-    // 平行チャネルのオフセット線（2本目）を選択した時の編集マーク。基準線の端点ハンドルと
-    // 違い、オフセット線自体は基準線からの平行移動（幅調整）でしか編集できないため、
-    // 水平線と同じ「中点に1個だけ」の四角ハンドルにする（要望を受けて対応）
-    const drawMidpointHandle = (ctx: CanvasRenderingContext2D, cx: number, cy: number) => {
-      ctx.save();
-      ctx.fillStyle = '#42a5f5';
-      ctx.strokeStyle = '#fff';
-      ctx.lineWidth = 1;
-      const s = TREND_HANDLE_R * 2;
-      ctx.fillRect(cx - s / 2, cy - s / 2, s, s);
-      ctx.strokeRect(cx - s / 2, cy - s / 2, s, s);
-      ctx.restore();
-    };
-
+    // ── トレンドライン（chart/trendLinesOverlay.ts、2点を結ぶ斜めの線分） ──────
     // ドラッグ中（端点リサイズ・平行移動）は、storeを経由せずここだけ書き換えて即座に
     // 再描画するプレビュー用（storeのコミットはmouseupまで行わない、他の描画要素と同じ作法）
     let trendDragPreview: { id: number; time1: number; price1: number; time2: number; price2: number } | null = null;
     // 新規描画中（まだstoreに存在しない）のプレビューはピクセル座標のみで持つ
-    // （rectDraftBoxと同じ理由。ドラッグの間だけ生きるので座標変換の耐性は不要）
     let newTrendDraft: { x1: number; y1: number; x2: number; y2: number } | null = null;
-
-    const syncTrendLines = () => {
-      const canvas = trendCanvasRef.current;
-      if (!canvas || !chartRef.current || !seriesRef.current) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      // devicePixelRatioを考慮せずcanvas.widthをCSSピクセル数のまま設定すると、
-      // Retina等の高DPI画面ではブラウザがcanvasのビットマップを拡大表示することになり、
-      // 線が全体的にぼやけて特に斜め線・曲線がカクカクした階段状に見えてしまう
-      // （実際に指摘を受けて判明した）。実解像度をdpr倍で確保し、setTransformで
-      // 描画側の座標系はCSSピクセルのまま（w,hがそのまま使える）にしておく
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w * dpr) canvas.width = w * dpr;
-      if (canvas.height !== h * dpr) canvas.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-
-      const { selected, chartBottomMargin: bottomMargin } = useTraderStore.getState();
-      const { trendLines: visibleTrendLines } = getVisibleDrawings();
-      const selectedTrendId = selected?.kind === 'trend' ? selected.id : null;
-
-      // 日付軸欄（chartBottomMargin分の帯）に線が食い込まないよう、その手前でクリップする。
-      // 斜め線は四角形のようにy座標をそのままクランプすると角度が変わってしまうため、
-      // canvasのclipで軸欄より上の領域だけに描画を制限する（垂直線・四角形と同じ狙いを
-      // 斜め線でも実現する方式）
-      ctx.save();
-      ctx.beginPath();
-      ctx.rect(0, 0, w, h - bottomMargin);
-      ctx.clip();
-
-      for (const tl of visibleTrendLines) {
-        const live = trendDragPreview && trendDragPreview.id === tl.id ? trendDragPreview : tl;
-        const x1 = timeToX(live.time1);
-        const x2 = timeToX(live.time2);
-        const y1 = seriesRef.current.priceToCoordinate(live.price1);
-        const y2 = seriesRef.current.priceToCoordinate(live.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        drawTrendLineShape(ctx, x1, y1, x2, y2, tl.color, tl.dash, tl.width, tl.id === selectedTrendId);
-      }
-
-      if (newTrendDraft) {
-        const { trendLineDraft } = useTraderStore.getState();
-        const { x1, y1, x2, y2 } = newTrendDraft;
-        drawTrendLineShape(ctx, x1, y1, x2, y2, trendLineDraft.color, trendLineDraft.dash, trendLineDraft.width, false);
-      }
-      ctx.restore();
-    };
+    const syncTrendLines = createSyncTrendLines({
+      chartRef, seriesRef, canvasRef: trendCanvasRef, timeToX, getVisibleDrawings,
+      getDragPreview: () => trendDragPreview, getNewDraft: () => newTrendDraft,
+    });
     syncTrendLinesRef.current = syncTrendLines;
     syncTrendLines();
 
