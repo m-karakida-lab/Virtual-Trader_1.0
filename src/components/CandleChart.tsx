@@ -25,6 +25,7 @@ import { createSyncTradeMarkers } from './chart/tradeMarkersOverlay';
 import { createScrubber } from './chart/scrubber';
 import { createLinesOverlay, type LineDragPreview } from './chart/linesOverlay';
 import { DASH_TO_CANVAS } from './chart/canvas';
+import { createRectsOverlay } from './chart/rectsOverlay';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -861,153 +862,17 @@ export function CandleChart({
     syncVLinesRef.current = syncVLines;
     syncVLines();
 
-    // ── 四角形（枠線は専用canvasに自前描画、選択中のリサイズハンドルのみDOM） ──
-    // 枠線がローソク足に覆いかぶさって見づらいという指摘を受け、一度はSeries Primitives
-    // （zOrder:'bottom'）でローソク足の下に描く方式にしたが、グリッド線・標準の価格ラインは
-    // Primitivesの対象外で常に前面に出てしまい「グリッド線より下」が実現できなかった。
-    // 水平線・垂直線と同じ「チャート本体canvasの外側に重ねるだけ」の単純な方式に戻し、
-    // 枠線を描いた直後にその時点の全ロウソク足（実体＋ヒゲ、高値〜安値の全域を
-    // barSpacing幅で）をdestination-outで塗って重なった部分だけ透明に抜く。
-    // 抜いた部分は下にあるローソク足本体のcanvasがそのまま透けて見える＝結果的に
-    // ローソク足が上に来て見える。グリッド線はこのcanvasより下（チャート本体側）に
-    // あるため、この方式ならグリッド線より上・ローソク足より下という狙い通りの
-    // 重なり順を、Primitivesの制約を受けずに実現できる
-    const RECT_HANDLE_SIZE = 10;
+    // ── 四角形（chart/rectsOverlay.ts。枠線は専用canvas、選択中のリサイズハンドルのみDOM） ──
     // ドラッグ中（コーナー/辺リサイズ・移動・新規描画）はstoreを経由せずここだけ書き換えて
     // 即座に再描画するプレビュー用（storeのコミットはmouseupまで行わない、
-    // トレンドライン等の他の描画要素と同じ作法）
+    // トレンドライン等の他の描画要素と同じ作法）。syncRectsより前で宣言すること（TDZ）
     let rectDragPreviewPx: { id: number; x1: number; y1: number; x2: number; y2: number } | null = null;
     let newRectDraftPx: { x1: number; y1: number; x2: number; y2: number } | null = null;
-
-    // 4隅+4辺の中点にハンドルを配置する（0-3=4隅、4-7=上/下/左/右の中点）。
-    // syncRects（store確定後）だけでなく、コーナー/辺ドラッグ中のrAFプレビューからも
-    // 同じフレームで呼ぶことで、ドラッグ中に本体だけ動いてハンドルが取り残されるのを防ぐ
-    const positionRectHandles = (x1: number, x2: number, y1: number, y2: number) => {
-      const midX = (x1 + x2) / 2, midY = (y1 + y2) / 2;
-      const points: [number, number][] = [
-        [x1, y1], [x1, y2], [x2, y1], [x2, y2],
-        [midX, Math.min(y1, y2)], [midX, Math.max(y1, y2)],
-        [Math.min(x1, x2), midY], [Math.max(x1, x2), midY],
-      ];
-      points.forEach(([cx, cy], i) => {
-        const h = rectHandleElsRef.current[i];
-        if (!h) return;
-        h.style.display = 'block';
-        h.style.left = `${cx - RECT_HANDLE_SIZE / 2}px`;
-        h.style.top = `${cy - RECT_HANDLE_SIZE / 2}px`;
-      });
-    };
-
-    const syncRects = () => {
-      const canvas = rectCanvasRef.current;
-      if (!canvas || !chartRef.current || !seriesRef.current || !rectHandleOverlayRef.current) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      // devicePixelRatio対応はトレンドライン等の他のcanvasオーバーレイと同じ理由・同じ方式
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w * dpr) canvas.width = w * dpr;
-      if (canvas.height !== h * dpr) canvas.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-
-      const { selected, rectDraft, chartBottomMargin: bottomMargin } = useTraderStore.getState();
-      const { rects: visibleRects } = getVisibleDrawings();
-      const handleOverlay = rectHandleOverlayRef.current;
-      const selectedRectId = selected?.kind === 'rect' ? selected.id : null;
-      // 垂直線と同じく、四角形も日付軸欄（chartBottomMargin分の帯）に食い込まないよう
-      // 下端をクランプする（枠線・選択ハンドルとも同じクランプ後の値を使うこと——
-      // 片方だけ変えると枠線とハンドルの位置がズレる）
-      const clampBottom = (y: number) => Math.min(y, h - bottomMargin);
-
-      // 縦線（左右）と横線（上下）を別々に描く関数。以前は横線だけ「常に不透明のまま
-      // 最前面に出す」扱いだったが、ロウソク足を優先したいという要望を受けて縦線と
-      // 同じdestination-out対象に変更した（下のdrawRects本体側を参照）
-      const drawVerticalSides = (x1: number, y1: number, x2: number, y2: number, color: string, dash: 'solid' | 'dashed' | 'dotted', width: number) => {
-        ctx.save();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
-        ctx.setLineDash(DASH_TO_CANVAS[dash]);
-        ctx.beginPath();
-        ctx.moveTo(x1, y1); ctx.lineTo(x1, y2);
-        ctx.moveTo(x2, y1); ctx.lineTo(x2, y2);
-        ctx.stroke();
-        ctx.restore();
-      };
-      const drawHorizontalSides = (x1: number, y1: number, x2: number, y2: number, color: string, dash: 'solid' | 'dashed' | 'dotted', width: number) => {
-        ctx.save();
-        ctx.strokeStyle = color;
-        ctx.lineWidth = width;
-        ctx.setLineDash(DASH_TO_CANVAS[dash]);
-        ctx.beginPath();
-        ctx.moveTo(x1, y1); ctx.lineTo(x2, y1);
-        ctx.moveTo(x1, y2); ctx.lineTo(x2, y2);
-        ctx.stroke();
-        ctx.restore();
-      };
-
-      const boxes: { x1: number; y1: number; x2: number; y2: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
-      for (const r of visibleRects) {
-        const live = rectDragPreviewPx && rectDragPreviewPx.id === r.id ? rectDragPreviewPx : null;
-        const x1 = live ? live.x1 : timeToX(r.time1);
-        const x2 = live ? live.x2 : timeToX(r.time2);
-        const y1 = live ? live.y1 : seriesRef.current.priceToCoordinate(r.price1);
-        const y2 = live ? live.y2 : seriesRef.current.priceToCoordinate(r.price2);
-        if (x1 === null || x2 === null || y1 === null || y2 === null) continue;
-        boxes.push({ x1, y1: clampBottom(y1), x2, y2: clampBottom(y2), color: r.color, dash: r.dash, width: r.width });
-      }
-      if (newRectDraftPx) {
-        boxes.push({
-          ...newRectDraftPx,
-          y1: clampBottom(newRectDraftPx.y1),
-          y2: clampBottom(newRectDraftPx.y2),
-          color: rectDraft.color, dash: rectDraft.dash, width: rectDraft.width,
-        });
-      }
-
-      for (const b of boxes) drawVerticalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
-      // 横線も縦線と同じくロウソク足を優先させたいという要望を受け、この下の
-      // destination-out処理より前で描くように変更した（以前は横線だけ処理の後に描いて
-      // 常に不透明のまま最前面に出していたが、その扱いをやめた）
-      for (const b of boxes) drawHorizontalSides(b.x1, b.y1, b.x2, b.y2, b.color, b.dash, b.width);
-
-      // ロウソク足と重なった枠線（縦線・横線とも）を透明に抜く（cutCandlesFromCanvas参照）
-      if (boxes.length > 0) cutCandlesFromCanvas(ctx, w);
-
-      // ハンドルは選択中の四角形1つぶんだけ使い回す（毎回作り直さない）
-      const handles = rectHandleElsRef.current;
-      while (handles.length < 8) {
-        const hEl = document.createElement('div');
-        hEl.style.position = 'absolute';
-        hEl.style.width = `${RECT_HANDLE_SIZE}px`;
-        hEl.style.height = `${RECT_HANDLE_SIZE}px`;
-        hEl.style.backgroundColor = '#42a5f5';
-        hEl.style.border = '1px solid #fff';
-        hEl.style.borderRadius = '2px';
-        hEl.style.pointerEvents = 'none';
-        hEl.style.display = 'none';
-        handleOverlay.appendChild(hEl);
-        handles.push(hEl);
-      }
-
-      let hasSelected = false;
-      // 非表示中の四角形はvisibleRectsに含まれないので、選択中でもリサイズハンドルは出ない
-      const selectedRect = selectedRectId !== null ? visibleRects.find(r => r.id === selectedRectId) : undefined;
-      if (selectedRect) {
-        const live = rectDragPreviewPx && rectDragPreviewPx.id === selectedRect.id ? rectDragPreviewPx : null;
-        const x1 = live ? live.x1 : timeToX(selectedRect.time1);
-        const x2 = live ? live.x2 : timeToX(selectedRect.time2);
-        const y1 = live ? live.y1 : seriesRef.current.priceToCoordinate(selectedRect.price1);
-        const y2 = live ? live.y2 : seriesRef.current.priceToCoordinate(selectedRect.price2);
-        if (x1 !== null && x2 !== null && y1 !== null && y2 !== null) {
-          hasSelected = true;
-          positionRectHandles(x1, x2, clampBottom(y1), clampBottom(y2));
-        }
-      }
-      if (!hasSelected) {
-        handles.forEach(hEl => { hEl.style.display = 'none'; });
-      }
-    };
+    const { sync: syncRects, positionRectHandles } = createRectsOverlay({
+      chartRef, seriesRef, canvasRef: rectCanvasRef, handleOverlayRef: rectHandleOverlayRef, handleElsRef: rectHandleElsRef,
+      timeToX, getVisibleDrawings, cutCandlesFromCanvas,
+      getDragPreview: () => rectDragPreviewPx, getNewDraft: () => newRectDraftPx,
+    });
     syncRectsRef.current = syncRects;
     syncRects();
 
