@@ -1138,6 +1138,9 @@ export function CandleChart({
       // （最初にnullへ戻しておき、以降のどこかの分岐で早期returnした＝実際に何か操作した
       // 場合は昇格候補にしない。onMouseUp側で移動量判定して実際に昇格させる）
       nonMainMouseDownPosRef.current = null;
+      // 右クリック（コンテキストメニュー）では描画・選択・ドラッグを一切始めない
+      // （描画ツール選択中なら図形の描画が始まり、図形上ならドラッグ状態に入ってしまう）
+      if (e.button === 2) return;
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingChannel: isCh, isDrawingArrow: isAr, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
