@@ -2245,6 +2245,14 @@ export function CandleChart({
         return;
       }
       if (draggingDraft !== null) {
+        // 最後のmousemoveのrAF（storeへのコミット）がまだ走っていなければここで確定させる。
+        // 先にnullへ戻すとrAF側は何もしないため、素早く離した時の最後の移動が失われる
+        if (pendingDraftPrice !== null) {
+          const store = useTraderStore.getState();
+          if (draggingDraft === 'price') store.setDraftPrice(pendingDraftPrice);
+          else if (draggingDraft === 'tp') store.setDraftTP(pendingDraftPrice);
+          else store.setDraftSL(pendingDraftPrice);
+        }
         draggingDraft = null;
         pendingDraftPrice = null;
         chart.applyOptions({ handleScroll: true, handleScale: true });
