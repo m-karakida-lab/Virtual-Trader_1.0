@@ -31,6 +31,7 @@ import { createSyncArrows } from './chart/arrowsOverlay';
 import { createSyncBrushes } from './chart/brushesOverlay';
 import { createSyncTexts } from './chart/textsOverlay';
 import { createSyncCloud } from './chart/cloudOverlay';
+import { createUpdateRRPreview } from './chart/rrPreviewOverlay';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -1079,77 +1080,10 @@ export function CandleChart({
     syncTradeMarkersRef.current = syncTradeMarkers;
     syncTradeMarkers();
 
-    // ── 発注パネルの draft 価格から リスクリワード（TP/SL比率）をプレビュー ──
-    const RR_BOX_WIDTH = 70; // px
-
-    const updateRRPreview = () => {
-      if (!seriesRef.current || !chartRef.current) return;
-      if (!rrOverlayRef.current || !rrTpBoxRef.current || !rrSlBoxRef.current || !rrLabelRef.current) return;
-      const overlay = rrOverlayRef.current;
-      const tpBox = rrTpBoxRef.current;
-      const slBox = rrSlBoxRef.current;
-      const label = rrLabelRef.current;
-
-      const { orderType: ot, draftPrice: dp, draftTP: dtp, draftSL: dsl, candles: cs, cursor: cur } = useTraderStore.getState();
-      const c = cs[cur];
-      const entryPrice = ot === 'market' ? c?.close ?? null : dp;
-
-      if (!c || entryPrice === null || (dtp === null && dsl === null)) {
-        overlay.style.display = 'none';
-        return;
-      }
-
-      const x1 = chartRef.current.timeScale().timeToCoordinate(c.time as Time);
-      const yEntry = seriesRef.current.priceToCoordinate(entryPrice);
-      if (x1 === null || yEntry === null) {
-        overlay.style.display = 'none';
-        return;
-      }
-      const x2 = x1 + RR_BOX_WIDTH;
-      overlay.style.display = 'block';
-
-      if (dtp !== null) {
-        const yTp = seriesRef.current.priceToCoordinate(dtp);
-        if (yTp !== null) {
-          tpBox.style.display = 'block';
-          tpBox.style.left = `${x1}px`;
-          tpBox.style.width = `${RR_BOX_WIDTH}px`;
-          tpBox.style.top = `${Math.min(yEntry, yTp)}px`;
-          tpBox.style.height = `${Math.abs(yTp - yEntry)}px`;
-        } else {
-          tpBox.style.display = 'none';
-        }
-      } else {
-        tpBox.style.display = 'none';
-      }
-
-      if (dsl !== null) {
-        const ySl = seriesRef.current.priceToCoordinate(dsl);
-        if (ySl !== null) {
-          slBox.style.display = 'block';
-          slBox.style.left = `${x1}px`;
-          slBox.style.width = `${RR_BOX_WIDTH}px`;
-          slBox.style.top = `${Math.min(yEntry, ySl)}px`;
-          slBox.style.height = `${Math.abs(ySl - yEntry)}px`;
-        } else {
-          slBox.style.display = 'none';
-        }
-      } else {
-        slBox.style.display = 'none';
-      }
-
-      if (dtp !== null && dsl !== null) {
-        const risk = Math.abs(entryPrice - dsl);
-        const reward = Math.abs(dtp - entryPrice);
-        const ratio = risk > 0 ? reward / risk : 0;
-        label.textContent = `R:R 1 : ${ratio.toFixed(2)}`;
-        label.style.display = 'block';
-        label.style.left = `${x2 + 6}px`;
-        label.style.top = `${yEntry}px`;
-      } else {
-        label.style.display = 'none';
-      }
-    };
+    // ── 発注パネルの draft 価格からリスクリワードをプレビュー（chart/rrPreviewOverlay.ts） ──
+    const updateRRPreview = createUpdateRRPreview({
+      chartRef, seriesRef, overlayRef: rrOverlayRef, tpBoxRef: rrTpBoxRef, slBoxRef: rrSlBoxRef, labelRef: rrLabelRef,
+    });
     updateRRPreviewRef.current = updateRRPreview;
     updateRRPreview();
 
