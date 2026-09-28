@@ -815,8 +815,15 @@ export function CandleChart({
       }, 400);
     };
 
+    // 座標変換（表示範囲・縦スケール・サイズ）に依存する描画を全部描き直す。表示範囲変更・
+    // マウス移動時の再同期・リサイズの各所から呼ぶ（場所ごとに手書きすると一部の図形が漏れる）
+    const syncDrawingOverlays = () => {
+      syncVLines(); syncRects(); syncTrendLines(); syncChannels(); syncArrows(); syncBrushes(); syncTexts();
+      syncWeekLines(); syncSessions(); syncTradeMarkers(); syncCloud();
+    };
+
     const onRangeChange = () => {
-      syncVLines(); syncRects(); syncTrendLines(); syncChannels(); syncArrows(); syncBrushes(); syncTexts(); syncWeekLines(); syncSessions(); syncTradeMarkers(); updateRRPreview(); syncCloud(); syncScrubber(); scheduleSaveView();
+      syncDrawingOverlays(); updateRRPreview(); syncScrubber(); scheduleSaveView();
     };
     chart.timeScale().subscribeVisibleLogicalRangeChange(onRangeChange);
 
@@ -1058,7 +1065,7 @@ export function CandleChart({
     let rafScheduled = false;
     // 価格軸のドラッグによる縦スケール変更はlightweight-charts側の内部処理で、
     // それを教えてくれるイベントが無い。そのためドラッグ操作中でなくても、マウスが
-    // 動くたびに（rAFで間引きながら）垂直線・四角形・区切り線・雲を再計算することで
+    // 動くたびに（rAFで間引きながら）座標に依存する描画を全部再計算することで
     // 追従させる（本来の座標変換はスケールに依存するので、再計算自体は毎回必要な処理）
     let overlayResyncScheduled = false;
 
@@ -2063,14 +2070,7 @@ export function CandleChart({
         overlayResyncScheduled = true;
         requestAnimationFrame(() => {
           overlayResyncScheduled = false;
-          syncVLines();
-          syncRects();
-          syncTrendLines();
-          syncBrushes();
-          syncTexts();
-          syncWeekLines();
-          syncSessions();
-          syncCloud();
+          syncDrawingOverlays();
         });
       }
 
@@ -2577,15 +2577,8 @@ export function CandleChart({
         ts.setVisibleLogicalRange({ from: idx - newSpan / 2, to: idx + newSpan / 2 });
       }
       prevChartWidth = newWidth;
-      syncVLines();
-      syncRects();
-      syncTrendLines();
-      syncBrushes();
-      syncTexts();
-      syncWeekLines();
-      syncSessions();
+      syncDrawingOverlays();
       updateRRPreview();
-      syncCloud();
       syncScrubber();
       // timeToCoordinate/priceToCoordinateは、幅変更・setVisibleLogicalRange直後の
       // レイアウト未確定なタイミングだと稀に古い座標を返す（他のデータ更新箇所と同じ既知の
@@ -2597,14 +2590,7 @@ export function CandleChart({
       if (pendingResizeRaf !== null) cancelAnimationFrame(pendingResizeRaf);
       pendingResizeRaf = requestAnimationFrame(() => {
         pendingResizeRaf = null;
-        syncCloud();
-        syncVLines();
-        syncRects();
-        syncTrendLines();
-        syncBrushes();
-        syncTexts();
-        syncWeekLines();
-        syncSessions();
+        syncDrawingOverlays();
       });
       // フロートパネルが価格軸・時間軸に被らないよう、実測サイズをストアに反映。
       // 4画面時は全パネルほぼ同じ幅になるはずだが、書き込みはメインパネルのみに絞り
