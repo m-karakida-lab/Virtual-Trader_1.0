@@ -5,7 +5,7 @@ import {
   type Time, type UTCTimestamp, type CandlestickData, type IPriceLine,
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
-import type { Candle, LineSelection, TimeframeSec } from '../types';
+import type { Candle, TimeframeSec } from '../types';
 import { TIMEFRAMES } from '../types';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE } from '../lib/chartTheme';
@@ -38,6 +38,7 @@ import {
   type ArrowEndpoint, type BrushVertex, type BrushCircleCorner,
 } from './chart/hitTest';
 import { createCoordinateHelpers, interpolatePriceOnLine } from './chart/coordinates';
+import { createKeyboardHandler } from './chart/keyboard';
 import { usePriceLines } from './chart/usePriceLines';
 import {
   useIndicatorSeries, EMA_COLOR, SMA_COLOR, BB_BASIS_COLOR, BB_SILVER, CLOUD_A_COLOR, CLOUD_B_COLOR,
@@ -65,17 +66,6 @@ function isHiddenTimeframesVisibleAt(obj: { hiddenTimeframes?: TimeframeSec[] },
   const key = timeframeSec < 3600 ? 3600 : timeframeSec;
   return !hidden.includes(key as TimeframeSec);
 }
-
-// Cmd/Ctrl+C→VのクリップボードはCandleChartコンポーネントの寿命内だけ有効な状態だが、
-// 4画面時は4インスタンスとも同じマウント時1回のみのeffect内にそれぞれ別々の
-// ローカル変数として持っていた（以前は1画面=1インスタンスだったため問題にならなかった）。
-// window.addEventListener('keydown', ...)は各インスタンスが独立にwindowへ登録するため、
-// インスタンスごとに別のclipboard変数のままだと「パネルAでコピーしたものをパネルBで
-// ペースト」した時にBの空のclipboardが空振りし、かつ4インスタンス分のonKeyDownが同じ
-// キー入力に反応してしまう（Cmd+Vで4つ複製される等）。モジュールスコープに上げて
-// 全インスタンスで共有し、後述のactivePanelSlotガードと合わせて「最後に操作した1枠だけ
-// が実際に反応する」という単純な形にする
-let clipboard: LineSelection | null = null;
 
 // slot/isMain/timeframeSecは3画面/4画面レイアウトで複数インスタンスとして使うためのprops。
 // 省略時（1画面時）は今まで通り「唯一のメインパネル」として振る舞う（isMain=true, slot=0）。
@@ -1235,12 +1225,6 @@ export function CandleChart({
     // 変わるため、四角形の両端に同じ「秒数」を足すと片方だけ足の本数がズレて幅が変わってしまう
     let rectMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
     let pendingRectMoveDelta: { idx: number; dp: number } | null = null;
-
-    // ── コピー&ペースト（Cmd/Ctrl+C / Cmd/Ctrl+V） ──────────────────────
-    // clipboard変数自体はモジュールスコープ（ファイル冒頭）で全インスタンス共有。
-    // ペースト後はクリップボードを複製先に差し替える。連続でVを押すと
-    // その都度OFFSET_PXずつ右下へずれながら複製されていく（斜めに並ぶ）
-    const PASTE_OFFSET_PX = 20;
 
     // 描画物・価格ラインの当たり判定（chart/hitTest.ts）と、マウス座標→時刻・価格の変換（chart/coordinates.ts）
     const {
@@ -2703,162 +2687,8 @@ export function CandleChart({
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
 
-    // Delete/Backspaceキーで選択中の水平線・垂直線・四角形を削除、Cmd/Ctrl+C・Vでコピー&ペースト
-    // （Macのキーボードは物理削除キーが実は⌫=Backspaceで、fn+⌫でようやくDeleteになるため両方拾う）
-    const onKeyDown = (e: KeyboardEvent) => {
-      // Phase 4: 4画面時、Delete/Undo/コピペ等は「最後にマウス操作した1枠」だけに効かせる
-      // （4インスタンス全部がwindowのkeydownを見ているため、絞らないと同じキー入力に
-      // 4枠とも反応してしまう。例: Cmd+Vで意図せず4つ複製される）
-      if (useTraderStore.getState().activePanelSlot !== slotRef.current) return;
-      const active = document.activeElement as HTMLElement | null;
-      const tag = (active?.tagName || '').toLowerCase();
-      // テキストボックスの直接編集中（contentEditable）もショートカット対象から除外する
-      if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
-
-      if (e.key === 'Delete' || e.key === 'Backspace') {
-        const { selected: sel, removeLine, removeVLine, removeRect, removeTrendLine, removeChannel, removeArrow, removeBrush, removeText } = useTraderStore.getState();
-        if (!sel) return;
-        if (sel.kind === 'h') removeLine(sel.id);
-        else if (sel.kind === 'v') removeVLine(sel.id);
-        else if (sel.kind === 'rect') removeRect(sel.id);
-        else if (sel.kind === 'trend') removeTrendLine(sel.id);
-        else if (sel.kind === 'channel') removeChannel(sel.id);
-        else if (sel.kind === 'arrow') removeArrow(sel.id);
-        else if (sel.kind === 'brush') removeBrush(sel.id);
-        else removeText(sel.id);
-        return;
-      }
-
-      if (!(e.metaKey || e.ctrlKey)) return;
-
-      if ((e.key === 'z' || e.key === 'Z') && !e.shiftKey) {
-        e.preventDefault();
-        useTraderStore.getState().undo();
-        return;
-      }
-
-      if (!seriesRef.current || !chartRef.current) return;
-
-      if (e.key === 'c' || e.key === 'C') {
-        const { selected: sel } = useTraderStore.getState();
-        if (sel) clipboard = sel;
-        return;
-      }
-
-      if (e.key === 'v' || e.key === 'V') {
-        if (!clipboard) return;
-        e.preventDefault();
-        const store = useTraderStore.getState();
-        if (clipboard.kind === 'h') {
-          const src = store.lines.find(l => l.id === clipboard!.id);
-          const y = src && seriesRef.current.priceToCoordinate(src.price);
-          if (!src || y === null || y === undefined) return;
-          const newPrice = seriesRef.current.coordinateToPrice(y + PASTE_OFFSET_PX);
-          if (newPrice === null) return;
-          store.duplicateLine(src.id, newPrice);
-          const newId = useTraderStore.getState().nextLineId - 1;
-          store.selectLine({ kind: 'h', id: newId });
-          clipboard = { kind: 'h', id: newId };
-        } else if (clipboard.kind === 'v') {
-          const src = store.vlines.find(v => v.id === clipboard!.id);
-          const x = src && timeToX(src.time);
-          if (!src || x === null || x === undefined) return;
-          const newTime = pixelToTime(x + PASTE_OFFSET_PX);
-          if (newTime === null) return;
-          store.duplicateVLine(src.id, newTime);
-          const newId = useTraderStore.getState().nextVLineId - 1;
-          store.selectLine({ kind: 'v', id: newId });
-          clipboard = { kind: 'v', id: newId };
-        } else if (clipboard.kind === 'rect') {
-          const src = store.rects.find(r => r.id === clipboard!.id);
-          if (!src) return;
-          const x1 = timeToX(src.time1), x2 = timeToX(src.time2);
-          const y1 = seriesRef.current.priceToCoordinate(src.price1), y2 = seriesRef.current.priceToCoordinate(src.price2);
-          if (x1 === null || x2 === null || y1 === null || y2 === null) return;
-          const newTime1 = pixelToTime(x1 + PASTE_OFFSET_PX);
-          const newTime2 = pixelToTime(x2 + PASTE_OFFSET_PX);
-          const newPrice1 = seriesRef.current.coordinateToPrice(y1 + PASTE_OFFSET_PX);
-          const newPrice2 = seriesRef.current.coordinateToPrice(y2 + PASTE_OFFSET_PX);
-          if (newTime1 === null || newTime2 === null || newPrice1 === null || newPrice2 === null) return;
-          store.duplicateRect(src.id, newTime1, newPrice1, newTime2, newPrice2);
-          const newId = useTraderStore.getState().nextRectId - 1;
-          store.selectLine({ kind: 'rect', id: newId });
-          clipboard = { kind: 'rect', id: newId };
-        } else if (clipboard.kind === 'trend') {
-          const src = store.trendLines.find(t => t.id === clipboard!.id);
-          if (!src) return;
-          const x1 = timeToX(src.time1), x2 = timeToX(src.time2);
-          const y1 = seriesRef.current.priceToCoordinate(src.price1), y2 = seriesRef.current.priceToCoordinate(src.price2);
-          if (x1 === null || x2 === null || y1 === null || y2 === null) return;
-          const newTime1 = pixelToTime(x1 + PASTE_OFFSET_PX);
-          const newTime2 = pixelToTime(x2 + PASTE_OFFSET_PX);
-          const newPrice1 = seriesRef.current.coordinateToPrice(y1 + PASTE_OFFSET_PX);
-          const newPrice2 = seriesRef.current.coordinateToPrice(y2 + PASTE_OFFSET_PX);
-          if (newTime1 === null || newTime2 === null || newPrice1 === null || newPrice2 === null) return;
-          store.duplicateTrendLine(src.id, newTime1, newPrice1, newTime2, newPrice2);
-          const newId = useTraderStore.getState().nextTrendLineId - 1;
-          store.selectLine({ kind: 'trend', id: newId });
-          clipboard = { kind: 'trend', id: newId };
-        } else if (clipboard.kind === 'channel') {
-          const src = store.channels.find(c => c.id === clipboard!.id);
-          if (!src) return;
-          const x1 = timeToX(src.time1), x2 = timeToX(src.time2);
-          const y1 = seriesRef.current.priceToCoordinate(src.price1), y2 = seriesRef.current.priceToCoordinate(src.price2);
-          if (x1 === null || x2 === null || y1 === null || y2 === null) return;
-          const newTime1 = pixelToTime(x1 + PASTE_OFFSET_PX);
-          const newTime2 = pixelToTime(x2 + PASTE_OFFSET_PX);
-          const newPrice1 = seriesRef.current.coordinateToPrice(y1 + PASTE_OFFSET_PX);
-          const newPrice2 = seriesRef.current.coordinateToPrice(y2 + PASTE_OFFSET_PX);
-          if (newTime1 === null || newTime2 === null || newPrice1 === null || newPrice2 === null) return;
-          store.duplicateChannel(src.id, newTime1, newPrice1, newTime2, newPrice2);
-          const newId = useTraderStore.getState().nextChannelId - 1;
-          store.selectLine({ kind: 'channel', id: newId });
-          clipboard = { kind: 'channel', id: newId };
-        } else if (clipboard.kind === 'arrow') {
-          const src = store.arrows.find(a => a.id === clipboard!.id);
-          if (!src) return;
-          const x1 = timeToX(src.time1), x2 = timeToX(src.time2);
-          const y1 = seriesRef.current.priceToCoordinate(src.price1), y2 = seriesRef.current.priceToCoordinate(src.price2);
-          if (x1 === null || x2 === null || y1 === null || y2 === null) return;
-          const newTime1 = pixelToTime(x1 + PASTE_OFFSET_PX);
-          const newTime2 = pixelToTime(x2 + PASTE_OFFSET_PX);
-          const newPrice1 = seriesRef.current.coordinateToPrice(y1 + PASTE_OFFSET_PX);
-          const newPrice2 = seriesRef.current.coordinateToPrice(y2 + PASTE_OFFSET_PX);
-          if (newTime1 === null || newTime2 === null || newPrice1 === null || newPrice2 === null) return;
-          store.duplicateArrow(src.id, newTime1, newPrice1, newTime2, newPrice2);
-          const newId = useTraderStore.getState().nextArrowId - 1;
-          store.selectLine({ kind: 'arrow', id: newId });
-          clipboard = { kind: 'arrow', id: newId };
-        } else if (clipboard.kind === 'brush') {
-          const src = store.brushes.find(b => b.id === clipboard!.id);
-          if (!src) return;
-          // 各点を同じピクセル量だけずらす（先頭点のオフセットをtime/priceの差分に変換し、全点へ適用）
-          const x0 = timeToX(src.points[0].time), y0 = seriesRef.current.priceToCoordinate(src.points[0].price);
-          if (x0 === null || y0 === null) return;
-          const newTime0 = pixelToTime(x0 + PASTE_OFFSET_PX);
-          const newPrice0 = seriesRef.current.coordinateToPrice(y0 + PASTE_OFFSET_PX);
-          if (newTime0 === null || newPrice0 === null) return;
-          const dt = newTime0 - src.points[0].time, dp = newPrice0 - src.points[0].price;
-          const newPoints = src.points.map(p => ({ time: p.time + dt, price: p.price + dp }));
-          store.duplicateBrush(src.id, newPoints);
-          const newId = useTraderStore.getState().nextBrushId - 1;
-          store.selectLine({ kind: 'brush', id: newId });
-          clipboard = { kind: 'brush', id: newId };
-        } else {
-          const src = store.texts.find(t => t.id === clipboard!.id);
-          if (!src) return;
-          const x = timeToX(src.time), y = seriesRef.current.priceToCoordinate(src.price);
-          if (x === null || y === null) return;
-          const newTime = pixelToTime(x + PASTE_OFFSET_PX);
-          const newPrice = seriesRef.current.coordinateToPrice(y + PASTE_OFFSET_PX);
-          if (newTime === null || newPrice === null) return;
-          store.duplicateText(src.id, newTime, newPrice);
-          const newId = useTraderStore.getState().nextTextId - 1;
-          store.selectLine({ kind: 'text', id: newId });
-          clipboard = { kind: 'text', id: newId };
-        }
-      }
-    };
+    // Delete/Backspace・取り消し・コピー&ペースト（chart/keyboard.ts）
+    const onKeyDown = createKeyboardHandler({ slotRef, chartRef, seriesRef, timeToX, pixelToTime });
     window.addEventListener('keydown', onKeyDown);
 
     // ウィンドウリサイズ + Controls 高さ変化（ポジション増減）+ 1画面⇔4画面のレイアウト
