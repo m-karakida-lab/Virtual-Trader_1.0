@@ -11,7 +11,6 @@ import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE } from '../lib/chartTheme';
 import { ChartHeader } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
-import { recognizeShape } from '../lib/shapeRecognition';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { computeSessionBands, type SessionBand } from '../lib/sessions';
 import { computeEMA, computeSMA, computeBB, computeCloud, computeATR } from '../lib/indicators';
@@ -32,10 +31,7 @@ import { createSyncTexts } from './chart/textsOverlay';
 import { createSyncCloud } from './chart/cloudOverlay';
 import { createUpdateRRPreview } from './chart/rrPreviewOverlay';
 import { createUpdateMeasureBox } from './chart/measureOverlay';
-import {
-  createHitTests, type DragTarget,
-  type BrushVertex, type BrushCircleCorner,
-} from './chart/hitTest';
+import { createHitTests, type DragTarget } from './chart/hitTest';
 import { createCoordinateHelpers } from './chart/coordinates';
 import { createKeyboardHandler } from './chart/keyboard';
 import { createTextEditor } from './chart/textEditing';
@@ -43,6 +39,7 @@ import { CONSUMED, type DragSession, type StartResult } from './chart/drag';
 import { createTwoPointTool } from './chart/twoPointTool';
 import { createChannelTool } from './chart/channelTool';
 import { createRectTool } from './chart/rectTool';
+import { createBrushTool } from './chart/brushTool';
 import { createVLineTool } from './chart/vlineTool';
 import { usePriceLines } from './chart/usePriceLines';
 import {
@@ -939,23 +936,6 @@ export function CandleChart({
 
     });
 
-    // ── ブラシ（ドラッグで自由に描画） ──────────────────────────────
-    // 点は毎mousemoveイベントで（他のドラッグ系のような1フレーム1点のrAF間引きは
-    // 使わず）逐一記録する。フレーム単位で間引くと、速く動かした時にこそ点が
-    // 粗くなり、直線を無理やり2次ベジェで滑らかに見せても元の点自体が少なすぎて
-    // カクカクした多角形に見えてしまう（実際にそう見えると指摘を受けた）。
-    // 代わりにピクセル距離基準（BRUSH_MIN_PXより動いた時だけ記録）で間引くことで、
-    // 速いドラッグほど自然に多くの点が入り、遅いドラッグでの無駄な点の肥大化も防ぐ。
-    // 描画（canvas再描画）自体は重いのでrAFで間引く（記録とは別軸）
-    const BRUSH_MIN_PX = 2;
-    let brushDrawing = false;
-    let brushPoints: { time: number; price: number }[] = [];
-    let lastBrushPx: { x: number; y: number } | null = null;
-    // brushPointsと1対1で並走するピクセル座標版。図形認識（三角形/円のスナップ）は
-    // 時間軸と価格軸でスケールが全く異なる time/price 空間では「見た目のバランス」を
-    // 判定できないため、ストローク確定時にこちらを使って判定する
-    let brushPxPoints: { x: number; y: number }[] = [];
-
     // ── ものさし（表示はchart/measureOverlay.ts、ドラッグの開始/終了はここ） ──────────────
     let measuringDrag = false;
     let measureStart: { x: number; y: number; price: number; time: number } | null = null;
@@ -981,24 +961,6 @@ export function CandleChart({
     // ── 既存ライン（水平線・垂直線・注文・TP/SL）のドラッグ移動 ──────
     let draggingTarget: DragTarget | null = null;
     let draggingDraft: 'price' | 'tp' | 'sl' | null = null;
-    // ── ブラシの平行移動ドラッグ ─────────────────────────────────────
-    // 普通のフリーハンドは点ごとに個別の意味を持たないため、リサイズ（個々の点の編集）は
-    // 提供せず、掴んだ点全体を平行移動するだけ。四角形/トレンドラインと違い、
-    // 「幅を保つ」ような不変条件も無いので、足のインデックスではなく素の時間差分で
-    // 全ての点をまとめてずらす（実装が単純になる。週末等の足抜けを気にする必要が無い）。
-    // ただし図形認識で作った三角形/円（b.shapeあり）だけは例外で、下の専用ハンドルで
-    // 個別に編集できる
-    let draggingBrushMoveId: number | null = null;
-    let brushMoveStart: { points: { time: number; price: number }[]; startTime: number; startPrice: number } | null = null;
-    let pendingBrushMoveDelta: { dt: number; dp: number } | null = null;
-    // ── 図形認識ブラシ（三角形/円）の頂点・角ドラッグ ───────────────
-    let draggingBrushVertex: BrushVertex | null = null;
-    let pendingBrushVertexPos: { time: number; price: number } | null = null;
-    let draggingBrushCircleCorner: BrushCircleCorner | null = null;
-    // 円のリサイズは掴んだ角の対角（固定される側）をピクセル座標で保持し、ドラッグ中の
-    // 角の新しい位置と合わせてバウンディングボックスを再計算、楕円の点列を作り直す
-    let brushCircleFixedCornerPx: { x: number; y: number } | null = null;
-    let pendingBrushCircleCornerPx: { x: number; y: number } | null = null;
     // ── テキストボックスの移動ドラッグ ─────────────────────────────
     // 掴んだ位置とテキスト要素の左上とのピクセルオフセットを保持し、ドラッグ中は
     // そのオフセット分だけずらした位置に要素を追従させる（垂直線ドラッグと同じ考え方）
@@ -1067,6 +1029,11 @@ export function CandleChart({
       setDragPreview: p => { rectDragPreviewPx = p; }, setNewDraft: d => { newRectDraftPx = d; },
       sync: syncRects, positionRectHandles,
     });
+    const brushTool = createBrushTool({
+      chart, container, seriesRef, magnetSnap, pixelToContinuousTime, timeToX,
+      findVertex: findBrushVertexNear, findCircleCorner: findBrushCircleCornerNear, findBody: findBrushNear,
+      setDragPreview: p => { brushDragPreview = p; }, setNewDraft: d => { newBrushDraft = d; }, sync: syncBrushes,
+    });
     // ツールのmousedown結果を受け取る。当たった（ドラッグ開始・またはCONSUMED）ならtrue
     const startWith = (r: StartResult): boolean => {
       if (r === null) return false;
@@ -1081,30 +1048,6 @@ export function CandleChart({
       if (kind === 'sl') return slLineMapRef.current;
       if (kind === 'orderTp') return orderTpLineMapRef.current;
       return orderSlLineMapRef.current;
-    };
-
-    // 円ブラシ用: ピクセル空間のバウンディングボックス（2点）から楕円の外周点列を
-    // 生成し、time/priceへ変換する（図形認識の円生成と同じ分割数・同じ考え方）
-    const CIRCLE_RESIZE_STEPS = 64;
-    const regenerateCirclePointsFromPxBox = (
-      x1: number, y1: number, x2: number, y2: number,
-    ): { time: number; price: number }[] | null => {
-      if (!seriesRef.current) return null;
-      const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
-      const minY = Math.min(y1, y2), maxY = Math.max(y1, y2);
-      const rx = (maxX - minX) / 2, ry = (maxY - minY) / 2;
-      if (rx <= 0 || ry <= 0) return null;
-      const cx = minX + rx, cy = minY + ry;
-      const out: { time: number; price: number }[] = [];
-      for (let i = 0; i <= CIRCLE_RESIZE_STEPS; i++) {
-        const a = (i / CIRCLE_RESIZE_STEPS) * Math.PI * 2;
-        const px = cx + rx * Math.cos(a), py = cy + ry * Math.sin(a);
-        const time = pixelToContinuousTime(px);
-        const price = seriesRef.current.coordinateToPrice(py);
-        if (time === null || price === null) return null;
-        out.push({ time, price });
-      }
-      return out;
     };
 
     const onMouseDown = (e: MouseEvent) => {
@@ -1173,19 +1116,8 @@ export function CandleChart({
       }
 
       if (isB) {
-        // フリーハンドはマグネットで吸着させない（吸着すると滑らかな線が描けなくなり
-        // ブラシの意味が無くなる）。素の座標をそのまま使う
-        if (!seriesRef.current || !chartRef.current) return;
-        const price = seriesRef.current.coordinateToPrice(y);
-        const time = pixelToContinuousTime(x);
-        if (price === null || time === null) return;
-        brushDrawing = true;
-        brushPoints = [{ time, price }];
-        brushPxPoints = [{ x, y }];
-        lastBrushPx = { x, y };
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        newBrushDraft = brushPoints;
-        syncBrushes();
+        const session = brushTool.startDraw(x, y);
+        if (session) activeSession = session;
         return;
       }
 
@@ -1224,56 +1156,7 @@ export function CandleChart({
 
       if (startWith(channelTool.editTool.tryStartEdit(x, y))) return;
 
-      const brushVertex = findBrushVertexNear(x, y);
-      if (brushVertex !== null) {
-        draggingBrushVertex = brushVertex;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'nwse-resize';
-        useTraderStore.getState().selectLine({ kind: 'brush', id: brushVertex.brushId });
-        return;
-      }
-
-      const brushCorner = findBrushCircleCornerNear(x, y);
-      if (brushCorner !== null) {
-        if (!seriesRef.current) return;
-        const { brushes: brushesAtDown } = useTraderStore.getState();
-        const src = brushesAtDown.find(b => b.id === brushCorner.brushId);
-        if (!src) return;
-        const pxPts: { x: number; y: number }[] = [];
-        for (const p of src.points) {
-          const px = timeToX(p.time), py = seriesRef.current.priceToCoordinate(p.price);
-          if (px !== null && py !== null) pxPts.push({ x: px, y: py });
-        }
-        if (pxPts.length === 0) return;
-        const minX = Math.min(...pxPts.map(p => p.x)), maxX = Math.max(...pxPts.map(p => p.x));
-        const minY = Math.min(...pxPts.map(p => p.y)), maxY = Math.max(...pxPts.map(p => p.y));
-        // ドラッグ中に固定する対角の角の座標を控えておく
-        brushCircleFixedCornerPx = {
-          x: brushCorner.corner === 'tl' || brushCorner.corner === 'bl' ? maxX : minX,
-          y: brushCorner.corner === 'tl' || brushCorner.corner === 'tr' ? maxY : minY,
-        };
-        draggingBrushCircleCorner = brushCorner;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'nwse-resize';
-        useTraderStore.getState().selectLine({ kind: 'brush', id: brushCorner.brushId });
-        return;
-      }
-
-      const brushId = findBrushNear(x, y);
-      if (brushId !== null) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const { brushes: brushesAtDown } = useTraderStore.getState();
-        const src = brushesAtDown.find(b => b.id === brushId);
-        const startTime = pixelToContinuousTime(x);
-        const startPrice = seriesRef.current.coordinateToPrice(y);
-        if (!src || startTime === null || startPrice === null) return;
-        draggingBrushMoveId = brushId;
-        brushMoveStart = { points: src.points, startTime, startPrice };
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'move';
-        useTraderStore.getState().selectLine({ kind: 'brush', id: brushId });
-        return;
-      }
+      if (startWith(brushTool.editTool.tryStartEdit(x, y))) return;
 
       const textId = findTextNear(x, y);
       if (textId !== null) {
@@ -1321,29 +1204,6 @@ export function CandleChart({
 
       // 平行チャネルのオフセット決定待ち: ボタンを押していない移動で2本目の位置をプレビュー
       if (channelTool.moveWhileAwaitingOffset(x, y)) return;
-
-      if (brushDrawing) {
-        if (!seriesRef.current) return;
-        // 点の記録自体はここで即座に行う（rAFで間引かない。理由は冒頭のlet宣言を参照）。
-        // ピクセル距離がBRUSH_MIN_PX未満ならまだ記録しない
-        if (lastBrushPx && Math.hypot(x - lastBrushPx.x, y - lastBrushPx.y) < BRUSH_MIN_PX) return;
-        const price = seriesRef.current.coordinateToPrice(y);
-        const time = pixelToContinuousTime(x);
-        if (price === null || time === null) return;
-        brushPoints = [...brushPoints, { time, price }];
-        brushPxPoints = [...brushPxPoints, { x, y }];
-        lastBrushPx = { x, y };
-        newBrushDraft = brushPoints;
-        // 重いのはcanvas再描画の方なので、そちらだけrAFで間引く
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            syncBrushes();
-          });
-        }
-        return;
-      }
 
       if (measuringDrag && measureStart) {
         updateMeasureBox(measureStart.x, measureStart.y, x, y);
@@ -1406,75 +1266,6 @@ export function CandleChart({
         return;
       }
 
-      if (draggingBrushMoveId !== null && brushMoveStart) {
-        if (!seriesRef.current) return;
-        const t = pixelToContinuousTime(x);
-        const p = seriesRef.current.coordinateToPrice(y);
-        if (t === null || p === null) return;
-        pendingBrushMoveDelta = { dt: t - brushMoveStart.startTime, dp: p - brushMoveStart.startPrice };
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingBrushMoveId === null || pendingBrushMoveDelta === null || brushMoveStart === null) return;
-            const { dt, dp } = pendingBrushMoveDelta;
-            brushDragPreview = {
-              id: draggingBrushMoveId,
-              points: brushMoveStart.points.map(pt => ({ time: pt.time + dt, price: pt.price + dp })),
-            };
-            syncBrushes();
-          });
-        }
-        return;
-      }
-
-      if (draggingBrushVertex !== null) {
-        if (!seriesRef.current) return;
-        const snap = magnetSnap(x, y);
-        const time = pixelToContinuousTime(x);
-        if (snap === null || time === null) return;
-        pendingBrushVertexPos = { time, price: snap.price };
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingBrushVertex === null || pendingBrushVertexPos === null) return;
-            const { brushes: currentBrushes } = useTraderStore.getState();
-            const b = currentBrushes.find(bb => bb.id === draggingBrushVertex!.brushId);
-            if (!b) return;
-            const newPoints = b.points.map((pt, i) => {
-              // points[3]は輪を閉じるための始点(points[0])の複製なので、頂点0を動かす時は一緒に動かす
-              if (i === draggingBrushVertex!.vertexIndex || (draggingBrushVertex!.vertexIndex === 0 && i === 3)) {
-                return pendingBrushVertexPos!;
-              }
-              return pt;
-            });
-            brushDragPreview = { id: b.id, points: newPoints };
-            syncBrushes();
-          });
-        }
-        return;
-      }
-
-      if (draggingBrushCircleCorner !== null && brushCircleFixedCornerPx) {
-        pendingBrushCircleCornerPx = { x, y };
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingBrushCircleCorner === null || pendingBrushCircleCornerPx === null || brushCircleFixedCornerPx === null) return;
-            const newPoints = regenerateCirclePointsFromPxBox(
-              brushCircleFixedCornerPx.x, brushCircleFixedCornerPx.y,
-              pendingBrushCircleCornerPx.x, pendingBrushCircleCornerPx.y,
-            );
-            if (!newPoints) return;
-            brushDragPreview = { id: draggingBrushCircleCorner.brushId, points: newPoints };
-            syncBrushes();
-          });
-        }
-        return;
-      }
-
       if (draggingTextId !== null) {
         pendingTextXY = { x: x - textGrabDX, y: y - textGrabDY };
         if (!rafScheduled) {
@@ -1520,12 +1311,8 @@ export function CandleChart({
         if (trendCursor !== null) { container.style.cursor = trendCursor; return; }
         const channelCursor = channelTool.editTool.hoverCursor(x, y);
         if (channelCursor !== null) { container.style.cursor = channelCursor; return; }
-        const brushVertexHover = findBrushVertexNear(x, y);
-        if (brushVertexHover !== null) { container.style.cursor = 'nwse-resize'; return; }
-        const brushCornerHover = findBrushCircleCornerNear(x, y);
-        if (brushCornerHover !== null) { container.style.cursor = 'nwse-resize'; return; }
-        const brushHoverId = findBrushNear(x, y);
-        if (brushHoverId !== null) { container.style.cursor = 'move'; return; }
+        const brushCursor = brushTool.editTool.hoverCursor(x, y);
+        if (brushCursor !== null) { container.style.cursor = brushCursor; return; }
         const textId = findTextNear(x, y);
         if (textId !== null) { container.style.cursor = 'move'; return; }
         // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
@@ -1541,43 +1328,6 @@ export function CandleChart({
         const session = activeSession;
         activeSession = null;
         session.end(e.clientX - rect.left, e.clientY - rect.top, e);
-        return;
-      }
-      if (brushDrawing) {
-        brushDrawing = false;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        newBrushDraft = null;
-        if (brushPoints.length >= 2) {
-          // 図形認識: 閉じた三角形/円っぽいストロークなら綺麗な図形にスナップする
-          // （iPad等のペン機能と同種の処理。判定はピクセル座標で行う——time/priceの
-          // スケールは無関係なので、そのまま使うと見た目の「バランス」を判定できない）
-          const recognized = seriesRef.current ? recognizeShape(brushPxPoints) : null;
-          const converted = recognized && seriesRef.current
-            ? recognized.points.map(pt => ({
-                time: pixelToContinuousTime(pt.x),
-                price: seriesRef.current!.coordinateToPrice(pt.y),
-              }))
-            : null;
-          const allValid = converted !== null && converted.every(p => p.time !== null && p.price !== null);
-          if (recognized && allValid) {
-            // 円もshape付き（平滑化なしの直線つなぎ）で描画する。円は点数が多く
-            // 直線でつないでも見た目には滑らかだが、平滑化パイプライン（手ブレ補正の
-            // ボックスフィルタ）は両端点を固定したまま処理するため、始点=終点の閉じた
-            // 輪にそのまま通すと継ぎ目だけ丸められず角が残ってしまう（実際に指摘を受けた）。
-            // shapeを付けておくことで選択中に専用の編集ハンドル（三角形=各頂点、
-            // 円=バウンディングボックスの角）も出せるようにする
-            useTraderStore.getState().addBrush(
-              converted!.map(p => ({ time: p.time as number, price: p.price as number })),
-              { shape: recognized.type },
-            );
-          } else {
-            useTraderStore.getState().addBrush(brushPoints);
-          }
-        }
-        syncBrushes(); // ドラフトのクリア
-        brushPoints = [];
-        brushPxPoints = [];
-        lastBrushPx = null;
         return;
       }
       if (measuringDrag) {
@@ -1621,57 +1371,6 @@ export function CandleChart({
         draggingTarget = null;
         pendingPrice = null;
         chart.applyOptions({ handleScroll: true, handleScale: true });
-      }
-      if (draggingBrushMoveId !== null) {
-        if (pendingBrushMoveDelta !== null && brushMoveStart !== null) {
-          const { dt, dp } = pendingBrushMoveDelta;
-          useTraderStore.getState().updateBrush(draggingBrushMoveId, {
-            points: brushMoveStart.points.map(pt => ({ time: pt.time + dt, price: pt.price + dp })),
-          });
-        }
-        draggingBrushMoveId = null;
-        brushMoveStart = null;
-        pendingBrushMoveDelta = null;
-        brushDragPreview = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        container.style.cursor = 'default';
-      }
-      if (draggingBrushVertex !== null) {
-        if (pendingBrushVertexPos !== null) {
-          const { brushes: currentBrushes } = useTraderStore.getState();
-          const b = currentBrushes.find(bb => bb.id === draggingBrushVertex!.brushId);
-          if (b) {
-            const newPoints = b.points.map((pt, i) => {
-              if (i === draggingBrushVertex!.vertexIndex || (draggingBrushVertex!.vertexIndex === 0 && i === 3)) {
-                return pendingBrushVertexPos!;
-              }
-              return pt;
-            });
-            useTraderStore.getState().updateBrush(draggingBrushVertex.brushId, { points: newPoints });
-          }
-        }
-        draggingBrushVertex = null;
-        pendingBrushVertexPos = null;
-        brushDragPreview = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        container.style.cursor = 'default';
-      }
-      if (draggingBrushCircleCorner !== null) {
-        if (pendingBrushCircleCornerPx !== null && brushCircleFixedCornerPx !== null) {
-          const newPoints = regenerateCirclePointsFromPxBox(
-            brushCircleFixedCornerPx.x, brushCircleFixedCornerPx.y,
-            pendingBrushCircleCornerPx.x, pendingBrushCircleCornerPx.y,
-          );
-          if (newPoints) {
-            useTraderStore.getState().updateBrush(draggingBrushCircleCorner.brushId, { points: newPoints });
-          }
-        }
-        draggingBrushCircleCorner = null;
-        brushCircleFixedCornerPx = null;
-        pendingBrushCircleCornerPx = null;
-        brushDragPreview = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        container.style.cursor = 'default';
       }
       if (draggingTextId !== null) {
         if (pendingTextXY !== null && seriesRef.current) {
