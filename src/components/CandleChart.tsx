@@ -2088,6 +2088,11 @@ export function CandleChart({
         if (target !== null) { container.style.cursor = 'ns-resize'; return; }
         const vId = findVLineNear(x);
         if (vId !== null) { container.style.cursor = 'ew-resize'; return; }
+        // 矢印はmousedownと同じく他の図形より先に判定する（最前面に描かれ、クリックでも優先して掴むため）
+        const arrowEndpointHover = findArrowEndpointNear(x, y);
+        if (arrowEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
+        const arrowHoverId = findArrowNear(x, y);
+        if (arrowHoverId !== null) { container.style.cursor = 'move'; return; }
         const corner = findRectCornerNear(x, y);
         if (corner !== null) { container.style.cursor = 'nwse-resize'; return; }
         const edge = findRectEdgeNear(x, y);
@@ -2104,10 +2109,6 @@ export function CandleChart({
         if (channelOffsetHoverId !== null) { container.style.cursor = 'ns-resize'; return; }
         const channelBaseHoverId = findChannelBaseNear(x, y);
         if (channelBaseHoverId !== null) { container.style.cursor = 'move'; return; }
-        const arrowEndpointHover = findArrowEndpointNear(x, y);
-        if (arrowEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
-        const arrowHoverId = findArrowNear(x, y);
-        if (arrowHoverId !== null) { container.style.cursor = 'move'; return; }
         const brushVertexHover = findBrushVertexNear(x, y);
         if (brushVertexHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const brushCornerHover = findBrushCircleCornerNear(x, y);
@@ -2117,7 +2118,7 @@ export function CandleChart({
         const textId = findTextNear(x, y);
         if (textId !== null) { container.style.cursor = 'move'; return; }
         // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
-        // 当たらなかった場合にのみカーソルを変える（mousedown側の優先順位と揃える）
+        // 当たらなかった場合にのみカーソルを変える（判定順は全体をmousedown側の優先順位と揃えること）
         const hlineId = findHLineNear(y);
         container.style.cursor = hlineId !== null ? 'ns-resize' : 'default';
       }
