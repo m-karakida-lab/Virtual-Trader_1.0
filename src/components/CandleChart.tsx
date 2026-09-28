@@ -1087,9 +1087,9 @@ export function CandleChart({
       findBody: findTrendLineNear,
       setDragPreview: p => { trendDragPreview = p; }, setNewDraft: d => { newTrendDraft = d; }, sync: syncTrendLines,
     });
-    // 矢印の端点はShiftで水平/垂直に強制できる
+    // 矢印はShiftで水平/垂直に強制できる（新規描画・端点ドラッグとも）
     const arrowTool = createTwoPointTool({
-      ...twoPointCommon, selectionKind: 'arrow', shiftConstrainsEndpoint: true,
+      ...twoPointCommon, selectionKind: 'arrow', shiftConstrains: true,
       list: () => useTraderStore.getState().arrows,
       add: (t1, p1, t2, p2) => useTraderStore.getState().addArrow(t1, p1, t2, p2),
       update: (id, patch) => useTraderStore.getState().updateArrow(id, patch),

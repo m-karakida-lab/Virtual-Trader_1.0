@@ -32,8 +32,8 @@ export interface TwoPointToolDeps {
   magnetSnap: (x: number, y: number) => { price: number; y: number } | null;
   pixelToTime: (x: number) => number | null;
   timeToX: TimeToX;
-  // Shiftを押しながら端点をドラッグすると、固定点を基準に水平/垂直へ強制する（矢印のみ）
-  shiftConstrainsEndpoint?: boolean;
+  // Shiftを押しながら新規描画・端点ドラッグすると、反対側の点を基準に水平/垂直へ強制する（矢印のみ）
+  shiftConstrains?: boolean;
 }
 
 // 2点図形（トレンドライン・矢印）のマウス操作: 新規描画（ドラッグ）、端点のリサイズ、
@@ -42,7 +42,7 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
   const {
     chart, container, seriesRef, displayCandlesRef, selectionKind, list, add, update,
     findEndpoint, findBody, setDragPreview, setNewDraft, sync, magnetSnap, pixelToTime, timeToX,
-    shiftConstrainsEndpoint = false,
+    shiftConstrains = false,
   } = deps;
 
   // 新規描画: 始点から現在位置までの線分をピクセル座標のままプレビューし、離した時に追加する
@@ -56,11 +56,16 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
     setNewDraft({ x1: x, y1: snap.y, x2: x, y2: snap.y });
     sync();
     return {
-      move(mx, my) {
+      move(mx, my, e) {
         const s = magnetSnap(mx, my);
         if (s === null) return;
         pendingEnd = { x: mx, y: s.y, price: s.price };
-        setNewDraft({ x1: start.x, y1: start.y, x2: mx, y2: s.y });
+        // Shift: 始点を基準に、カーソルが横寄りなら水平（始点と同じ価格）、縦寄りなら垂直（始点と同じ時刻）
+        if (shiftConstrains && e.shiftKey) {
+          if (Math.abs(mx - start.x) >= Math.abs(my - start.y)) pendingEnd = { x: mx, y: start.y, price: start.price };
+          else pendingEnd = { x: start.x, y: s.y, price: s.price };
+        }
+        setNewDraft({ x1: start.x, y1: start.y, x2: pendingEnd.x, y2: pendingEnd.y });
         sync();
       },
       end() {
@@ -93,7 +98,7 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
         // Shiftを押しながら端点をドラッグすると、もう一方の端点（固定点）を基準に
         // 水平（同じ価格）か垂直（同じ時刻）のどちらか一方に強制する。カーソルの実際の
         // 移動方向（ピクセル距離が大きい方の軸）で水平/垂直を自動判定する
-        if (shiftConstrainsEndpoint && e.shiftKey) {
+        if (shiftConstrains && e.shiftKey) {
           const shape = list().find(o => o.id === hit.id);
           if (shape) {
             const fixedTime = hit.timeField === 'time1' ? shape.time2 : shape.time1;
