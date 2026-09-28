@@ -30,6 +30,7 @@ import { createSyncChannels } from './chart/channelsOverlay';
 import { createSyncArrows } from './chart/arrowsOverlay';
 import { createSyncBrushes } from './chart/brushesOverlay';
 import { createSyncTexts } from './chart/textsOverlay';
+import { createSyncCloud } from './chart/cloudOverlay';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -694,64 +695,6 @@ export function CandleChart({
     };
     chart.subscribeCrosshairMove(onCrosshairMoveForSeparatorLabels);
 
-    // ── 雲（先行スパンA/B）の塗りつぶしを canvas に再描画 ────────────────
-    const syncCloud = () => {
-      const canvas = cloudCanvasRef.current;
-      if (!canvas || !chartRef.current || !seriesRef.current) return;
-      const ctx = canvas.getContext('2d');
-      if (!ctx) return;
-      // devicePixelRatioを考慮せずcanvas.widthをCSSピクセル数のまま設定すると、
-      // Retina等の高DPI画面ではブラウザがcanvasのビットマップを拡大表示することになり、
-      // 線が全体的にぼやけて特に斜め線・曲線がカクカクした階段状に見えてしまう
-      // （実際に指摘を受けて判明した）。実解像度をdpr倍で確保し、setTransformで
-      // 描画側の座標系はCSSピクセルのまま（w,hがそのまま使える）にしておく
-      const dpr = window.devicePixelRatio || 1;
-      const w = canvas.clientWidth, h = canvas.clientHeight;
-      if (canvas.width !== w * dpr) canvas.width = w * dpr;
-      if (canvas.height !== h * dpr) canvas.height = h * dpr;
-      ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-      ctx.clearRect(0, 0, w, h);
-
-      const { showCloud: show, overlaysHidden: hidden } = useTraderStore.getState();
-      const cs = displayCandlesRef.current;
-      const points = cloudDataRef.current;
-      if (!show || hidden || points.length < 2) return;
-
-      const timeScale = chartRef.current.timeScale();
-      const series = seriesRef.current;
-      // 表示範囲がローソク足の実データより外側に及んでいても、雲は最初の足より左側には描画しない
-      // （timeToCoordinate は範囲外の時刻も外挿してしまうため）
-      const leftBoundX = cs.length > 0 ? timeScale.timeToCoordinate(cs[0].time as Time) : null;
-      for (let i = 0; i < points.length - 1; i++) {
-        const p0 = points[i], p1 = points[i + 1];
-        const x0 = timeScale.timeToCoordinate(p0.time as Time);
-        const x1 = timeScale.timeToCoordinate(p1.time as Time);
-        if (x0 === null || x1 === null) continue;
-        if (leftBoundX !== null && x1 <= leftBoundX) continue;
-        const ya0 = series.priceToCoordinate(p0.a);
-        const ya1 = series.priceToCoordinate(p1.a);
-        const yb0 = series.priceToCoordinate(p0.b);
-        const yb1 = series.priceToCoordinate(p1.b);
-        if (ya0 === null || ya1 === null || yb0 === null || yb1 === null) continue;
-
-        ctx.fillStyle = (p0.a + p1.a) >= (p0.b + p1.b) ? 'rgba(38,166,154,0.15)' : 'rgba(239,83,80,0.15)';
-        ctx.beginPath();
-        ctx.moveTo(x0, ya0);
-        ctx.lineTo(x1, ya1);
-        ctx.lineTo(x1, yb1);
-        ctx.lineTo(x0, yb0);
-        ctx.closePath();
-        ctx.fill();
-      }
-
-      // 雲の塗りつぶしに重なったロウソク足を上に見せる。塗りつぶしはSeriesではなく
-      // このcanvasへの直接描画なので、先行スパンA/BのSeries順序を変えただけでは
-      // 塗りつぶし自体はロウソク足を覆ったままになる——四角形の縦線・垂直線と同じ
-      // destination-outで、ロウソク足の位置だけ透明に抜く（cutCandlesFromCanvas参照）
-      cutCandlesFromCanvas(ctx, w);
-    };
-    syncCloudRef.current = syncCloud;
-
     // 時刻→X座標変換。timeToCoordinateは足の時刻と完全一致しないとnullを返すため、
     // 時間軸切替（例: 15m→4H）で描画済みの水平線/四角形の時刻が新しい足のグリッドと
     // 一致せず、見えなくなってしまう問題への対策。表示範囲内なら前後の実足の座標を
@@ -850,6 +793,13 @@ export function CandleChart({
       }
       ctx.restore();
     };
+
+    // ── 雲（先行スパンA/B）の塗りつぶし（chart/cloudOverlay.ts）。cutCandlesFromCanvasを
+    // 引数で渡すため、その定義より後で生成すること（TDZ）
+    const syncCloud = createSyncCloud({
+      chartRef, seriesRef, canvasRef: cloudCanvasRef, displayCandlesRef, cloudDataRef, cutCandlesFromCanvas,
+    });
+    syncCloudRef.current = syncCloud;
 
     // 水平線・垂直線の描画（線本体は専用canvas、垂直線の日付ラベルと選択ハンドルのみDOM）。
     // ドラッグ中は store を経由せずここだけ書き換えて即座に再描画するプレビュー用
