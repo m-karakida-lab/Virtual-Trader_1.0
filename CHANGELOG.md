@@ -303,3 +303,27 @@
 ### 地雷メモ
 - 図形の描画・当たり判定・選択ハンドルは store の生配列ではなく `getVisibleDrawings()` から取る
 - 図形の種類を増やす時は `pushDrawHistory`/`undo`/`DrawSnapshot`/`loadFiles`/`saveChartFile`/`vtd.ts` の6箇所に追加
+
+---
+
+## 2026-09-28 — CandleChart分割の完了（マウス操作のツール化）・操作系の不具合修正
+
+### 変更
+- CandleChart.tsx の分割を完了（約5000行→約1860行）。雲の塗りつぶし・リスクリワードのプレビュー・ものさしの表示、価格ライン（`usePriceLines`）、メインのインジケータ（`useIndicatorSeries`）、表示範囲（`useViewRangeCommands`/`useViewRangeSync`）、当たり判定（`hitTest`）と座標変換（`coordinates`）、キー操作（`keyboard`）、テキストの直接編集（`textEditing`）を `src/components/chart/` へ切り出し。挙動は不変（DOM/canvasピクセル比較で確認）
+- マウス操作を「図形ごとのツール＋振り分け」に作り直し（`drag`・`vlineTool`・`twoPointTool`・`channelTool`・`rectTool`・`brushTool`・`priceLineTool`・`textMoveTool`・`measureTool`）。既存図形をつかむ判定順をクリックとホバー共通の1か所（`editTools`）にまとめた
+- 1コマ戻るで「最新足に固定」を解除しない（固定中は戻った足が右寄せ位置に来る）
+- 矢印の新規描画でも Shift で水平/垂直に固定できる
+
+### 修正
+- 高さだけのリサイズ（ポジション増減で下部パネルが伸縮する等）で平行チャネル・矢印が縦にずれる
+- 発注の下書きライン（価格/TP/SL）を素早く動かして離すと最後の移動が反映されない
+- 右クリックで図形の描画・選択・ドラッグが始まる（メニューが開くと、次のクリックで図形が動く）
+- 矢印と他の図形が重なる所で、ホバー時のカーソルとクリックで掴む図形が食い違う
+
+### 削除
+- 未使用の `MiniChart.tsx`（全パネルを CandleChart に統一した後の残骸）
+
+### 地雷メモ
+- `useViewRangeSync` は setData 系の effect より後で呼ぶ（React は同一コミットの effect を宣言順に実行する）
+- 座標に依存する描き直しは `syncDrawingOverlays` の1か所に足す（経路ごとに手書きすると一部だけ漏れる）
+- 図形の種類を増やす時はツールを作って `editTools` の適切な位置に入れる（判定順はここだけで決まる）
