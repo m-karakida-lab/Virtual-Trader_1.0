@@ -5,28 +5,31 @@ import type { ReadRef, TimeToX } from './refs';
 import type { PxSegment, TwoPointDrag } from './trendLinesOverlay';
 import { candleIndexAt } from './candleIndex';
 import {
-  CONSUMED, createFrameThrottle, lockChartForDrag, unlockChartAfterDrag,
+  CONSUMED, combineTools, createFrameThrottle, lockChartForDrag, unlockChartAfterDrag,
   type DragSession, type EditTool,
 } from './drag';
 
-type TwoPointShape = { id: number; time1: number; price1: number; time2: number; price2: number };
+export type TwoPointShape = { id: number; time1: number; price1: number; time2: number; price2: number };
 type TwoPointPatch = Partial<Pick<TwoPointShape, 'time1' | 'price1' | 'time2' | 'price2'>>;
 export type EndpointHit = { id: number; timeField: 'time1' | 'time2'; priceField: 'price1' | 'price2' };
 
-export interface TwoPointToolDeps {
+export interface TwoPointToolDeps<S extends TwoPointShape> {
   chart: IChartApi;
   container: HTMLDivElement;
   seriesRef: ReadRef<ISeriesApi<'Candlestick'> | null>;
   displayCandlesRef: ReadRef<Candle[]>;
   selectionKind: LineSelection['kind'];
-  list: () => TwoPointShape[];
+  // 平行チャネルは基準線側の操作として選択する（part: 'base'）
+  selectionPart?: LineSelection['part'];
+  list: () => S[];
   add: (time1: number, price1: number, time2: number, price2: number) => void;
   update: (id: number, patch: TwoPointPatch) => void;
   // 端点ハンドル（選択中の図形のみ）・線分本体の当たり判定
   findEndpoint: (x: number, y: number) => EndpointHit | null;
   findBody: (x: number, y: number) => number | null;
-  // 描画モジュールが読むドラッグ中/新規描画中の状態と、その描き直し
-  setDragPreview: (p: TwoPointDrag | null) => void;
+  // 描画モジュールが読むドラッグ中/新規描画中の状態と、その描き直し。shapeはドラッグ中の図形の
+  // 現在のstore上の値（平行チャネルはここからoffsetを引き継いでプレビューする）
+  setDragPreview: (p: TwoPointDrag | null, shape?: S) => void;
   setNewDraft: (d: PxSegment | null) => void;
   sync: () => void;
   magnetSnap: (x: number, y: number) => { price: number; y: number } | null;
@@ -34,16 +37,21 @@ export interface TwoPointToolDeps {
   timeToX: TimeToX;
   // Shiftを押しながら新規描画・端点ドラッグすると、反対側の点を基準に水平/垂直へ強制する（矢印のみ）
   shiftConstrains?: boolean;
+  // 端点ドラッグの確定後にカーソルを既定に戻す（平行チャネル）
+  resetCursorAfterEndpoint?: boolean;
 }
 
 // 2点図形（トレンドライン・矢印）のマウス操作: 新規描画（ドラッグ）、端点のリサイズ、
 // 本体の平行移動。ドラッグ中はstoreを経由せずプレビューだけ描き直し、mouseupでコミットする
-export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: number, y: number) => DragSession | null; editTool: EditTool } {
+export function createTwoPointTool<S extends TwoPointShape>(deps: TwoPointToolDeps<S>) {
   const {
-    chart, container, seriesRef, displayCandlesRef, selectionKind, list, add, update,
+    chart, container, seriesRef, displayCandlesRef, selectionKind, selectionPart, list, add, update,
     findEndpoint, findBody, setDragPreview, setNewDraft, sync, magnetSnap, pixelToTime, timeToX,
-    shiftConstrains = false,
+    shiftConstrains = false, resetCursorAfterEndpoint = false,
   } = deps;
+  const select = (id: number) => useTraderStore.getState().selectLine(
+    selectionPart ? { kind: selectionKind, id, part: selectionPart } : { kind: selectionKind, id },
+  );
 
   // 新規描画: 始点から現在位置までの線分をピクセル座標のままプレビューし、離した時に追加する
   const startDraw = (x: number, y: number): DragSession | null => {
@@ -85,7 +93,7 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
   const startEndpointDrag = (hit: EndpointHit): DragSession => {
     lockChartForDrag(chart);
     container.style.cursor = 'nwse-resize';
-    useTraderStore.getState().selectLine({ kind: selectionKind, id: hit.id });
+    select(hit.id);
     const throttle = createFrameThrottle();
     let active = true;
     let pending: { time: number; price: number } | null = null;
@@ -122,7 +130,7 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
             price1: hit.priceField === 'price1' ? pending.price : shape.price1,
             time2: hit.timeField === 'time2' ? pending.time : shape.time2,
             price2: hit.priceField === 'price2' ? pending.price : shape.price2,
-          });
+          }, shape);
           sync();
         });
       },
@@ -132,6 +140,7 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
         pending = null;
         setDragPreview(null);
         unlockChartAfterDrag(chart);
+        if (resetCursorAfterEndpoint) container.style.cursor = 'default';
       },
     };
   };
@@ -154,7 +163,7 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
     };
     lockChartForDrag(chart);
     container.style.cursor = 'move';
-    useTraderStore.getState().selectLine({ kind: selectionKind, id });
+    select(id);
     const throttle = createFrameThrottle();
     let active = true;
     let pending: { idx: number; dp: number } | null = null;
@@ -180,7 +189,7 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
           if (!active || pending === null) return;
           const visibleRaf = displayCandlesRef.current;
           if (visibleRaf.length === 0) return;
-          setDragPreview({ id, ...moved(visibleRaf, pending) });
+          setDragPreview({ id, ...moved(visibleRaf, pending) }, list().find(o => o.id === id));
           sync();
         });
       },
@@ -201,20 +210,23 @@ export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: num
     };
   };
 
-  const editTool: EditTool = {
-    hoverCursor: (x, y) => {
-      if (findEndpoint(x, y) !== null) return 'nwse-resize';
-      if (findBody(x, y) !== null) return 'move';
-      return null;
-    },
+  // 端点・本体を別々のツールとしても出す（平行チャネルは間にオフセット線の判定を挟む）
+  const endpointTool: EditTool = {
+    hoverCursor: (x, y) => (findEndpoint(x, y) !== null ? 'nwse-resize' : null),
     tryStartEdit: (x, y) => {
       const hit = findEndpoint(x, y);
-      if (hit !== null) return startEndpointDrag(hit);
-      const bodyId = findBody(x, y);
-      if (bodyId !== null) return startBodyMove(bodyId, x, y);
-      return null;
+      return hit !== null ? startEndpointDrag(hit) : null;
     },
   };
+  const bodyTool: EditTool = {
+    hoverCursor: (x, y) => (findBody(x, y) !== null ? 'move' : null),
+    tryStartEdit: (x, y) => {
+      const bodyId = findBody(x, y);
+      return bodyId !== null ? startBodyMove(bodyId, x, y) : null;
+    },
+  };
+  // 端点（選択中のみ）→本体の順に試す
+  const editTool = combineTools([endpointTool, bodyTool]);
 
-  return { startDraw, editTool };
+  return { startDraw, editTool, endpointTool, bodyTool };
 }

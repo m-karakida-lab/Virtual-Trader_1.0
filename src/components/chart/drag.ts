@@ -20,6 +20,26 @@ export interface EditTool {
   hoverCursor(x: number, y: number): string | null;
 }
 
+// 複数のツールを優先順に1つのツールとして扱う（最初に当たったものを使う）
+export function combineTools(tools: EditTool[]): EditTool {
+  return {
+    hoverCursor: (x, y) => {
+      for (const t of tools) {
+        const c = t.hoverCursor(x, y);
+        if (c !== null) return c;
+      }
+      return null;
+    },
+    tryStartEdit: (x, y) => {
+      for (const t of tools) {
+        const r = t.tryStartEdit(x, y);
+        if (r !== null) return r;
+      }
+      return null;
+    },
+  };
+}
+
 // ドラッグ中のプレビュー更新を1フレーム1回に間引く。セッションごとに1つ作る
 // （全ドラッグで1つのフラグを共有すると、前のドラッグの予約が次のドラッグの最初の1フレームを食う）
 export function createFrameThrottle(): (fn: () => void) => void {
