@@ -1,4 +1,4 @@
-// TradingViewの見た目に合わせたチャート共通スタイル。CandleChart/MiniChart/ChartHeaderで共有する。
+// TradingViewの見た目に合わせたチャート共通スタイル。CandleChart/ChartHeaderで共有する。
 import { LineStyle } from 'lightweight-charts';
 import type { LineDash } from '../types';
 
@@ -7,7 +7,7 @@ export const CHART_FONT_FAMILY =
 export const CHART_AXIS_TEXT_COLOR = '#787b86';
 export const CHART_AXIS_FONT_SIZE = 12;
 
-// 水平線・垂直線・四角形（描画ツール）の線種変換。CandleChart/MiniChartで共有する
+// 水平線（描画ツール）の価格ライン用の線種変換
 export const DASH_TO_STYLE: Record<LineDash, LineStyle> = {
   solid: LineStyle.Solid,
   dashed: LineStyle.Dashed,

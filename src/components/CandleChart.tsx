@@ -51,7 +51,7 @@ import {
   useViewRangeCommands, useViewRangeSync, CHART_RIGHT_OFFSET_BARS, type FollowAnchor,
 } from './chart/useViewRange';
 
-// 非メインパネルでの「ドラッグではなくクリックならメインに昇格」判定用（MiniChart.tsxと同じ値）
+// 非メインパネルでの「ドラッグではなくクリックならメインに昇格」判定用
 const CLICK_TOLERANCE_PX = 6;
 // 水平線・垂直線等の透明抜きで、ヒゲ区間（高値〜安値のうち実体を除く部分）に使う幅。
 // lightweight-charts自体はヒゲの実描画幅を公開していないため近似値
@@ -242,7 +242,7 @@ export function CandleChart({
   // このパネルの時間足でトレード履歴マーカーを表示するか（時間足単位の設定、未登録=表示）
   const tradeMarkersVisible = tradeMarkersVisibleMap[timeframeSec] !== false;
 
-  // isMain=falseの時、このインスタンス専用に自前集計した足データ（MiniChart.tsxと同じ方式）。
+  // isMain=falseの時、このインスタンス専用に自前集計した足データ。
   // isMain=trueの時は使わない（グローバルのcandlesをそのまま使う）
   const [nonMainCandles, setNonMainCandles] = useState<Candle[]>([]);
   useEffect(() => {
@@ -256,7 +256,7 @@ export function CandleChart({
     })();
     return () => { cancelled = true; };
   }, [isMain, isLoaded, dataVersion, timeframeSec]);
-  // メインの現在足が閉じた時点（＝これより先は「未来」として隠す境界）。MiniChart.tsxと同じ考え方。
+  // メインの現在足が閉じた時点（＝これより先は「未来」として隠す境界）。
   // candles[cursor].time + mainTimeframeSecで都度計算し直すのではなく、store側で保持している
   // mainRevealedUntilをそのまま使うこと——メインが形成中（未確定）のバケットを昇格直後に
   // 指している場合、candles[cursor]はその形成中バケット（バケット開始時刻）でmainTimeframeSec
@@ -1624,7 +1624,7 @@ export function CandleChart({
   }, [candles, cursor, isMain]);
 
   // 非メイン（4画面の他3枠）: 自前集計した足データ＋未来隠しクリップをそのままセットする。
-  // メインと違いカーソル1ステップ＝1本という前提が無いため、MiniChart.tsxと同じ
+  // メインと違いカーソル1ステップ＝1本という前提が無いため、
   // 「変化のたびに毎回まるごと再計算」方式（indicatorsの共有フル計算関数を使う）
   useEffect(() => {
     // nonMainVisible.length===0 でもここで早期returnしてはいけない。「未来隠しクリップの
@@ -1664,7 +1664,7 @@ export function CandleChart({
     syncSessionsRef.current();
     syncTradeMarkersRef.current();
     // 新しいデータセットに切り替わった時だけ画面フィットする（CandleChart側の
-    // 通常のフィット処理はcursor基準のためここでは自前でMiniChart.tsxと同じ判定を行う）。
+    // 通常のフィット処理はcursor基準のためここでは自前で判定する）。
     // ただし「メインだった枠が今まさに降格した直後」は、この枠は既にメインとして
     // 相応の表示位置になっていたはずなので再フィットしない——スキップしないと、
     // 降格した瞬間にこの枠が勝手に「全期間表示」へ飛んでしまい、クリックした覚えのない

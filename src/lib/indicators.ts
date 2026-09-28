@@ -1,6 +1,6 @@
 // インジケーター（EMA・ボリンジャーバンド・一目均衡表の雲）の計算ロジック。
-// CandleChart（メインパネル）は増分計算の最適化版を別途持つが、MiniChartは
-// 表示更新のたびに全期間を再計算しても軽いため、こちらの単純な全体計算版を使う。
+// メインパネルは増分計算の最適化版（chart/useIndicatorSeries.ts）を別途持つが、非メインパネル
+// （3画面/4画面の他の枠）は表示更新のたびに全期間を再計算しても軽いため、こちらの単純な全体計算版を使う。
 import type { Time, LineData } from 'lightweight-charts';
 import type { Candle } from '../types';
 
@@ -134,7 +134,7 @@ export function cloudDisplacedTime(cs: Candle[], i: number, timeframeSec: number
   return cs[last].time + (j - last) * timeframeSec;
 }
 
-// candles:    描画する範囲（MiniChartはカーソルまでに切り詰めた前方部分列）
+// candles:    描画する範囲（非メインパネルは未来を隠すため切り詰めた前方部分列）
 // timeframeSec: データ終端より先を合成するための足の間隔（秒）
 // allCandles: ずらし先の時刻を引くための全期間データ。candles はこの配列の先頭からの部分列であること。
 //             値は candles からしか読まない（時刻だけ参照するので未来の価格は覗いていない）
