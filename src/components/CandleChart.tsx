@@ -34,13 +34,14 @@ import { createUpdateRRPreview } from './chart/rrPreviewOverlay';
 import { createUpdateMeasureBox } from './chart/measureOverlay';
 import { candleIndexAt } from './chart/candleIndex';
 import {
-  createHitTests, type DragTarget, type RectCorner, type RectEdge, type TrendEndpoint, type ChannelEndpoint,
-  type ArrowEndpoint, type BrushVertex, type BrushCircleCorner,
+  createHitTests, type DragTarget, type RectCorner, type RectEdge, type ChannelEndpoint,
+  type BrushVertex, type BrushCircleCorner,
 } from './chart/hitTest';
 import { createCoordinateHelpers, interpolatePriceOnLine } from './chart/coordinates';
 import { createKeyboardHandler } from './chart/keyboard';
 import { createTextEditor } from './chart/textEditing';
-import type { DragSession } from './chart/drag';
+import { CONSUMED, type DragSession, type StartResult } from './chart/drag';
+import { createTwoPointTool } from './chart/twoPointTool';
 import { createVLineTool } from './chart/vlineTool';
 import { usePriceLines } from './chart/usePriceLines';
 import {
@@ -947,11 +948,6 @@ export function CandleChart({
       syncRects();
     };
 
-    // ── トレンドライン（ドラッグで描画） ──────────────────────────
-    let trendLineDragging = false;
-    let trendLineStart: { x: number; y: number; price: number } | null = null;
-    let pendingTrendLineEnd: { x: number; y: number; price: number } | null = null;
-
     // ── 平行チャネル（1回目のドラッグで基準線、続く1クリックでオフセット=幅を決定） ──
     // channelAwaitingOffset/channelOffsetPreviewはsyncChannels（このさらに上で定義済み、
     // マウント時に即呼ばれる）から参照されるため、それより前で宣言しておく必要がある
@@ -960,11 +956,6 @@ export function CandleChart({
     let channelDragging = false;
     let channelStart: { x: number; y: number; price: number } | null = null;
     let pendingChannelEnd: { x: number; y: number; price: number } | null = null;
-
-    // ── 矢印（ドラッグで描画。トレンドラインと同じ2点ドラッグ、終点=矢先） ──
-    let arrowDragging = false;
-    let arrowStart: { x: number; y: number; price: number } | null = null;
-    let pendingArrowEnd: { x: number; y: number; price: number } | null = null;
 
     // ── ブラシ（ドラッグで自由に描画） ──────────────────────────────
     // 点は毎mousemoveイベントで（他のドラッグ系のような1フレーム1点のrAF間引きは
@@ -1010,13 +1001,6 @@ export function CandleChart({
     let draggingDraft: 'price' | 'tp' | 'sl' | null = null;
     let draggingRectCorner: RectCorner | null = null;
     let draggingRectEdge: RectEdge | null = null;
-    // ── トレンドラインの端点リサイズ・平行移動ドラッグ ───────────────
-    let draggingTrendEndpoint: TrendEndpoint | null = null;
-    let pendingTrendEndpointPos: { time: number; price: number } | null = null;
-    let draggingTrendMoveId: number | null = null;
-    // 時間方向の移動は四角形の平行移動と同じ理由で足のインデックス差分を使う
-    let trendMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
-    let pendingTrendMoveDelta: { idx: number; dp: number } | null = null;
     // ── 平行チャネルの端点リサイズ・平行移動・オフセット（幅）調整ドラッグ ──
     // 端点リサイズ・平行移動はトレンドラインと同じ構造（offsetは触らない）。
     // オフセット調整は2本目の線本体を掴んだ時だけ発生し、offsetフィールドのみ変える
@@ -1028,12 +1012,6 @@ export function CandleChart({
     let draggingChannelOffsetId: number | null = null;
     let channelOffsetStart: { baseOffset: number; startPrice: number } | null = null;
     let pendingChannelOffset: number | null = null;
-    // ── 矢印の端点リサイズ・平行移動ドラッグ（トレンドラインと同じ構造） ──
-    let draggingArrowEndpoint: ArrowEndpoint | null = null;
-    let pendingArrowEndpointPos: { time: number; price: number } | null = null;
-    let draggingArrowMoveId: number | null = null;
-    let arrowMoveStart: { idx1: number; idx2: number; price1: number; price2: number; startIdx: number; startPrice: number } | null = null;
-    let pendingArrowMoveDelta: { idx: number; dp: number } | null = null;
     // ── ブラシの平行移動ドラッグ ─────────────────────────────────────
     // 普通のフリーハンドは点ごとに個別の意味を持たないため、リサイズ（個々の点の編集）は
     // 提供せず、掴んだ点全体を平行移動するだけ。四角形/トレンドラインと違い、
@@ -1099,6 +1077,32 @@ export function CandleChart({
       chart, container, findVLineNear, vlineElsRef, lineHandleElRef,
       setDragPreview: p => { vlineDragPreviewX = p; }, drawVLineCanvas,
     });
+    const twoPointCommon = { chart, container, seriesRef, displayCandlesRef, magnetSnap, pixelToTime, timeToX };
+    const trendTool = createTwoPointTool({
+      ...twoPointCommon, selectionKind: 'trend',
+      list: () => useTraderStore.getState().trendLines,
+      add: (t1, p1, t2, p2) => useTraderStore.getState().addTrendLine(t1, p1, t2, p2),
+      update: (id, patch) => useTraderStore.getState().updateTrendLine(id, patch),
+      findEndpoint: (x, y) => { const h = findTrendEndpointNear(x, y); return h && { id: h.trendId, timeField: h.timeField, priceField: h.priceField }; },
+      findBody: findTrendLineNear,
+      setDragPreview: p => { trendDragPreview = p; }, setNewDraft: d => { newTrendDraft = d; }, sync: syncTrendLines,
+    });
+    // 矢印の端点はShiftで水平/垂直に強制できる
+    const arrowTool = createTwoPointTool({
+      ...twoPointCommon, selectionKind: 'arrow', shiftConstrainsEndpoint: true,
+      list: () => useTraderStore.getState().arrows,
+      add: (t1, p1, t2, p2) => useTraderStore.getState().addArrow(t1, p1, t2, p2),
+      update: (id, patch) => useTraderStore.getState().updateArrow(id, patch),
+      findEndpoint: (x, y) => { const h = findArrowEndpointNear(x, y); return h && { id: h.arrowId, timeField: h.timeField, priceField: h.priceField }; },
+      findBody: findArrowNear,
+      setDragPreview: p => { arrowDragPreview = p; }, setNewDraft: d => { newArrowDraft = d; }, sync: syncArrows,
+    });
+    // ツールのmousedown結果を受け取る。当たった（ドラッグ開始・またはCONSUMED）ならtrue
+    const startWith = (r: StartResult): boolean => {
+      if (r === null) return false;
+      if (r !== CONSUMED) activeSession = r;
+      return true;
+    };
 
     const priceLineMapFor = (kind: DragTarget['kind']): Map<number, IPriceLine> => {
       if (kind === 'hline') return priceLineMapRef.current;
@@ -1187,15 +1191,8 @@ export function CandleChart({
       }
 
       if (isTL) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const snap = magnetSnap(x, y);
-        if (snap === null) return;
-        trendLineStart = { x, y: snap.y, price: snap.price };
-        pendingTrendLineEnd = { x, y: snap.y, price: snap.price };
-        trendLineDragging = true;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        newTrendDraft = { x1: x, y1: snap.y, x2: x, y2: snap.y };
-        syncTrendLines();
+        const session = trendTool.startDraw(x, y);
+        if (session) activeSession = session;
         return;
       }
 
@@ -1227,15 +1224,8 @@ export function CandleChart({
       }
 
       if (isAr) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const snap = magnetSnap(x, y);
-        if (snap === null) return;
-        arrowStart = { x, y: snap.y, price: snap.price };
-        pendingArrowEnd = { x, y: snap.y, price: snap.price };
-        arrowDragging = true;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        newArrowDraft = { x1: x, y1: snap.y, x2: x, y2: snap.y };
-        syncArrows();
+        const session = arrowTool.startDraw(x, y);
+        if (session) activeSession = session;
         return;
       }
 
@@ -1278,43 +1268,12 @@ export function CandleChart({
         container.style.cursor = 'ns-resize';
         return;
       }
-      const vlineSession = vlineTool.tryStartEdit(x, y);
-      if (vlineSession) { activeSession = vlineSession; return; }
+      if (startWith(vlineTool.tryStartEdit(x, y))) return;
 
       // 矢印は他の描画（四角形・トレンドライン・ブラシ）より常に上に見せる/掴めるようにしたい
       // というわがままな要望のため、当たり判定もここで最優先にチェックする（表示側は
       // arrowCanvasRefのzIndexを他の描画系より1段高くして揃えてある）
-      const arrowEndpoint = findArrowEndpointNear(x, y);
-      if (arrowEndpoint !== null) {
-        draggingArrowEndpoint = arrowEndpoint;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'nwse-resize';
-        useTraderStore.getState().selectLine({ kind: 'arrow', id: arrowEndpoint.arrowId });
-        return;
-      }
-
-      const arrowId = findArrowNear(x, y);
-      if (arrowId !== null) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const { arrows: arrowsAtDown } = useTraderStore.getState();
-        const ar = arrowsAtDown.find(a => a.id === arrowId);
-        const visibleAtDown = displayCandlesRef.current;
-        const startTime = pixelToTime(x);
-        const startPrice = seriesRef.current.coordinateToPrice(y);
-        if (!ar || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
-        draggingArrowMoveId = arrowId;
-        arrowMoveStart = {
-          idx1: candleIndexAt(visibleAtDown, ar.time1),
-          idx2: candleIndexAt(visibleAtDown, ar.time2),
-          price1: ar.price1, price2: ar.price2,
-          startIdx: candleIndexAt(visibleAtDown, startTime),
-          startPrice,
-        };
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'move';
-        useTraderStore.getState().selectLine({ kind: 'arrow', id: arrowId });
-        return;
-      }
+      if (startWith(arrowTool.editTool.tryStartEdit(x, y))) return;
 
       const corner = findRectCornerNear(x, y);
       if (corner !== null) {
@@ -1357,37 +1316,7 @@ export function CandleChart({
         return;
       }
 
-      const trendEndpoint = findTrendEndpointNear(x, y);
-      if (trendEndpoint !== null) {
-        draggingTrendEndpoint = trendEndpoint;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'nwse-resize';
-        useTraderStore.getState().selectLine({ kind: 'trend', id: trendEndpoint.trendId });
-        return;
-      }
-
-      const trendLineId = findTrendLineNear(x, y);
-      if (trendLineId !== null) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const { trendLines: trendLinesAtDown } = useTraderStore.getState();
-        const tl = trendLinesAtDown.find(t => t.id === trendLineId);
-        const visibleAtDown = displayCandlesRef.current;
-        const startTime = pixelToTime(x);
-        const startPrice = seriesRef.current.coordinateToPrice(y);
-        if (!tl || startTime === null || startPrice === null || visibleAtDown.length === 0) return;
-        draggingTrendMoveId = trendLineId;
-        trendMoveStart = {
-          idx1: candleIndexAt(visibleAtDown, tl.time1),
-          idx2: candleIndexAt(visibleAtDown, tl.time2),
-          price1: tl.price1, price2: tl.price2,
-          startIdx: candleIndexAt(visibleAtDown, startTime),
-          startPrice,
-        };
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'move';
-        useTraderStore.getState().selectLine({ kind: 'trend', id: trendLineId });
-        return;
-      }
+      if (startWith(trendTool.editTool.tryStartEdit(x, y))) return;
 
       const channelEndpoint = findChannelEndpointNear(x, y);
       if (channelEndpoint !== null) {
@@ -1544,15 +1473,6 @@ export function CandleChart({
         return;
       }
 
-      if (trendLineDragging && trendLineStart) {
-        const snap = magnetSnap(x, y);
-        if (snap === null) return;
-        pendingTrendLineEnd = { x, y: snap.y, price: snap.price };
-        newTrendDraft = { x1: trendLineStart.x, y1: trendLineStart.y, x2: x, y2: snap.y };
-        syncTrendLines();
-        return;
-      }
-
       if (channelDragging && channelStart) {
         const snap = magnetSnap(x, y);
         if (snap === null) return;
@@ -1571,15 +1491,6 @@ export function CandleChart({
         const basePriceAtX = interpolatePriceOnLine(time1, price1, time2, price2, atTime);
         channelOffsetPreview = snap.price - basePriceAtX;
         syncChannels();
-        return;
-      }
-
-      if (arrowDragging && arrowStart) {
-        const snap = magnetSnap(x, y);
-        if (snap === null) return;
-        pendingArrowEnd = { x, y: snap.y, price: snap.price };
-        newArrowDraft = { x1: arrowStart.x, y1: arrowStart.y, x2: x, y2: snap.y };
-        syncArrows();
         return;
       }
 
@@ -1757,61 +1668,6 @@ export function CandleChart({
         return;
       }
 
-      if (draggingTrendEndpoint !== null) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const price = magnetSnap(x, y)?.price ?? null;
-        const time = pixelToTime(x);
-        if (price === null || time === null) return;
-        pendingTrendEndpointPos = { time, price };
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingTrendEndpoint === null || pendingTrendEndpointPos === null) return;
-            const { trendLines: currentTrendLines } = useTraderStore.getState();
-            const tl = currentTrendLines.find(t => t.id === draggingTrendEndpoint!.trendId);
-            if (!tl) return;
-            trendDragPreview = {
-              id: tl.id,
-              time1: draggingTrendEndpoint.timeField === 'time1' ? pendingTrendEndpointPos.time : tl.time1,
-              price1: draggingTrendEndpoint.priceField === 'price1' ? pendingTrendEndpointPos.price : tl.price1,
-              time2: draggingTrendEndpoint.timeField === 'time2' ? pendingTrendEndpointPos.time : tl.time2,
-              price2: draggingTrendEndpoint.priceField === 'price2' ? pendingTrendEndpointPos.price : tl.price2,
-            };
-            syncTrendLines();
-          });
-        }
-        return;
-      }
-
-      if (draggingTrendMoveId !== null && trendMoveStart) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const t = pixelToTime(x);
-        const p = seriesRef.current.coordinateToPrice(y);
-        if (t === null || p === null) return;
-        const visibleMove = displayCandlesRef.current;
-        if (visibleMove.length === 0) return;
-        pendingTrendMoveDelta = { idx: candleIndexAt(visibleMove, t) - trendMoveStart.startIdx, dp: p - trendMoveStart.startPrice };
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingTrendMoveId === null || pendingTrendMoveDelta === null || trendMoveStart === null) return;
-            const visibleRaf = displayCandlesRef.current;
-            if (visibleRaf.length === 0) return;
-            const newIdx1 = Math.min(Math.max(trendMoveStart.idx1 + pendingTrendMoveDelta.idx, 0), visibleRaf.length - 1);
-            const newIdx2 = Math.min(Math.max(trendMoveStart.idx2 + pendingTrendMoveDelta.idx, 0), visibleRaf.length - 1);
-            trendDragPreview = {
-              id: draggingTrendMoveId,
-              time1: visibleRaf[newIdx1].time, price1: trendMoveStart.price1 + pendingTrendMoveDelta.dp,
-              time2: visibleRaf[newIdx2].time, price2: trendMoveStart.price2 + pendingTrendMoveDelta.dp,
-            };
-            syncTrendLines();
-          });
-        }
-        return;
-      }
-
       if (draggingChannelEndpoint !== null) {
         if (!seriesRef.current || !chartRef.current) return;
         const price = magnetSnap(x, y)?.price ?? null;
@@ -1887,81 +1743,6 @@ export function CandleChart({
             if (!ch) return;
             channelDragPreview = { id: ch.id, time1: ch.time1, price1: ch.price1, time2: ch.time2, price2: ch.price2, offset: pendingChannelOffset! };
             syncChannels();
-          });
-        }
-        return;
-      }
-
-      if (draggingArrowEndpoint !== null) {
-        if (!seriesRef.current || !chartRef.current) return;
-        let price = magnetSnap(x, y)?.price ?? null;
-        let time = pixelToTime(x);
-        if (price === null || time === null) return;
-        // Shiftを押しながら端点をドラッグすると、もう一方の端点（固定点）を基準に
-        // 水平（同じ価格）か垂直（同じ時刻）のどちらか一方に強制する。カーソルの実際の
-        // 移動方向（ピクセル距離が大きい方の軸）で水平/垂直を自動判定する（要望を受けて対応）
-        if (e.shiftKey) {
-          const { arrows: currentArrowsForShift } = useTraderStore.getState();
-          const arForShift = currentArrowsForShift.find(a => a.id === draggingArrowEndpoint!.arrowId);
-          if (arForShift) {
-            const fixedTime = draggingArrowEndpoint.timeField === 'time1' ? arForShift.time2 : arForShift.time1;
-            const fixedPrice = draggingArrowEndpoint.priceField === 'price1' ? arForShift.price2 : arForShift.price1;
-            const fixedX = timeToX(fixedTime);
-            const fixedY = seriesRef.current.priceToCoordinate(fixedPrice);
-            if (fixedX !== null && fixedY !== null) {
-              if (Math.abs(x - fixedX) >= Math.abs(y - fixedY)) {
-                price = fixedPrice; // 水平: 固定点と同じ価格
-              } else {
-                time = fixedTime; // 垂直: 固定点と同じ時刻
-              }
-            }
-          }
-        }
-        pendingArrowEndpointPos = { time, price };
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingArrowEndpoint === null || pendingArrowEndpointPos === null) return;
-            const { arrows: currentArrows } = useTraderStore.getState();
-            const ar = currentArrows.find(a => a.id === draggingArrowEndpoint!.arrowId);
-            if (!ar) return;
-            arrowDragPreview = {
-              id: ar.id,
-              time1: draggingArrowEndpoint.timeField === 'time1' ? pendingArrowEndpointPos.time : ar.time1,
-              price1: draggingArrowEndpoint.priceField === 'price1' ? pendingArrowEndpointPos.price : ar.price1,
-              time2: draggingArrowEndpoint.timeField === 'time2' ? pendingArrowEndpointPos.time : ar.time2,
-              price2: draggingArrowEndpoint.priceField === 'price2' ? pendingArrowEndpointPos.price : ar.price2,
-            };
-            syncArrows();
-          });
-        }
-        return;
-      }
-
-      if (draggingArrowMoveId !== null && arrowMoveStart) {
-        if (!seriesRef.current || !chartRef.current) return;
-        const t = pixelToTime(x);
-        const p = seriesRef.current.coordinateToPrice(y);
-        if (t === null || p === null) return;
-        const visibleMove = displayCandlesRef.current;
-        if (visibleMove.length === 0) return;
-        pendingArrowMoveDelta = { idx: candleIndexAt(visibleMove, t) - arrowMoveStart.startIdx, dp: p - arrowMoveStart.startPrice };
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingArrowMoveId === null || pendingArrowMoveDelta === null || arrowMoveStart === null) return;
-            const visibleRaf = displayCandlesRef.current;
-            if (visibleRaf.length === 0) return;
-            const newIdx1 = Math.min(Math.max(arrowMoveStart.idx1 + pendingArrowMoveDelta.idx, 0), visibleRaf.length - 1);
-            const newIdx2 = Math.min(Math.max(arrowMoveStart.idx2 + pendingArrowMoveDelta.idx, 0), visibleRaf.length - 1);
-            arrowDragPreview = {
-              id: draggingArrowMoveId,
-              time1: visibleRaf[newIdx1].time, price1: arrowMoveStart.price1 + pendingArrowMoveDelta.dp,
-              time2: visibleRaf[newIdx2].time, price2: arrowMoveStart.price2 + pendingArrowMoveDelta.dp,
-            };
-            syncArrows();
           });
         }
         return;
@@ -2073,20 +1854,16 @@ export function CandleChart({
         const vlineCursor = vlineTool.hoverCursor(x, y);
         if (vlineCursor !== null) { container.style.cursor = vlineCursor; return; }
         // 矢印はmousedownと同じく他の図形より先に判定する（最前面に描かれ、クリックでも優先して掴むため）
-        const arrowEndpointHover = findArrowEndpointNear(x, y);
-        if (arrowEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
-        const arrowHoverId = findArrowNear(x, y);
-        if (arrowHoverId !== null) { container.style.cursor = 'move'; return; }
+        const arrowCursor = arrowTool.editTool.hoverCursor(x, y);
+        if (arrowCursor !== null) { container.style.cursor = arrowCursor; return; }
         const corner = findRectCornerNear(x, y);
         if (corner !== null) { container.style.cursor = 'nwse-resize'; return; }
         const edge = findRectEdgeNear(x, y);
         if (edge !== null) { container.style.cursor = edge.field === 'time1' || edge.field === 'time2' ? 'ew-resize' : 'ns-resize'; return; }
         const border = findRectBorderNear(x, y);
         if (border !== null) { container.style.cursor = 'move'; return; }
-        const trendEndpointHover = findTrendEndpointNear(x, y);
-        if (trendEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
-        const trendLineHoverId = findTrendLineNear(x, y);
-        if (trendLineHoverId !== null) { container.style.cursor = 'move'; return; }
+        const trendCursor = trendTool.editTool.hoverCursor(x, y);
+        if (trendCursor !== null) { container.style.cursor = trendCursor; return; }
         const channelEndpointHover = findChannelEndpointNear(x, y);
         if (channelEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
         const channelOffsetHoverId = findChannelOffsetLineNear(x, y);
@@ -2134,24 +1911,6 @@ export function CandleChart({
         pendingRectEnd = null;
         return;
       }
-      if (trendLineDragging) {
-        trendLineDragging = false;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        newTrendDraft = null;
-        if (trendLineStart && pendingTrendLineEnd) {
-          const t1 = pixelToTime(trendLineStart.x);
-          const t2 = pixelToTime(pendingTrendLineEnd.x);
-          const p1 = trendLineStart.price;
-          const p2 = pendingTrendLineEnd.price;
-          if (t1 !== null && t2 !== null && (t1 !== t2 || p1 !== p2)) {
-            useTraderStore.getState().addTrendLine(t1, p1, t2, p2);
-          }
-        }
-        syncTrendLines(); // ドラフトのクリア（実際に追加された場合はstore更新側の再描画とも重複するが無害）
-        trendLineStart = null;
-        pendingTrendLineEnd = null;
-        return;
-      }
       if (channelDragging) {
         // フェーズ1（基準線）の確定。ここではまだstoreにaddChannelしない——オフセットを
         // 決めるクリック（フェーズ2、mousedown側で処理）まで待つ。ドラッグせず単にクリック
@@ -2172,24 +1931,6 @@ export function CandleChart({
         syncChannels();
         channelStart = null;
         pendingChannelEnd = null;
-        return;
-      }
-      if (arrowDragging) {
-        arrowDragging = false;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        newArrowDraft = null;
-        if (arrowStart && pendingArrowEnd) {
-          const t1 = pixelToTime(arrowStart.x);
-          const t2 = pixelToTime(pendingArrowEnd.x);
-          const p1 = arrowStart.price;
-          const p2 = pendingArrowEnd.price;
-          if (t1 !== null && t2 !== null && (t1 !== t2 || p1 !== p2)) {
-            useTraderStore.getState().addArrow(t1, p1, t2, p2);
-          }
-        }
-        syncArrows();
-        arrowStart = null;
-        pendingArrowEnd = null;
         return;
       }
       if (brushDrawing) {
@@ -2318,39 +2059,6 @@ export function CandleChart({
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';
       }
-      if (draggingTrendEndpoint !== null) {
-        if (pendingTrendEndpointPos !== null) {
-          useTraderStore.getState().updateTrendLine(draggingTrendEndpoint.trendId, {
-            [draggingTrendEndpoint.timeField]: pendingTrendEndpointPos.time,
-            [draggingTrendEndpoint.priceField]: pendingTrendEndpointPos.price,
-          });
-        }
-        draggingTrendEndpoint = null;
-        pendingTrendEndpointPos = null;
-        trendDragPreview = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-      }
-      if (draggingTrendMoveId !== null) {
-        if (pendingTrendMoveDelta !== null && trendMoveStart !== null) {
-          const visibleUp = displayCandlesRef.current;
-          if (visibleUp.length > 0) {
-            const newIdx1 = Math.min(Math.max(trendMoveStart.idx1 + pendingTrendMoveDelta.idx, 0), visibleUp.length - 1);
-            const newIdx2 = Math.min(Math.max(trendMoveStart.idx2 + pendingTrendMoveDelta.idx, 0), visibleUp.length - 1);
-            useTraderStore.getState().updateTrendLine(draggingTrendMoveId, {
-              time1: visibleUp[newIdx1].time,
-              time2: visibleUp[newIdx2].time,
-              price1: trendMoveStart.price1 + pendingTrendMoveDelta.dp,
-              price2: trendMoveStart.price2 + pendingTrendMoveDelta.dp,
-            });
-          }
-        }
-        draggingTrendMoveId = null;
-        trendMoveStart = null;
-        pendingTrendMoveDelta = null;
-        trendDragPreview = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        container.style.cursor = 'default';
-      }
       if (draggingChannelEndpoint !== null) {
         if (pendingChannelEndpointPos !== null) {
           useTraderStore.getState().updateChannel(draggingChannelEndpoint.channelId, {
@@ -2393,39 +2101,6 @@ export function CandleChart({
         channelOffsetStart = null;
         pendingChannelOffset = null;
         channelDragPreview = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        container.style.cursor = 'default';
-      }
-      if (draggingArrowEndpoint !== null) {
-        if (pendingArrowEndpointPos !== null) {
-          useTraderStore.getState().updateArrow(draggingArrowEndpoint.arrowId, {
-            [draggingArrowEndpoint.timeField]: pendingArrowEndpointPos.time,
-            [draggingArrowEndpoint.priceField]: pendingArrowEndpointPos.price,
-          });
-        }
-        draggingArrowEndpoint = null;
-        pendingArrowEndpointPos = null;
-        arrowDragPreview = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-      }
-      if (draggingArrowMoveId !== null) {
-        if (pendingArrowMoveDelta !== null && arrowMoveStart !== null) {
-          const visibleUp = displayCandlesRef.current;
-          if (visibleUp.length > 0) {
-            const newIdx1 = Math.min(Math.max(arrowMoveStart.idx1 + pendingArrowMoveDelta.idx, 0), visibleUp.length - 1);
-            const newIdx2 = Math.min(Math.max(arrowMoveStart.idx2 + pendingArrowMoveDelta.idx, 0), visibleUp.length - 1);
-            useTraderStore.getState().updateArrow(draggingArrowMoveId, {
-              time1: visibleUp[newIdx1].time,
-              time2: visibleUp[newIdx2].time,
-              price1: arrowMoveStart.price1 + pendingArrowMoveDelta.dp,
-              price2: arrowMoveStart.price2 + pendingArrowMoveDelta.dp,
-            });
-          }
-        }
-        draggingArrowMoveId = null;
-        arrowMoveStart = null;
-        pendingArrowMoveDelta = null;
-        arrowDragPreview = null;
         chart.applyOptions({ handleScroll: true, handleScale: true });
         container.style.cursor = 'default';
       }

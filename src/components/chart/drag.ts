@@ -8,9 +8,14 @@ export interface DragSession {
   end(x: number, y: number, e: MouseEvent): void;
 }
 
+// 当たったがドラッグは始められなかった（開始位置を時刻・価格に変換できない等）。
+// 振り分け側は次のツールを試さずにmousedownの処理を終える
+export const CONSUMED = 'consumed' as const;
+export type StartResult = DragSession | typeof CONSUMED | null;
+
 // 既存図形をつかんで編集するツール。当たらなければnullを返し、振り分け側は次のツールを試す
 export interface EditTool {
-  tryStartEdit(x: number, y: number): DragSession | null;
+  tryStartEdit(x: number, y: number): StartResult;
   // ホバー時のカーソル（当たらなければnull）。判定はtryStartEditと同じ条件にすること
   hoverCursor(x: number, y: number): string | null;
 }

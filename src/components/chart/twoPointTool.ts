@@ -1,0 +1,215 @@
+import type { IChartApi, ISeriesApi } from 'lightweight-charts';
+import type { Candle, LineSelection } from '../../types';
+import { useTraderStore } from '../../store/useTraderStore';
+import type { ReadRef, TimeToX } from './refs';
+import type { PxSegment, TwoPointDrag } from './trendLinesOverlay';
+import { candleIndexAt } from './candleIndex';
+import {
+  CONSUMED, createFrameThrottle, lockChartForDrag, unlockChartAfterDrag,
+  type DragSession, type EditTool,
+} from './drag';
+
+type TwoPointShape = { id: number; time1: number; price1: number; time2: number; price2: number };
+type TwoPointPatch = Partial<Pick<TwoPointShape, 'time1' | 'price1' | 'time2' | 'price2'>>;
+export type EndpointHit = { id: number; timeField: 'time1' | 'time2'; priceField: 'price1' | 'price2' };
+
+export interface TwoPointToolDeps {
+  chart: IChartApi;
+  container: HTMLDivElement;
+  seriesRef: ReadRef<ISeriesApi<'Candlestick'> | null>;
+  displayCandlesRef: ReadRef<Candle[]>;
+  selectionKind: LineSelection['kind'];
+  list: () => TwoPointShape[];
+  add: (time1: number, price1: number, time2: number, price2: number) => void;
+  update: (id: number, patch: TwoPointPatch) => void;
+  // 端点ハンドル（選択中の図形のみ）・線分本体の当たり判定
+  findEndpoint: (x: number, y: number) => EndpointHit | null;
+  findBody: (x: number, y: number) => number | null;
+  // 描画モジュールが読むドラッグ中/新規描画中の状態と、その描き直し
+  setDragPreview: (p: TwoPointDrag | null) => void;
+  setNewDraft: (d: PxSegment | null) => void;
+  sync: () => void;
+  magnetSnap: (x: number, y: number) => { price: number; y: number } | null;
+  pixelToTime: (x: number) => number | null;
+  timeToX: TimeToX;
+  // Shiftを押しながら端点をドラッグすると、固定点を基準に水平/垂直へ強制する（矢印のみ）
+  shiftConstrainsEndpoint?: boolean;
+}
+
+// 2点図形（トレンドライン・矢印）のマウス操作: 新規描画（ドラッグ）、端点のリサイズ、
+// 本体の平行移動。ドラッグ中はstoreを経由せずプレビューだけ描き直し、mouseupでコミットする
+export function createTwoPointTool(deps: TwoPointToolDeps): { startDraw: (x: number, y: number) => DragSession | null; editTool: EditTool } {
+  const {
+    chart, container, seriesRef, displayCandlesRef, selectionKind, list, add, update,
+    findEndpoint, findBody, setDragPreview, setNewDraft, sync, magnetSnap, pixelToTime, timeToX,
+    shiftConstrainsEndpoint = false,
+  } = deps;
+
+  // 新規描画: 始点から現在位置までの線分をピクセル座標のままプレビューし、離した時に追加する
+  const startDraw = (x: number, y: number): DragSession | null => {
+    if (!seriesRef.current) return null;
+    const snap = magnetSnap(x, y);
+    if (snap === null) return null;
+    const start = { x, y: snap.y, price: snap.price };
+    let pendingEnd = { x, y: snap.y, price: snap.price };
+    lockChartForDrag(chart);
+    setNewDraft({ x1: x, y1: snap.y, x2: x, y2: snap.y });
+    sync();
+    return {
+      move(mx, my) {
+        const s = magnetSnap(mx, my);
+        if (s === null) return;
+        pendingEnd = { x: mx, y: s.y, price: s.price };
+        setNewDraft({ x1: start.x, y1: start.y, x2: mx, y2: s.y });
+        sync();
+      },
+      end() {
+        unlockChartAfterDrag(chart);
+        setNewDraft(null);
+        const t1 = pixelToTime(start.x);
+        const t2 = pixelToTime(pendingEnd.x);
+        const p1 = start.price;
+        const p2 = pendingEnd.price;
+        if (t1 !== null && t2 !== null && (t1 !== t2 || p1 !== p2)) add(t1, p1, t2, p2);
+        sync(); // ドラフトのクリア（実際に追加された場合はstore更新側の再描画とも重複するが無害）
+      },
+    };
+  };
+
+  // 端点のリサイズ: 掴んだ側の端点だけ動かし、反対側は固定する
+  const startEndpointDrag = (hit: EndpointHit): DragSession => {
+    lockChartForDrag(chart);
+    container.style.cursor = 'nwse-resize';
+    useTraderStore.getState().selectLine({ kind: selectionKind, id: hit.id });
+    const throttle = createFrameThrottle();
+    let active = true;
+    let pending: { time: number; price: number } | null = null;
+    return {
+      move(x, y, e) {
+        if (!seriesRef.current) return;
+        let price = magnetSnap(x, y)?.price ?? null;
+        let time = pixelToTime(x);
+        if (price === null || time === null) return;
+        // Shiftを押しながら端点をドラッグすると、もう一方の端点（固定点）を基準に
+        // 水平（同じ価格）か垂直（同じ時刻）のどちらか一方に強制する。カーソルの実際の
+        // 移動方向（ピクセル距離が大きい方の軸）で水平/垂直を自動判定する
+        if (shiftConstrainsEndpoint && e.shiftKey) {
+          const shape = list().find(o => o.id === hit.id);
+          if (shape) {
+            const fixedTime = hit.timeField === 'time1' ? shape.time2 : shape.time1;
+            const fixedPrice = hit.priceField === 'price1' ? shape.price2 : shape.price1;
+            const fixedX = timeToX(fixedTime);
+            const fixedY = seriesRef.current.priceToCoordinate(fixedPrice);
+            if (fixedX !== null && fixedY !== null) {
+              if (Math.abs(x - fixedX) >= Math.abs(y - fixedY)) price = fixedPrice;
+              else time = fixedTime;
+            }
+          }
+        }
+        pending = { time, price };
+        throttle(() => {
+          if (!active || pending === null) return;
+          const shape = list().find(o => o.id === hit.id);
+          if (!shape) return;
+          setDragPreview({
+            id: shape.id,
+            time1: hit.timeField === 'time1' ? pending.time : shape.time1,
+            price1: hit.priceField === 'price1' ? pending.price : shape.price1,
+            time2: hit.timeField === 'time2' ? pending.time : shape.time2,
+            price2: hit.priceField === 'price2' ? pending.price : shape.price2,
+          });
+          sync();
+        });
+      },
+      end() {
+        if (pending !== null) update(hit.id, { [hit.timeField]: pending.time, [hit.priceField]: pending.price });
+        active = false;
+        pending = null;
+        setDragPreview(null);
+        unlockChartAfterDrag(chart);
+      },
+    };
+  };
+
+  // 本体の平行移動。時間方向は秒数ではなく足のインデックス差分で動かす（週末等で足が抜けている
+  // 区間をまたいでも、両端に同じ本数を足すので幅が変わらない）
+  const startBodyMove = (id: number, x: number, y: number): DragSession | typeof CONSUMED => {
+    if (!seriesRef.current) return CONSUMED;
+    const shape = list().find(o => o.id === id);
+    const visibleAtDown = displayCandlesRef.current;
+    const startTime = pixelToTime(x);
+    const startPrice = seriesRef.current.coordinateToPrice(y);
+    if (!shape || startTime === null || startPrice === null || visibleAtDown.length === 0) return CONSUMED;
+    const start = {
+      idx1: candleIndexAt(visibleAtDown, shape.time1),
+      idx2: candleIndexAt(visibleAtDown, shape.time2),
+      price1: shape.price1, price2: shape.price2,
+      startIdx: candleIndexAt(visibleAtDown, startTime),
+      startPrice,
+    };
+    lockChartForDrag(chart);
+    container.style.cursor = 'move';
+    useTraderStore.getState().selectLine({ kind: selectionKind, id });
+    const throttle = createFrameThrottle();
+    let active = true;
+    let pending: { idx: number; dp: number } | null = null;
+    // 移動後の両端の時刻・価格（足のインデックスは表示中の足の範囲にクランプする）
+    const moved = (visible: Candle[], delta: { idx: number; dp: number }) => {
+      const newIdx1 = Math.min(Math.max(start.idx1 + delta.idx, 0), visible.length - 1);
+      const newIdx2 = Math.min(Math.max(start.idx2 + delta.idx, 0), visible.length - 1);
+      return {
+        time1: visible[newIdx1].time, price1: start.price1 + delta.dp,
+        time2: visible[newIdx2].time, price2: start.price2 + delta.dp,
+      };
+    };
+    return {
+      move(mx, my) {
+        if (!seriesRef.current) return;
+        const t = pixelToTime(mx);
+        const p = seriesRef.current.coordinateToPrice(my);
+        if (t === null || p === null) return;
+        const visibleMove = displayCandlesRef.current;
+        if (visibleMove.length === 0) return;
+        pending = { idx: candleIndexAt(visibleMove, t) - start.startIdx, dp: p - start.startPrice };
+        throttle(() => {
+          if (!active || pending === null) return;
+          const visibleRaf = displayCandlesRef.current;
+          if (visibleRaf.length === 0) return;
+          setDragPreview({ id, ...moved(visibleRaf, pending) });
+          sync();
+        });
+      },
+      end() {
+        if (pending !== null) {
+          const visibleUp = displayCandlesRef.current;
+          if (visibleUp.length > 0) {
+            const m = moved(visibleUp, pending);
+            update(id, { time1: m.time1, time2: m.time2, price1: m.price1, price2: m.price2 });
+          }
+        }
+        active = false;
+        pending = null;
+        setDragPreview(null);
+        unlockChartAfterDrag(chart);
+        container.style.cursor = 'default';
+      },
+    };
+  };
+
+  const editTool: EditTool = {
+    hoverCursor: (x, y) => {
+      if (findEndpoint(x, y) !== null) return 'nwse-resize';
+      if (findBody(x, y) !== null) return 'move';
+      return null;
+    },
+    tryStartEdit: (x, y) => {
+      const hit = findEndpoint(x, y);
+      if (hit !== null) return startEndpointDrag(hit);
+      const bodyId = findBody(x, y);
+      if (bodyId !== null) return startBodyMove(bodyId, x, y);
+      return null;
+    },
+  };
+
+  return { startDraw, editTool };
+}
