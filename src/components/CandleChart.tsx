@@ -34,6 +34,7 @@ import { createSyncCloud } from './chart/cloudOverlay';
 import { createUpdateRRPreview } from './chart/rrPreviewOverlay';
 import { createUpdateMeasureBox } from './chart/measureOverlay';
 import { candleIndexAt } from './chart/candleIndex';
+import { usePriceLines } from './chart/usePriceLines';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -149,11 +150,6 @@ function computeCloudPoint(cs: Candle[], idx: number): { a: number; b: number } 
   const tenkan = (tenkanW.hi + tenkanW.lo) / 2;
   const kijun  = (kijunW.hi + kijunW.lo) / 2;
   return { a: (tenkan + kijun) / 2, b: (senkouBW.hi + senkouBW.lo) / 2 };
-}
-
-// TP/SLの価格ライン表示用: エントリー価格からの距離をpips単位で返す
-function pipsBetween(entryPrice: number, target: number): number {
-  return Math.abs(target - entryPrice) / inferPipSize(entryPrice);
 }
 
 // 水平線・四角形を指定の時間足パネルで表示すべきか（hiddenTimeframesを持つ図形なら
@@ -3590,206 +3586,10 @@ export function CandleChart({
     syncVLinesRef.current();
   }, [showVLineDateLabel]);
 
-  // 未約定注文（指値・逆指値）の価格ラインを再描画
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    const series = seriesRef.current;
-    try {
-      const existing = orderLineMapRef.current;
-      const nextIds = new Set(pendingOrders.map(o => o.id));
-
-      for (const [id, pl] of existing) {
-        if (!nextIds.has(id)) { series.removePriceLine(pl); existing.delete(id); }
-      }
-
-      for (const o of pendingOrders) {
-        const opts = {
-          price: o.price,
-          color: o.side === 'BUY' ? '#42a5f5' : '#ab47bc',
-          lineWidth: 2 as const,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `${o.side} ${o.type === 'limit' ? 'LIMIT' : 'STOP'}`,
-        };
-        const cur = existing.get(o.id);
-        if (cur) cur.applyOptions(opts);
-        else existing.set(o.id, series.createPriceLine(opts));
-      }
-    } catch (e) {
-      logError('CandleChart:orderLines', e);
-    }
-  }, [pendingOrders]);
-
-  // 未約定注文に紐づく TP / SL の価格ラインを再描画（約定前から表示）
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    const series = seriesRef.current;
-    try {
-      const tpExisting = orderTpLineMapRef.current;
-      const withTP = pendingOrders.filter(o => o.tp !== undefined);
-      const tpIds = new Set(withTP.map(o => o.id));
-      for (const [id, pl] of tpExisting) {
-        if (!tpIds.has(id)) { series.removePriceLine(pl); tpExisting.delete(id); }
-      }
-      for (const o of withTP) {
-        const opts = {
-          price: o.tp!,
-          color: '#26a69a',
-          lineWidth: 1 as const,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `TP ${pipsBetween(o.price, o.tp!).toFixed(1)}p`,
-        };
-        const cur = tpExisting.get(o.id);
-        if (cur) cur.applyOptions(opts);
-        else tpExisting.set(o.id, series.createPriceLine(opts));
-      }
-
-      const slExisting = orderSlLineMapRef.current;
-      const withSL = pendingOrders.filter(o => o.sl !== undefined);
-      const slIds = new Set(withSL.map(o => o.id));
-      for (const [id, pl] of slExisting) {
-        if (!slIds.has(id)) { series.removePriceLine(pl); slExisting.delete(id); }
-      }
-      for (const o of withSL) {
-        const opts = {
-          price: o.sl!,
-          color: '#ef5350',
-          lineWidth: 1 as const,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `SL ${pipsBetween(o.price, o.sl!).toFixed(1)}p`,
-        };
-        const cur = slExisting.get(o.id);
-        if (cur) cur.applyOptions(opts);
-        else slExisting.set(o.id, series.createPriceLine(opts));
-      }
-    } catch (e) {
-      logError('CandleChart:orderTpSlLines', e);
-    }
-  }, [pendingOrders]);
-
-  // ポジションの TP / SL 価格ラインを再描画
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    const series = seriesRef.current;
-    try {
-      const tpExisting = tpLineMapRef.current;
-      const withTP = positions.filter(p => p.tp !== undefined);
-      const tpIds = new Set(withTP.map(p => p.id));
-      for (const [id, pl] of tpExisting) {
-        if (!tpIds.has(id)) { series.removePriceLine(pl); tpExisting.delete(id); }
-      }
-      for (const p of withTP) {
-        const opts = {
-          price: p.tp!,
-          color: '#26a69a',
-          lineWidth: 1 as const,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `TP ${pipsBetween(p.openPrice, p.tp!).toFixed(1)}p`,
-        };
-        const cur = tpExisting.get(p.id);
-        if (cur) cur.applyOptions(opts);
-        else tpExisting.set(p.id, series.createPriceLine(opts));
-      }
-
-      const slExisting = slLineMapRef.current;
-      const withSL = positions.filter(p => p.sl !== undefined);
-      const slIds = new Set(withSL.map(p => p.id));
-      for (const [id, pl] of slExisting) {
-        if (!slIds.has(id)) { series.removePriceLine(pl); slExisting.delete(id); }
-      }
-      for (const p of withSL) {
-        const opts = {
-          price: p.sl!,
-          color: '#ef5350',
-          lineWidth: 1 as const,
-          lineStyle: LineStyle.Dashed,
-          axisLabelVisible: true,
-          title: `SL ${pipsBetween(p.openPrice, p.sl!).toFixed(1)}p`,
-        };
-        const cur = slExisting.get(p.id);
-        if (cur) cur.applyOptions(opts);
-        else slExisting.set(p.id, series.createPriceLine(opts));
-      }
-    } catch (e) {
-      logError('CandleChart:tpSlLines', e);
-    }
-  }, [positions]);
-
-  // ポジションのエントリー価格ラインを再描画
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    const series = seriesRef.current;
-    try {
-      const existing = positionEntryLineMapRef.current;
-      const ids = new Set(positions.map(p => p.id));
-      for (const [id, pl] of existing) {
-        if (!ids.has(id)) { series.removePriceLine(pl); existing.delete(id); }
-      }
-      for (const p of positions) {
-        const opts = {
-          price: p.openPrice,
-          color: p.side === 'BUY' ? '#42a5f5' : '#ab47bc',
-          lineWidth: 1 as const,
-          lineStyle: LineStyle.Solid,
-          axisLabelVisible: true,
-          title: `${p.side} ${p.lots}`,
-        };
-        const cur = existing.get(p.id);
-        if (cur) cur.applyOptions(opts);
-        else existing.set(p.id, series.createPriceLine(opts));
-      }
-    } catch (e) {
-      logError('CandleChart:positionEntryLines', e);
-    }
-  }, [positions]);
-
-  // 発注パネルの draft 価格（price/TP/SL）をプレビュー表示（ドット線で確定済みと区別）
-  useEffect(() => {
-    if (!seriesRef.current) return;
-    const series = seriesRef.current;
-    try {
-      const existing = draftLineMapRef.current;
-
-      // pips表示の基準となるエントリー価格: 成行は現在値、指値/逆指値はdraftPrice（未入力ならnullのまま表示なし）
-      const draftEntryPrice = orderType === 'market' ? candles[cursor]?.close ?? null : draftPrice;
-
-      const wanted: { key: 'price' | 'tp' | 'sl'; price: number; color: string; title: string }[] = [];
-      if (orderType !== 'market' && draftPrice !== null) {
-        wanted.push({ key: 'price', price: draftPrice, color: '#888', title: '指値/逆指値 (draft)' });
-      }
-      if (draftTP !== null) {
-        const pips = draftEntryPrice !== null ? ` ${pipsBetween(draftEntryPrice, draftTP).toFixed(1)}p` : '';
-        wanted.push({ key: 'tp', price: draftTP, color: '#26a69a', title: `TP (draft)${pips}` });
-      }
-      if (draftSL !== null) {
-        const pips = draftEntryPrice !== null ? ` ${pipsBetween(draftEntryPrice, draftSL).toFixed(1)}p` : '';
-        wanted.push({ key: 'sl', price: draftSL, color: '#ef5350', title: `SL (draft)${pips}` });
-      }
-
-      const wantedKeys = new Set(wanted.map(w => w.key));
-      for (const [key, pl] of existing) {
-        if (!wantedKeys.has(key)) { series.removePriceLine(pl); existing.delete(key); }
-      }
-      for (const w of wanted) {
-        const opts = {
-          price: w.price,
-          color: w.color,
-          lineWidth: 1 as const,
-          lineStyle: LineStyle.Dotted,
-          axisLabelVisible: true,
-          title: w.title,
-        };
-        const cur = existing.get(w.key);
-        if (cur) cur.applyOptions(opts);
-        else existing.set(w.key, series.createPriceLine(opts));
-      }
-    } catch (e) {
-      logError('CandleChart:draftLines', e);
-    }
-  }, [orderType, draftPrice, draftTP, draftSL, candles, cursor]);
+  // 未約定注文・ポジション（エントリー/TP/SL）・発注下書きの価格ライン（chart/usePriceLines.ts）
+  usePriceLines(seriesRef, {
+    orderLineMapRef, orderTpLineMapRef, orderSlLineMapRef, tpLineMapRef, slLineMapRef, positionEntryLineMapRef, draftLineMapRef,
+  }, { pendingOrders, positions, orderType, draftPrice, draftTP, draftSL, candles, cursor });
 
   // リスクリワード（TP/SL比率）プレビューの再計算
   useEffect(() => {
