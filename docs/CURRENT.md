@@ -160,7 +160,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 ## 不変条件 / 地雷
 
 - DOMオーバーレイ（雲・トレンドライン・矢印・ブラシ・垂直線・テキスト・四角形・週区切り線等）は`right: chartRightMargin`pxで価格軸を、`chartBottomMargin`で日付軸欄を避けること（`inset:0`等で全面に広げない）
-- lightweight-chartsは価格軸のドラッグ/ホイールによるスケール変更を購読できるイベントを公開していない（`subscribeVisibleLogicalRangeChange`は時間軸のみ）。全canvas自前描画（雲・水平線・垂直線・四角形・トレンドライン・平行チャネル）の再同期は`onRangeChange`に集約しているため、これだけに頼ると価格軸ドラッグ時にどれも追従しない（実際に指摘を受けて判明）。コンテナ内でのマウスドラッグ中・wheel中は常時`onRangeChange`を呼ぶ経路（`onWindowMouseMoveForPriceScale`等）で補っている
+- lightweight-chartsは価格軸のドラッグ/ホイールによるスケール変更を購読できるイベントを公開していない（`subscribeVisibleLogicalRangeChange`は時間軸のみ）。座標に依存する自前描画の描き直しはeffect内の`syncDrawingOverlays`に1本化し、表示範囲変更（`onRangeChange`）・コンテナ内のドラッグ/wheel中（`onWindowMouseMoveForPriceScale`等）・マウス移動時の再同期・リサイズの全経路から呼ぶ。新しい描画要素はここに足すこと（経路ごとに手書きすると一部だけ漏れる）
 - 描画要素（全8種）の描画・当たり判定・選択ハンドルは、storeの生配列ではなく必ず`getVisibleDrawings()`（`CandleChart.tsx`の巨大effect内）から図形を取ること。非表示分が最初から除外されるので、選択中の図形を`find`する箇所も自動的に正しくなる。生配列を使うと「非表示の図形がクリックに反応する」「ハンドルだけ残る」不具合になる。描画要素の種類を増やす時はこの関数に1行足す。例外は3つ: 水平線の価格軸ラベルを同期する別useEffect（React側の`lines`/`timeframeSec`で個別にフィルタ）、ドラッグ中処理（掴んだ図形をIDで引くだけ）、テキスト（DOM要素が`contentEditable`の編集対象なので要素は削除せず`display:none`で隠し、編集中のテキストは非表示設定でも確定まで表示し続ける）
 - 描画要素の種類を増やす時は`useTraderStore.ts`の`pushDrawHistory`/`undo`/`DrawSnapshot`/`loadFiles`/`saveChartFile`/`vtd.ts`の6箇所に配列とnextIdを必ず追加すること（`undo`だけ追加し忘れ、矢印を消してもUndoで戻らない不具合を実際に踏んだ）
 - 2点図形（トレンドライン・平行チャネル・矢印）の当たり判定は共通部品`projectSegment`（time/price→px）・`hitSegmentEndpoint`（端点ハンドル）・`hitSegmentBody`（線分本体）を使う。同型の2点図形を増やす時も各`findXxxNear`で座標変換や距離計算を書き直さないこと
