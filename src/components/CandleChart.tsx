@@ -39,6 +39,7 @@ import {
 } from './chart/hitTest';
 import { createCoordinateHelpers, interpolatePriceOnLine } from './chart/coordinates';
 import { createKeyboardHandler } from './chart/keyboard';
+import { createTextEditor } from './chart/textEditing';
 import { usePriceLines } from './chart/usePriceLines';
 import {
   useIndicatorSeries, EMA_COLOR, SMA_COLOR, BB_BASIS_COLOR, BB_SILVER, CLOUD_A_COLOR, CLOUD_B_COLOR,
@@ -751,170 +752,16 @@ export function CandleChart({
     syncBrushesRef.current = syncBrushes;
     syncBrushes();
 
-    // ── テキストの直接編集中の状態 ─────────────────────────────────────
-    // TradingView同様window.prompt()を使わず、DOM要素自体をcontentEditableにして
-    // その場で直接入力させる。新規配置も既存編集も同じ経路: 新規配置は空文字の
-    // DrawnTextをまず作ってしまい（addTextが選択状態にするので、パレットモードも
-    // 自動でONになり「編集モード」に入る）、その実体をそのままcontentEditableにする。
-    // 確定（blur）時に空文字のままなら削除、既存テキスト編集中のEscapeは元の内容の
-    // まま（storeはまだ書き換えていない）表示に戻すだけ
-    let editingTextId: number | null = null;
-    let editingTextEl: HTMLDivElement | null = null;
+    // ── テキストの直接編集（chart/textEditing.ts）。syncTextsが編集中IDを読むため、その生成より前に作る
+    const { getEditingTextId, beginEditExistingText, beginNewTextEdit } = createTextEditor({ textElsRef, syncTextsRef });
 
     // ── テキストボックスの位置をDOMに反映（chart/textsOverlay.ts） ────────
     const syncTexts = createSyncTexts({
       chartRef, seriesRef, overlayRef: textOverlayRef, elsRef: textElsRef, timeToX, getVisibleDrawings,
-      getEditingTextId: () => editingTextId,
+      getEditingTextId,
     });
     syncTextsRef.current = syncTexts;
     syncTexts();
-
-    // テキストの編集中に矢印キー・Backspace・Cmd+Z等がグローバルショートカット
-    // （図形削除・Undo・コピペ）に奪われないようにする（グローバルonKeyDown側も
-    // contentEditableをガードしているが、念のためここでも伝播を止める）。
-    // 確定はEnterではなくblur（他をクリック/Tab移動）またはEscape（破棄）で行う。
-    // Enterキーは改行に使うため、ブラウザ標準の挙動（<div>/<br>を挿入し、textContent
-    // 取得時に改行が失われることがある）に任せない。以前は`document.execCommand('insertText',
-    // false, '\n')`で素の'\n'文字を挿入していたが、execCommandでの改行挿入はブラウザ実装
-    // 依存で、環境によっては結局<br>要素として挿入されてしまうことがあった——編集中は<br>も
-    // 見た目上改行として表示されるため気付きにくいが、確定時に`el.textContent`を読み出すと
-    // <br>はテキストに一切寄与しない（要素を無視して文字ノードだけ連結される）ため、その
-    // 改行だけ跡形もなく消える不具合を実際に踏んだ。Selection/RangeでDOM文字ノードとして
-    // 直接'\n'を挿入すれば実装依存を避けられる（white-space:preで描画しているため、
-    // 素の'\n'がそのまま改行として表示される）
-    const insertNewlineAtSelection = () => {
-      const el = editingTextEl;
-      if (!el) return;
-      const sel = window.getSelection();
-      let range: Range;
-      if (sel && sel.rangeCount > 0 && el.contains(sel.getRangeAt(0).startContainer)) {
-        range = sel.getRangeAt(0);
-      } else {
-        range = document.createRange();
-        range.selectNodeContents(el);
-        range.collapse(false);
-      }
-      range.deleteContents();
-      const nl = document.createTextNode('\n');
-      range.insertNode(nl);
-      range.setStartAfter(nl);
-      range.setEndAfter(nl);
-      if (sel) {
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
-    };
-
-    // IME変換確定のEnterはkey==='Enter'として届くが、これは改行ではなく「変換を確定
-    // させたい」だけの入力。確定と改行を1回のEnterに統合しようとしたこともあったが、
-    // 「1回目の変換確定は改行されない（望ましい）のに2回目以降は改行されてしまう」という
-    // 不具合が残り、そもそも変換確定と改行を同じキー入力で兼ねること自体が意図と違う
-    // （変換確定は常に確定のみ、改行が欲しければ別途もう一度Enterを押す）と判明したため、
-    // 常に素通しして確定処理をブラウザ/IMEに任せる方針に戻した。isComposingNowは
-    // compositionstart/endで自前追跡する状態（keydown側のe.isComposingだけだとブラウザに
-    // よって検知が不安定なことがあるため併用する）
-    let isComposingNow = false;
-    const onTextEditCompositionStart = () => { isComposingNow = true; };
-    const onTextEditCompositionEnd = () => { isComposingNow = false; };
-
-    const onTextEditKeyDown = (e: KeyboardEvent) => {
-      e.stopPropagation();
-      if (e.key === 'Enter' && (e.isComposing || isComposingNow || e.keyCode === 229)) return;
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        insertNewlineAtSelection();
-      } else if (e.key === 'Escape') {
-        e.preventDefault();
-        cancelTextEdit();
-      }
-    };
-
-    // 全部消してちょうど空になった時、ブラウザによっては`<br>`等の空ノードが1つ
-    // 残ってDOM上は完全な空（:empty）にならないことがある（プレースホルダーの
-    // CSS `:empty::before`が働かず「文字を入力」が出てこなくなる）。inputのたびに
-    // textContentが空文字ならinnerHTMLごと空にして、常にDOM上も完全に空にしておく
-    const onTextEditInput = (e: Event) => {
-      const el = e.currentTarget as HTMLDivElement;
-      if (el.textContent === '') el.innerHTML = '';
-    };
-
-    const finishTextEdit = () => {
-      const id = editingTextId;
-      const el = editingTextEl;
-      if (id === null || !el) return;
-      editingTextId = null;
-      editingTextEl = null;
-      el.removeEventListener('keydown', onTextEditKeyDown);
-      el.removeEventListener('input', onTextEditInput);
-      el.removeEventListener('compositionstart', onTextEditCompositionStart);
-      el.removeEventListener('compositionend', onTextEditCompositionEnd);
-      el.removeEventListener('blur', finishTextEdit);
-      el.contentEditable = 'false';
-      el.style.pointerEvents = 'none';
-      const content = (el.textContent || '').trim();
-      if (content === '') useTraderStore.getState().removeText(id);
-      else useTraderStore.getState().updateText(id, { text: content });
-    };
-
-    function cancelTextEdit() {
-      const id = editingTextId;
-      const el = editingTextEl;
-      if (id === null || !el) return;
-      editingTextId = null;
-      editingTextEl = null;
-      el.removeEventListener('keydown', onTextEditKeyDown);
-      el.removeEventListener('input', onTextEditInput);
-      el.removeEventListener('compositionstart', onTextEditCompositionStart);
-      el.removeEventListener('compositionend', onTextEditCompositionEnd);
-      el.removeEventListener('blur', finishTextEdit);
-      el.contentEditable = 'false';
-      el.style.pointerEvents = 'none';
-      // 新規配置直後（まだ何も確定しておらず空文字のまま）でのEscapeは配置自体を取り消す。
-      // 既存テキスト編集中のEscapeは、storeをまだ書き換えていないので再描画するだけで元に戻る
-      const { texts: currentTexts } = useTraderStore.getState();
-      const t = currentTexts.find(tt => tt.id === id);
-      if (t && t.text === '') useTraderStore.getState().removeText(id);
-      else syncTexts();
-    }
-
-    const startEditingEl = (el: HTMLDivElement) => {
-      el.style.pointerEvents = 'auto';
-      el.contentEditable = 'true';
-      el.style.outline = 'none';
-      el.addEventListener('keydown', onTextEditKeyDown);
-      el.addEventListener('input', onTextEditInput);
-      el.addEventListener('compositionstart', onTextEditCompositionStart);
-      el.addEventListener('compositionend', onTextEditCompositionEnd);
-      el.addEventListener('blur', finishTextEdit);
-      el.focus();
-      // カーソルは末尾に置く（全選択のままだと最初のキー入力で全部消えてしまう）
-      const range = document.createRange();
-      range.selectNodeContents(el);
-      range.collapse(false);
-      const sel = window.getSelection();
-      sel?.removeAllRanges();
-      sel?.addRange(range);
-    };
-
-    // 既存テキストの編集: その実体であるDOM要素をそのまま編集モードにする
-    const beginEditExistingText = (id: number) => {
-      const el = textElsRef.current.get(id);
-      if (!el) return;
-      editingTextId = id;
-      editingTextEl = el;
-      startEditingEl(el);
-    };
-
-    // 新規配置: 空文字のDrawnTextをまず追加する（addTextが末尾でselectLineを呼ぶため、
-    // 配置と同時に選択状態＝編集モードに入りパレットモードも自動でONになる）。
-    // 続けてsyncTextsをその場で呼び、Reactの再描画を待たずに対応するDOM要素を
-    // すぐ作らせてから編集モードに入る（フォーカスするには実体が要るため）
-    const beginNewTextEdit = (time: number, price: number) => {
-      useTraderStore.getState().addText(time, price, '');
-      syncTexts();
-      const newId = useTraderStore.getState().nextTextId - 1;
-      beginEditExistingText(newId);
-    };
 
     // 週区切り線・セッション帯のDOMオーバーレイ（実装は./chart/配下。描画ツールと絡まない
     // 表示専用の要素なので、共有状態をrefで受け取る関数として切り出してある）
@@ -1277,7 +1124,7 @@ export function CandleChart({
       // テキストの直接編集中（contentEditable）は、その中でのクリックはカーソル移動・
       // 範囲選択などブラウザ標準のテキスト編集操作に委ね、こちらの図形ドラッグ判定は行わない
       // （行うと編集中のテキストボックスが意図せず動いてしまう）
-      if (editingTextId !== null) return;
+      if (getEditingTextId() !== null) return;
       // Phase 2: 非メインパネルでも同じドラッグ/当たり判定を動かす。ただし「ドラッグでない
       // 単純クリックでメイン昇格」という非メイン専用の挙動も残す必要があるため、この関数の
       // 末尾（何にもヒットしなかった＝空白クリックの分岐）でだけ始点を記録する
@@ -2673,7 +2520,7 @@ export function CandleChart({
     // テキストボックスのダブルクリックで内容を編集する（削除は選択してDelete/Backspaceキー、
     // 編集中に全部消してblurすると削除扱いになる（Escapeは編集前の状態に戻すだけ）
     const onDblClick = (e: MouseEvent) => {
-      if (editingTextId !== null) return;
+      if (getEditingTextId() !== null) return;
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
