@@ -40,6 +40,8 @@ import {
 import { createCoordinateHelpers, interpolatePriceOnLine } from './chart/coordinates';
 import { createKeyboardHandler } from './chart/keyboard';
 import { createTextEditor } from './chart/textEditing';
+import type { DragSession } from './chart/drag';
+import { createVLineTool } from './chart/vlineTool';
 import { usePriceLines } from './chart/usePriceLines';
 import {
   useIndicatorSeries, EMA_COLOR, SMA_COLOR, BB_BASIS_COLOR, BB_SILVER, CLOUD_A_COLOR, CLOUD_B_COLOR,
@@ -1005,7 +1007,6 @@ export function CandleChart({
 
     // ── 既存ライン（水平線・垂直線・注文・TP/SL）のドラッグ移動 ──────
     let draggingTarget: DragTarget | null = null;
-    let draggingVId: number | null = null;
     let draggingDraft: 'price' | 'tp' | 'sl' | null = null;
     let draggingRectCorner: RectCorner | null = null;
     let draggingRectEdge: RectEdge | null = null;
@@ -1058,7 +1059,6 @@ export function CandleChart({
     let textGrabDX = 0, textGrabDY = 0;
     let pendingTextXY: { x: number; y: number } | null = null;
     let pendingPrice: number | null = null;
-    let pendingVX: number | null = null;
     let pendingDraftPrice: number | null = null;
     let pendingRectCornerPos: { time: number; price: number } | null = null;
     let pendingRectEdgeValue: number | null = null;
@@ -1090,6 +1090,15 @@ export function CandleChart({
       findBrushVertexNear, findBrushCircleCornerNear, findBrushNear, findTextNear,
     } = createHitTests({ chartRef, seriesRef, textElsRef, getVisibleDrawings, timeToX, timeToXSnapped });
     const { pixelToTime, pixelToContinuousTime, magnetSnap } = createCoordinateHelpers({ chartRef, seriesRef, displayCandlesRef, timeToX });
+
+    // ── マウス操作の振り分け（chart/drag.ts） ─────────────────────────────
+    // 図形ごとのツールがmousedownでDragSessionを作り、ドラッグ中のmousemove/mouseupは
+    // そのセッションだけが受け取る。まだこの形に移していない図形は下のdragging系の変数で処理する
+    let activeSession: DragSession | null = null;
+    const vlineTool = createVLineTool({
+      chart, container, findVLineNear, vlineElsRef, lineHandleElRef,
+      setDragPreview: p => { vlineDragPreviewX = p; }, drawVLineCanvas,
+    });
 
     const priceLineMapFor = (kind: DragTarget['kind']): Map<number, IPriceLine> => {
       if (kind === 'hline') return priceLineMapRef.current;
@@ -1269,14 +1278,8 @@ export function CandleChart({
         container.style.cursor = 'ns-resize';
         return;
       }
-      const vId = findVLineNear(x);
-      if (vId !== null) {
-        draggingVId = vId;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'ew-resize';
-        useTraderStore.getState().selectLine({ kind: 'v', id: vId });
-        return;
-      }
+      const vlineSession = vlineTool.tryStartEdit(x, y);
+      if (vlineSession) { activeSession = vlineSession; return; }
 
       // 矢印は他の描画（四角形・トレンドライン・ブラシ）より常に上に見せる/掴めるようにしたい
       // というわがままな要望のため、当たり判定もここで最優先にチェックする（表示側は
@@ -1531,6 +1534,8 @@ export function CandleChart({
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
 
+      if (activeSession) { activeSession.move(x, y, e); return; }
+
       if (rectDragging && rectStart) {
         const snap = magnetSnap(x, y);
         if (snap === null) return;
@@ -1656,27 +1661,6 @@ export function CandleChart({
                 hlineDragPreviewPrice = { id: draggingTarget.id, price: pendingPrice };
                 drawHLineCanvas();
               }
-            }
-          });
-        }
-        return;
-      }
-
-      if (draggingVId !== null) {
-        pendingVX = x;
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingVId !== null && pendingVX !== null) {
-              const el = vlineElsRef.current.get(draggingVId);
-              if (el) el.style.left = `${pendingVX}px`;
-              // 中点ハンドルも同じフレームで追従させる（理由は水平線ドラッグと同じ）
-              if (lineHandleElRef.current) lineHandleElRef.current.style.left = `${pendingVX - 4}px`;
-              // 線本体（canvas描画）もこのフレームで追従させないと、DOMのラベル/ハンドルだけ
-              // 動いて線の見た目が古い位置に取り残される
-              vlineDragPreviewX = { id: draggingVId, x: pendingVX };
-              drawVLineCanvas();
             }
           });
         }
@@ -2086,8 +2070,8 @@ export function CandleChart({
         if (draft !== null) { container.style.cursor = 'ns-resize'; return; }
         const target = findPriceTargetNear(y);
         if (target !== null) { container.style.cursor = 'ns-resize'; return; }
-        const vId = findVLineNear(x);
-        if (vId !== null) { container.style.cursor = 'ew-resize'; return; }
+        const vlineCursor = vlineTool.hoverCursor(x, y);
+        if (vlineCursor !== null) { container.style.cursor = vlineCursor; return; }
         // 矢印はmousedownと同じく他の図形より先に判定する（最前面に描かれ、クリックでも優先して掴むため）
         const arrowEndpointHover = findArrowEndpointNear(x, y);
         if (arrowEndpointHover !== null) { container.style.cursor = 'nwse-resize'; return; }
@@ -2125,6 +2109,13 @@ export function CandleChart({
     };
 
     const onMouseUp = (e: MouseEvent) => {
+      if (activeSession) {
+        const rect = container.getBoundingClientRect();
+        const session = activeSession;
+        activeSession = null;
+        session.end(e.clientX - rect.left, e.clientY - rect.top, e);
+        return;
+      }
       if (rectDragging) {
         rectDragging = false;
         chart.applyOptions({ handleScroll: true, handleScale: true });
@@ -2278,19 +2269,6 @@ export function CandleChart({
         }
         draggingTarget = null;
         pendingPrice = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-      }
-      if (draggingVId !== null) {
-        if (pendingVX !== null && chartRef.current) {
-          const time = chartRef.current.timeScale().coordinateToTime(pendingVX);
-          if (time !== null) {
-            useTraderStore.getState().updateVLine(draggingVId, { time: time as number });
-          }
-        }
-        draggingVId = null;
-        pendingVX = null;
-        vlineDragPreviewX = null;
-        drawVLineCanvas(); // storeコミット後の実データで再描画（プレビュー座標を使い続けない）
         chart.applyOptions({ handleScroll: true, handleScale: true });
       }
       if (draggingRectCorner !== null) {
