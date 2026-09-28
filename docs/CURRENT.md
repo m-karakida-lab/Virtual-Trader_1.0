@@ -141,8 +141,8 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - `src/components/chart/` — CandleChartの巨大effectから切り出した描画モジュール。`createSyncXxx(deps)`で必要なref・関数だけ受け取りsync関数を返す（読むだけのrefは`refs.ts`の`ReadRef<T>`）
   - 描画のみを持つ。ドラッグ/当たり判定/テキスト直接編集はCandleChart側に残り、ドラッグ中・新規描画中の状態もCandleChart側の`let`のまま`getDragPreview`等のgetterで渡す
   - 図形: `linesOverlay`（水平線・垂直線）、`rectsOverlay`（`positionRectHandles`も）、`trendLinesOverlay`（2点図形共通の`drawTrendLineShape`等もexport）、`channelsOverlay`、`arrowsOverlay`、`brushesOverlay`、`textsOverlay`
-  - マウス操作の部品: `hitTest`（全図形・価格ラインの`findXxxNear`と、その結果の型・許容px。優先順位は呼び出し側のmousedown/ホバーが決める）、`coordinates`（`pixelToTime`・`pixelToContinuousTime`・`magnetSnap`）、`keyboard`（Delete/取り消し/コピー&ペースト。クリップボードはモジュールスコープで全パネル共有、反応するのは`activePanelSlot`の1枠だけ）、`textEditing`（テキストの直接編集。編集中IDは`getEditingTextId`で`textsOverlay`とmousedown/dblclickが読む）
-  - マウス操作の振り分け（移行中）: `drag`（`DragSession`/`EditTool`の型、ドラッグごとの1フレーム間引き、スクロール/拡縮ロック）。mousedownで図形ごとのツールがセッションを作り、ドラッグ中のmousemove/mouseupはそのセッションだけが受け取る。移行済み: `vlineTool`（垂直線）、`twoPointTool`（トレンドライン・矢印の描画/端点/平行移動）、`channelTool`（平行チャネル。基準線は`twoPointTool`を使い、オフセット線と2段階描画を足す。オフセット決定待ちの状態は描画モジュールとツール切替時の破棄が読むためCandleChart側のlet）。`rectTool`（四角形の描画/角/辺/枠での移動。プレビューはピクセル座標、ハンドルも同じフレームで動かす）。`brushTool`（ブラシの描画と図形認識・移動・三角形の頂点・円の角）。未移行の図形はCandleChart内の従来のdragging系の変数で動く
+  - マウス操作の部品: `hitTest`（全図形・価格ラインの`findXxxNear`と、その結果の型・許容px。優先順位はCandleChartの`editTools`の並びで決まる）、`coordinates`（`pixelToTime`・`pixelToContinuousTime`・`magnetSnap`）、`keyboard`（Delete/取り消し/コピー&ペースト。クリップボードはモジュールスコープで全パネル共有、反応するのは`activePanelSlot`の1枠だけ）、`textEditing`（テキストの直接編集。編集中IDは`getEditingTextId`で`textsOverlay`とmousedown/dblclickが読む）
+  - マウス操作の振り分け: `drag`（`DragSession`/`EditTool`/`combineTools`、ドラッグごとの1フレーム間引き、スクロール/拡縮ロック）。mousedownで描画ツール選択中ならそのツールの`startDraw`、それ以外は優先順位の一覧`editTools`（下書き→注文/TP/SL→垂直線→矢印→四角形→トレンドライン→平行チャネル→ブラシ→テキスト→水平線）を順に試し、ドラッグ中のmousemove/mouseupはそのセッションだけが受け取る。ホバー時のカーソルも同じ`editTools`で決める（クリックとホバーの判定順は1か所）。ツール: `vlineTool`、`twoPointTool`（トレンドライン・矢印）、`channelTool`（基準線は`twoPointTool`を使い、オフセット線と2段階描画を足す）、`rectTool`、`brushTool`、`priceLineTool`（下書き・注文/TP/SL・水平線）、`textMoveTool`、`measureTool`。描画モジュールが読むプレビュー/ドラフト状態と平行チャネルのオフセット決定待ちはCandleChart側のletに置き、ツールへはsetter/getterで渡す
   - その他: `cloudOverlay`（雲の塗りつぶし）、`rrPreviewOverlay`（発注下書きのRRプレビュー）、`measureOverlay`（ものさしの表示。ドラッグ開始/終了はCandleChart側）、`useIndicatorSeries`（メインのEMA/SMA/BB/雲: 表示ON/OFFのeffectと全再計算・差分更新の関数。非メインは`lib/indicators`のフル計算）、`useViewRange`（表示範囲。`useViewRangeCommands`=リサイズ/表示リセット/最新足ボタン、`useViewRangeSync`=最新足追従/十字カーソル同期/時間足切替時の位置/日付移動/ジャンプ同期。後者は必ずsetData系effectより後で呼ぶ）、`usePriceLines`（注文・ポジション・発注下書きの価格ラインを同期するフック。マップ自体はドラッグ移動と破棄時の`.clear()`で使うためCandleChart側が持つ）、`candleIndex`（時刻→足インデックス）、`weekLinesOverlay`、`sessionsOverlay`（下部行の寸法定数もexport）、`tradeMarkersOverlay`、`scrubber`（リスナーを持つので`{ sync, dispose }`）、`canvas`（`DASH_TO_CANVAS`・`beginCanvasFrame`）
 - `src/components/MiniChart.tsx` — 現在未使用（`App.tsx`から参照削除済み、ロールバック用に残存）。全パネルが`CandleChart`に統一されたため退役
 - `src/components/ChartHeader.tsx` — パネル左上の「シンボル+時間軸」表示＋全画面切替ボタン。時間軸ラベルクリックでドロップダウン開閉。全画面ボタンは非メイン枠なら`promoteSlotToMain`後に1画面化
@@ -194,7 +194,7 @@ DuckDB テーブル: `candles_1m`（ts: BIGINT, open/high/low/close: DOUBLE, vol
 - 自動再生は`requestAnimationFrame`（`setInterval`は高速再生時に描画ノイズが出る）
 - ドラッグ系操作は開始時に`handleScroll`/`handleScale`を無効化し終了時に必ず再有効化すること
 - 水平線・垂直線・TP/SL・draft価格は丸めない（表示側のみ`toFixed`）
-- `onMouseDown`ヒット判定順序は「四角形→トレンドライン→ブラシ→テキスト→水平線」（水平線は全幅ヒットするため最後）
+- 既存図形をつかむ判定順はCandleChartの`editTools`の並び1か所（mousedownとホバーで共通）。矢印は最前面に描かれるため先頭寄り、水平線は全幅でヒットするため最後に置くこと
 - DOMオーバーレイのz-indexは10〜13、雲の`<canvas>`はz-index:5
 - ローソク足・背景・グリッドはlightweight-charts内部で同じ1枚のcanvasに一括描画される。DOM要素の負のz-indexで「ローソク足の下」に見せようとすると背景ごと隠れて何も見えなくなる（試すだけ無駄）
 - 雲の塗りつぶしは`candles[0].time`より左側には描画しないようガードすること（範囲外の外挿防止）

@@ -30,16 +30,18 @@ import { createSyncBrushes } from './chart/brushesOverlay';
 import { createSyncTexts } from './chart/textsOverlay';
 import { createSyncCloud } from './chart/cloudOverlay';
 import { createUpdateRRPreview } from './chart/rrPreviewOverlay';
-import { createUpdateMeasureBox } from './chart/measureOverlay';
 import { createHitTests, type DragTarget } from './chart/hitTest';
 import { createCoordinateHelpers } from './chart/coordinates';
 import { createKeyboardHandler } from './chart/keyboard';
 import { createTextEditor } from './chart/textEditing';
-import { CONSUMED, type DragSession, type StartResult } from './chart/drag';
+import { CONSUMED, combineTools, type DragSession } from './chart/drag';
 import { createTwoPointTool } from './chart/twoPointTool';
 import { createChannelTool } from './chart/channelTool';
 import { createRectTool } from './chart/rectTool';
 import { createBrushTool } from './chart/brushTool';
+import { createPriceLineTools } from './chart/priceLineTool';
+import { createTextMoveTool } from './chart/textMoveTool';
+import { createMeasureTool } from './chart/measureTool';
 import { createVLineTool } from './chart/vlineTool';
 import { usePriceLines } from './chart/usePriceLines';
 import {
@@ -936,40 +938,6 @@ export function CandleChart({
 
     });
 
-    // ── ものさし（表示はchart/measureOverlay.ts、ドラッグの開始/終了はここ） ──────────────
-    let measuringDrag = false;
-    let measureStart: { x: number; y: number; price: number; time: number } | null = null;
-
-    const updateMeasureBox = createUpdateMeasureBox({
-      chartRef, seriesRef, overlayRef: measureOverlayRef, boxRef: measureBoxRef, midLineRef: measureMidLineRef,
-      labelRef: measureLabelRef, displayCandlesRef, getMeasureStart: () => measureStart,
-    });
-
-    // ものさしドラッグを開始する。「ものさし」ツール選択中の左クリックドラッグと、
-    // ツール選択に関わらず使えるホイールクリック（中央ボタン）ドラッグの両方から呼ばれる
-    const startMeasuring = (x: number, y: number) => {
-      if (!seriesRef.current || !chartRef.current) return;
-      const price = seriesRef.current.coordinateToPrice(y);
-      const time = chartRef.current.timeScale().coordinateToTime(x);
-      if (price === null || time === null) return;
-      measureStart = { x, y, price, time: time as number };
-      measuringDrag = true;
-      chart.applyOptions({ handleScroll: false, handleScale: false });
-      updateMeasureBox(x, y, x, y);
-    };
-
-    // ── 既存ライン（水平線・垂直線・注文・TP/SL）のドラッグ移動 ──────
-    let draggingTarget: DragTarget | null = null;
-    let draggingDraft: 'price' | 'tp' | 'sl' | null = null;
-    // ── テキストボックスの移動ドラッグ ─────────────────────────────
-    // 掴んだ位置とテキスト要素の左上とのピクセルオフセットを保持し、ドラッグ中は
-    // そのオフセット分だけずらした位置に要素を追従させる（垂直線ドラッグと同じ考え方）
-    let draggingTextId: number | null = null;
-    let textGrabDX = 0, textGrabDY = 0;
-    let pendingTextXY: { x: number; y: number } | null = null;
-    let pendingPrice: number | null = null;
-    let pendingDraftPrice: number | null = null;
-    let rafScheduled = false;
     // 価格軸のドラッグによる縦スケール変更はlightweight-charts側の内部処理で、
     // それを教えてくれるイベントが無い。そのためドラッグ操作中でなくても、マウスが
     // 動くたびに（rAFで間引きながら）座標に依存する描画を全部再計算することで
@@ -986,6 +954,16 @@ export function CandleChart({
       findBrushVertexNear, findBrushCircleCornerNear, findBrushNear, findTextNear,
     } = createHitTests({ chartRef, seriesRef, textElsRef, getVisibleDrawings, timeToX, timeToXSnapped });
     const { pixelToTime, pixelToContinuousTime, magnetSnap } = createCoordinateHelpers({ chartRef, seriesRef, displayCandlesRef, timeToX });
+
+    // 価格ラインのドラッグ中にチャート側のライン（createPriceLine）を直接動かすためのマップ
+    const priceLineMapFor = (kind: DragTarget['kind']): Map<number, IPriceLine> => {
+      if (kind === 'hline') return priceLineMapRef.current;
+      if (kind === 'order') return orderLineMapRef.current;
+      if (kind === 'tp') return tpLineMapRef.current;
+      if (kind === 'sl') return slLineMapRef.current;
+      if (kind === 'orderTp') return orderTpLineMapRef.current;
+      return orderSlLineMapRef.current;
+    };
 
     // ── マウス操作の振り分け（chart/drag.ts） ─────────────────────────────
     // 図形ごとのツールがmousedownでDragSessionを作り、ドラッグ中のmousemove/mouseupは
@@ -1034,21 +1012,23 @@ export function CandleChart({
       findVertex: findBrushVertexNear, findCircleCorner: findBrushCircleCornerNear, findBody: findBrushNear,
       setDragPreview: p => { brushDragPreview = p; }, setNewDraft: d => { newBrushDraft = d; }, sync: syncBrushes,
     });
-    // ツールのmousedown結果を受け取る。当たった（ドラッグ開始・またはCONSUMED）ならtrue
-    const startWith = (r: StartResult): boolean => {
-      if (r === null) return false;
-      if (r !== CONSUMED) activeSession = r;
-      return true;
-    };
+    const { draftTool, priceTargetTool, hlineTool } = createPriceLineTools({
+      chart, container, seriesRef, findDraftNear, findPriceTargetNear, findHLineNear, priceLineMapFor,
+      lineHandleElRef, setHLineDragPreview: p => { hlineDragPreviewPrice = p; }, drawHLineCanvas, magnetSnap,
+    });
+    const textMoveTool = createTextMoveTool({ chart, container, seriesRef, textElsRef, findTextNear, pixelToTime });
+    const measureTool = createMeasureTool({
+      chart, seriesRef, overlayRef: measureOverlayRef, boxRef: measureBoxRef, midLineRef: measureMidLineRef,
+      labelRef: measureLabelRef, displayCandlesRef,
+    });
+    // 既存の図形・ラインをつかむ時の優先順位（mousedownとホバー時のカーソルで共通）:
+    // 下書き→注文/TP/SL→垂直線→矢印（最前面に描かれるため他の図形より先）→四角形→トレンドライン→
+    // 平行チャネル→ブラシ→テキスト→水平線（画面全幅で当たるため最後。四角形等の編集を優先する）
+    const editTools = combineTools([
+      draftTool, priceTargetTool, vlineTool, arrowTool.editTool, rectTool.editTool, trendTool.editTool,
+      channelTool.editTool, brushTool.editTool, textMoveTool, hlineTool,
+    ]);
 
-    const priceLineMapFor = (kind: DragTarget['kind']): Map<number, IPriceLine> => {
-      if (kind === 'hline') return priceLineMapRef.current;
-      if (kind === 'order') return orderLineMapRef.current;
-      if (kind === 'tp') return tpLineMapRef.current;
-      if (kind === 'sl') return slLineMapRef.current;
-      if (kind === 'orderTp') return orderTpLineMapRef.current;
-      return orderSlLineMapRef.current;
-    };
 
     const onMouseDown = (e: MouseEvent) => {
       // Phase 4: 4画面時、Delete/Undo/コピペ等のキーボードショートカットを「最後に
@@ -1076,7 +1056,8 @@ export function CandleChart({
       // 常に計測に使える。ブラウザ標準のオートスクロールカーソルは無効化する
       if (e.button === 1) {
         e.preventDefault();
-        startMeasuring(x, y);
+        const session = measureTool.start(x, y);
+        if (session) activeSession = session;
         return;
       }
 
@@ -1122,64 +1103,15 @@ export function CandleChart({
       }
 
       if (isM) {
-        startMeasuring(x, y);
+        const session = measureTool.start(x, y);
+        if (session) activeSession = session;
         return;
       }
 
-      if (dH || dV || dT) return;
-
-      const draft = findDraftNear(y);
-      if (draft !== null) {
-        draggingDraft = draft;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'ns-resize';
-        return;
-      }
-
-      const target = findPriceTargetNear(y);
-      if (target !== null) {
-        draggingTarget = target;
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'ns-resize';
-        return;
-      }
-      if (startWith(vlineTool.tryStartEdit(x, y))) return;
-
-      // 矢印は他の描画（四角形・トレンドライン・ブラシ）より常に上に見せる/掴めるようにしたい
-      // というわがままな要望のため、当たり判定もここで最優先にチェックする（表示側は
-      // arrowCanvasRefのzIndexを他の描画系より1段高くして揃えてある）
-      if (startWith(arrowTool.editTool.tryStartEdit(x, y))) return;
-
-      if (startWith(rectTool.editTool.tryStartEdit(x, y))) return;
-
-      if (startWith(trendTool.editTool.tryStartEdit(x, y))) return;
-
-      if (startWith(channelTool.editTool.tryStartEdit(x, y))) return;
-
-      if (startWith(brushTool.editTool.tryStartEdit(x, y))) return;
-
-      const textId = findTextNear(x, y);
-      if (textId !== null) {
-        const el = textElsRef.current.get(textId);
-        if (el) {
-          draggingTextId = textId;
-          textGrabDX = x - el.offsetLeft;
-          textGrabDY = y - el.offsetTop;
-          chart.applyOptions({ handleScroll: false, handleScale: false });
-          container.style.cursor = 'move';
-        }
-        useTraderStore.getState().selectLine({ kind: 'text', id: textId });
-        return;
-      }
-
-      // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
-      // 当たらなかった場合にのみ選択・ドラッグ対象にする（四角形の編集を優先する）
-      const hlineId = findHLineNear(y);
-      if (hlineId !== null) {
-        draggingTarget = { kind: 'hline', id: hlineId };
-        chart.applyOptions({ handleScroll: false, handleScale: false });
-        container.style.cursor = 'ns-resize';
-        useTraderStore.getState().selectLine({ kind: 'h', id: hlineId });
+      // 既存の図形・ラインをつかむ（優先順位はeditToolsの並び順）
+      const started = editTools.tryStartEdit(x, y);
+      if (started !== null) {
+        if (started !== CONSUMED) activeSession = started;
         return;
       }
 
@@ -1205,83 +1137,6 @@ export function CandleChart({
       // 平行チャネルのオフセット決定待ち: ボタンを押していない移動で2本目の位置をプレビュー
       if (channelTool.moveWhileAwaitingOffset(x, y)) return;
 
-      if (measuringDrag && measureStart) {
-        updateMeasureBox(measureStart.x, measureStart.y, x, y);
-        return;
-      }
-
-      if (draggingDraft !== null) {
-        if (!seriesRef.current) return;
-        const price = seriesRef.current.coordinateToPrice(y);
-        if (price === null) return;
-        pendingDraftPrice = price;
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            // draft はストア値そのものなので直接コミットする（既存の描画系がそのまま追従する）
-            if (draggingDraft !== null && pendingDraftPrice !== null) {
-              const store = useTraderStore.getState();
-              if (draggingDraft === 'price') store.setDraftPrice(pendingDraftPrice);
-              else if (draggingDraft === 'tp') store.setDraftTP(pendingDraftPrice);
-              else store.setDraftSL(pendingDraftPrice);
-            }
-          });
-        }
-        return;
-      }
-
-      if (draggingTarget !== null) {
-        if (!seriesRef.current) return;
-        // 水平線のみ描画ツールとしてマグネットの対象にする（TP/SL等の注文編集は対象外）
-        const price = draggingTarget.kind === 'hline'
-          ? magnetSnap(x, y)?.price ?? null
-          : seriesRef.current.coordinateToPrice(y);
-        if (price === null) return;
-        // 丸めない（0.001刻みなどに量子化すると、ズーム次第で複数px分の
-        // ジャンプになり「カクつく」原因になる。表示側だけ toFixed で丸める）
-        pendingPrice = price;
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            // ドラッグ中は store を経由せず、チャート側のラインを直接動かす
-            // （store → React 再レンダリング往復のラグでカクつくのを避ける）
-            if (draggingTarget !== null && pendingPrice !== null) {
-              priceLineMapFor(draggingTarget.kind).get(draggingTarget.id)?.applyOptions({ price: pendingPrice });
-              // 中点ハンドルも同じフレームで追従させる（store更新を待つと
-              // マウスボタンリリースまでハンドルだけ取り残されて不自然に見える）
-              if (draggingTarget.kind === 'hline' && lineHandleElRef.current && seriesRef.current) {
-                const hy = seriesRef.current.priceToCoordinate(pendingPrice);
-                if (hy !== null) lineHandleElRef.current.style.top = `${hy - 4}px`;
-              }
-              // 線本体（destination-out描画）もこのフレームで追従させる
-              if (draggingTarget.kind === 'hline') {
-                hlineDragPreviewPrice = { id: draggingTarget.id, price: pendingPrice };
-                drawHLineCanvas();
-              }
-            }
-          });
-        }
-        return;
-      }
-
-      if (draggingTextId !== null) {
-        pendingTextXY = { x: x - textGrabDX, y: y - textGrabDY };
-        if (!rafScheduled) {
-          rafScheduled = true;
-          requestAnimationFrame(() => {
-            rafScheduled = false;
-            if (draggingTextId === null || pendingTextXY === null) return;
-            const el = textElsRef.current.get(draggingTextId);
-            if (!el) return;
-            el.style.left = `${pendingTextXY.x}px`;
-            el.style.top = `${pendingTextXY.y}px`;
-          });
-        }
-        return;
-      }
-
       // 価格軸ドラッグ等、こちらで検知できないスケール変更にも追従させる（コメントは冒頭のlet宣言を参照）
       if (!overlayResyncScheduled) {
         overlayResyncScheduled = true;
@@ -1296,29 +1151,7 @@ export function CandleChart({
       // 垂直線等に重なっても「ドラッグできる」ことを示す矢印カーソルは出さない
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingChannel: isCh, isDrawingArrow: isAr, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
       if (!dH && !dV && !isM && !isR && !isTL && !isCh && !isAr && !isB && !dT && pick === null && !jumpSync) {
-        const draft = findDraftNear(y);
-        if (draft !== null) { container.style.cursor = 'ns-resize'; return; }
-        const target = findPriceTargetNear(y);
-        if (target !== null) { container.style.cursor = 'ns-resize'; return; }
-        const vlineCursor = vlineTool.hoverCursor(x, y);
-        if (vlineCursor !== null) { container.style.cursor = vlineCursor; return; }
-        // 矢印はmousedownと同じく他の図形より先に判定する（最前面に描かれ、クリックでも優先して掴むため）
-        const arrowCursor = arrowTool.editTool.hoverCursor(x, y);
-        if (arrowCursor !== null) { container.style.cursor = arrowCursor; return; }
-        const rectCursor = rectTool.editTool.hoverCursor(x, y);
-        if (rectCursor !== null) { container.style.cursor = rectCursor; return; }
-        const trendCursor = trendTool.editTool.hoverCursor(x, y);
-        if (trendCursor !== null) { container.style.cursor = trendCursor; return; }
-        const channelCursor = channelTool.editTool.hoverCursor(x, y);
-        if (channelCursor !== null) { container.style.cursor = channelCursor; return; }
-        const brushCursor = brushTool.editTool.hoverCursor(x, y);
-        if (brushCursor !== null) { container.style.cursor = brushCursor; return; }
-        const textId = findTextNear(x, y);
-        if (textId !== null) { container.style.cursor = 'move'; return; }
-        // 水平線は四角形と重なると全幅でヒットしてしまうため、四角形のどの判定にも
-        // 当たらなかった場合にのみカーソルを変える（判定順は全体をmousedown側の優先順位と揃えること）
-        const hlineId = findHLineNear(y);
-        container.style.cursor = hlineId !== null ? 'ns-resize' : 'default';
+        container.style.cursor = editTools.hoverCursor(x, y) ?? 'default';
       }
     };
 
@@ -1329,61 +1162,6 @@ export function CandleChart({
         activeSession = null;
         session.end(e.clientX - rect.left, e.clientY - rect.top, e);
         return;
-      }
-      if (measuringDrag) {
-        measuringDrag = false;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        // 一回の計測で自動的に解除する（連続測定にはしない）。ホイールクリックでの計測は
-        // もともとisMeasuring=falseなのでsetStateは実質no-op、表示だけ明示的に隠す
-        // （React effectはisMeasuringの変化でしか発火せず、false→falseでは反応しないため）
-        useTraderStore.setState({ isMeasuring: false });
-        if (measureOverlayRef.current) measureOverlayRef.current.style.display = 'none';
-        return;
-      }
-      if (draggingDraft !== null) {
-        // 最後のmousemoveのrAF（storeへのコミット）がまだ走っていなければここで確定させる。
-        // 先にnullへ戻すとrAF側は何もしないため、素早く離した時の最後の移動が失われる
-        if (pendingDraftPrice !== null) {
-          const store = useTraderStore.getState();
-          if (draggingDraft === 'price') store.setDraftPrice(pendingDraftPrice);
-          else if (draggingDraft === 'tp') store.setDraftTP(pendingDraftPrice);
-          else store.setDraftSL(pendingDraftPrice);
-        }
-        draggingDraft = null;
-        pendingDraftPrice = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        return;
-      }
-      if (draggingTarget !== null) {
-        if (pendingPrice !== null) {
-          const store = useTraderStore.getState();
-          if (draggingTarget.kind === 'hline') store.updateLine(draggingTarget.id, { price: pendingPrice });
-          else if (draggingTarget.kind === 'order') store.updateOrderPrice(draggingTarget.id, pendingPrice);
-          else if (draggingTarget.kind === 'tp') store.setPositionTP(draggingTarget.id, pendingPrice);
-          else if (draggingTarget.kind === 'sl') store.setPositionSL(draggingTarget.id, pendingPrice);
-          else if (draggingTarget.kind === 'orderTp') store.setOrderTP(draggingTarget.id, pendingPrice);
-          else store.setOrderSL(draggingTarget.id, pendingPrice);
-        }
-        if (draggingTarget.kind === 'hline') {
-          hlineDragPreviewPrice = null;
-          drawHLineCanvas(); // storeコミット後の実データで再描画（プレビュー価格を使い続けない）
-        }
-        draggingTarget = null;
-        pendingPrice = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-      }
-      if (draggingTextId !== null) {
-        if (pendingTextXY !== null && seriesRef.current) {
-          const time = pixelToTime(pendingTextXY.x);
-          const price = seriesRef.current.coordinateToPrice(pendingTextXY.y);
-          if (time !== null && price !== null) {
-            useTraderStore.getState().updateText(draggingTextId, { time, price });
-          }
-        }
-        draggingTextId = null;
-        pendingTextXY = null;
-        chart.applyOptions({ handleScroll: true, handleScale: true });
-        container.style.cursor = 'default';
       }
       // 非メインで、ここまでのどの分岐にも該当しなかった＝何もドラッグ/操作しなかった場合のみ、
       // ドラッグでない単純クリックだったかを見てメインへ昇格させる（onMouseDown側の空白クリック
