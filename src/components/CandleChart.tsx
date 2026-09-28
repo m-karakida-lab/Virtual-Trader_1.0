@@ -3710,16 +3710,12 @@ export function CandleChart({
       updateCloudStep(candles, cursor);
     } else {
       seriesRef.current.setData(candles.slice(0, cursor + 1).map(toBar));
-      // stepBack/jumpToTime等は自分自身の中でfollowLatestをfalseに戻すため、この
-      // effectが走る時点では既にfollowLatestはfalseになっている——「followLatestが
-      // 有効な間はscrollToRealTime()を呼ばない」という条件は実質発火しない（この効果
-      // 自体は無害だが根本対策にならない）。本当に見たいのは「直前まで最新足に固定
-      // されていたか」なので、followAnchorRef（固定モード中に一度でも捕捉されていれば
-      // 非null）を見る。捕捉済みならscrollToRealTime()（既定の右オフセット・アニメー
-      // ション付き）ではなく、このパネル固有のoffset/spanをそのまま使うapplyLatestViewRef
-      // で即座に位置を確定する——固定を解除する操作（1コマ戻る等）をしても、最新足の
-      // 画面上の位置が既定値へジャンプせず、その1本分だけ動く自然な見た目になる
-      // （「最新足に固定した状態で1コマ戻ると位置が大きくずれる」不具合として発覚）
+      // 位置の決め方は「直前まで最新足に固定されていたか」で分ける。followLatestは
+      // jumpToTime等が自分でfalseに戻すため判定に使えず、followAnchorRef（固定モード中に
+      // 一度でも捕捉されていれば非null）を見る。捕捉済みならscrollToRealTime()（既定の
+      // 右オフセット・アニメーション付き）ではなく、このパネル固有のoffset/spanをそのまま
+      // 使うapplyLatestViewRefで即座に位置を確定する（1コマ戻る等で最新足の画面上の位置が
+      // 既定値へジャンプせず、その1本分だけ動く）
       if (!justPromoted) {
         if (followAnchorRef.current !== null) {
           applyLatestViewRef.current(false);

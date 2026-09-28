@@ -55,8 +55,8 @@
 - 価格軸の表示精度はペアの価格帯から自動判定（JPYクロス=小数3桁、それ以外=小数5桁）
 - チャート全表示: `cursor`を最後の足まで進める（`advanceToEnd`、通過範囲の注文約定・TP/SL判定も一括処理）。末尾にいる間は発注パネル・速度スライダーを無効化
 - 表示をリセット: 時間軸ズームを`resetTimeScale()`でデフォルトに戻し価格軸を`autoScale:true`に戻す。画面中心の足の位置は変えない
-- 最新足に固定（`followLatest`）: 各パネルの縮尺を維持したまま最新足を右オフセット位置に表示し続ける。組み込み`scrollToRealTime()`は使わず`setVisibleLogicalRange`で自前計算（`applyLatestViewRef`）。頭打ち基準はCSV全期間本数。1枠で手動パン/ズームするとそのパネルの`followAnchorRef`だけ更新。非メイン（4画面の他3枠）は`followLatest`トグルに関わらず常時追従（メインのみトグル依存）
-- `followAnchorRef`はfollowLatestがfalseになっても（`stepBack`等が自らfalseに戻すため）nullに戻さないこと。`stepBack`/`jumpToTime`はメイン側のデータ同期effectで「直前まで固定されていたか」を`followAnchorRef`の非nullで判定し、非nullなら組み込み`scrollToRealTime()`ではなく`applyLatestViewRef`で位置を確定する——ここでnullに戻すと2回目以降の戻る操作で毎回既定位置へジャンプする。再捕捉は「最新足に固定」ボタン押下時のみ
+- 最新足に固定（`followLatest`）: 各パネルの縮尺を維持したまま最新足を右オフセット位置に表示し続ける。組み込み`scrollToRealTime()`は使わず`setVisibleLogicalRange`で自前計算（`applyLatestViewRef`）。頭打ち基準はCSV全期間本数。1枠で手動パン/ズームするとそのパネルの`followAnchorRef`だけ更新。非メイン（4画面の他3枠）は`followLatest`トグルに関わらず常時追従（メインのみトグル依存）。解除するのは日付移動・表示リセット・`centerOnTime`で、1コマ戻る（`stepBack`）では解除しない
+- `followAnchorRef`はfollowLatestがfalseになっても（`jumpToTime`等が自らfalseに戻すため）nullに戻さないこと。メイン側のデータ同期effect（1コマ戻る・日付移動等の非ステップ更新）は「直前まで固定されていたか」を`followAnchorRef`の非nullで判定し、非nullなら組み込み`scrollToRealTime()`ではなく`applyLatestViewRef`で位置を確定する——nullに戻すと固定解除後の戻る操作で毎回既定位置へジャンプする。再捕捉は「最新足に固定」ボタン押下時のみ
 - 日付ジャンプ（📅ボタン）: 日付のみ指定、常にその日00:00へジャンプ。縮尺維持で中心移動。「移動」は過去日付でも`cursor`を戻さず表示位置のみ移動、未来日付は`cursor`も進め通過範囲の約定判定を行う。「巻き戻し」は指定日付を新しい最新足にする（`cursor`をそのまま指定日付へ戻し、それより先の足を隠す。約定済みの注文・決済は取り消さない）
 - 画面キャプチャ: 「📷 キャプチャ」ボタンでチャート領域（`#vt-chart-capture-area`）をJPEGダウンロード（`src/lib/screenshot.ts`、`html-to-image`の`toJpeg`、`pixelRatio:1`/`quality:0.5`）。フローティング操作パネルは`EXCLUDED_IDS`で除外
 - 全期間スクラバー: チャート下端の細いシークバー（メインパネルのみ）。つまみドラッグで平行移動、余白クリックでその位置へジャンプ。`setVisibleLogicalRange`を直接呼びstore/cursorには触れない

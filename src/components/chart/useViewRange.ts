@@ -193,8 +193,8 @@ export function useViewRangeSync(
   useEffect(() => {
     const active = isMainRef.current ? followLatest : true;
     // followLatestがfalseになってもfollowAnchorRefはnullに戻さないこと。メインのデータ投入
-    // effect（stepBack等）は直前まで固定されていたかをアンカーの非nullで判定しており、ここで
-    // 戻すと2回目のstepBackで既定位置へジャンプしてしまう。再捕捉はボタン押下時だけ
+    // effect（1コマ戻る・日付移動等）は直前まで固定されていたかをアンカーの非nullで判定しており、
+    // ここで戻すと固定解除後の1コマ戻るで既定位置へジャンプしてしまう。再捕捉はボタン押下時だけ
     if (!active) return;
     if (!chartRef.current) return;
     applyLatestViewRef.current(false);

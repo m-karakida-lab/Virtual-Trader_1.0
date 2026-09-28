@@ -995,7 +995,8 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     return false;
   },
 
-  // カーソルを1つ戻す（表示のみ。約定済みの注文・決済は取り消さない）
+  // カーソルを1つ戻す（表示のみ。約定済みの注文・決済は取り消さない）。
+  // 「最新足に固定」は解除しない（固定中なら戻った足が右寄せ位置に来て、1コマ進めても固定が続く）
   stepBack: () => {
     const { cursor, candles, timeframeSec } = get();
     if (cursor <= 0) {
@@ -1004,7 +1005,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     }
     const newCursor = cursor - 1;
     set({
-      cursor: newCursor, isPlaying: false, followLatest: false,
+      cursor: newCursor, isPlaying: false,
       mainRevealedUntil: candles[newCursor].time + timeframeSec,
       mainDisplayTime: candles[newCursor].time,
       finestSourceCandles: candles, finestSourceCursor: newCursor,
