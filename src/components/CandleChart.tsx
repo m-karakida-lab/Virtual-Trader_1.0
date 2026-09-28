@@ -15,7 +15,6 @@ import { recognizeShape } from '../lib/shapeRecognition';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { computeSessionBands, type SessionBand } from '../lib/sessions';
 import { computeEMA, computeSMA, computeBB, computeCloud, computeATR } from '../lib/indicators';
-import { priceAtTime } from '../lib/crosshairSync';
 import { logError } from '../lib/errorLog';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
 import { findBucketIndexContaining, buildPartialCandle } from '../lib/partialCandle';
@@ -38,6 +37,9 @@ import { usePriceLines } from './chart/usePriceLines';
 import {
   useIndicatorSeries, EMA_COLOR, SMA_COLOR, BB_BASIS_COLOR, BB_SILVER, CLOUD_A_COLOR, CLOUD_B_COLOR,
 } from './chart/useIndicatorSeries';
+import {
+  useViewRangeCommands, useViewRangeSync, CHART_RIGHT_OFFSET_BARS, type FollowAnchor,
+} from './chart/useViewRange';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -107,8 +109,6 @@ const RECT_HANDLE_HIT_PX = 12;
 // 水平線・垂直線等の透明抜きで、ヒゲ区間（高値〜安値のうち実体を除く部分）に使う幅。
 // lightweight-charts自体はヒゲの実描画幅を公開していないため近似値
 const WICK_CUTOUT_PX = 2;
-const MIN_JUMP_SPAN_BARS = 30; // 日時ジャンプ時、表示幅がこの本数分未満にはならないようにする
-const CHART_RIGHT_OFFSET_BARS = 10; // createChartのtimeScale.rightOffsetと同じ値（「最新足に固定」を自前計算するため）
 const toBar = (c: Candle): CandlestickData => ({
   time: c.time as Time,
   open: c.open, high: c.high, low: c.low, close: c.close,
@@ -3654,176 +3654,33 @@ export function CandleChart({
     syncTradeMarkersRef.current();
   }, [positions, closedTrades, quoteCurrency, tradeMarkersVisible]);
 
-  // 1画面⇔4画面のレイアウト切替はパネルのCSSサイズだけを変える（ResizeObserver任せ）ため、
-  // 環境によってはResizeObserverの発火が遅れる/信頼できないことがある（自動テスト環境で
-  // ResizeObserver・requestAnimationFrameのどちらも発火しないケースを確認済み。実ブラウザでも
-  // 保険として効く）。chartLayoutの変化を直接のトリガーとしてsetTimeout(0)経由で明示的にも
-  // handleResizeを呼び、スケール維持・中央足維持のリサイズ処理が確実に実行されるようにする
-  // （ResizeObserver側が正常に動く環境では二重に呼ばれるだけで実害はない。newWidth!==oldWidthの
-  // ガードで2回目以降は自然にno-opになる）
-  useEffect(() => {
-    const timer = setTimeout(() => handleResizeRef.current(), 0);
-    return () => clearTimeout(timer);
-  }, [chartLayout]);
-
-  // 表示をリセット: TradingViewの「チャート表示をリセット」相当。全データを画面に
-  // 収めるズームアウトではなく、時間軸のズーム（本数=スケール）をデフォルトに戻し
-  // （resetTimeScale）、価格軸の手動スケール調整（ドラッグ等）も解除してautoScaleへ戻す。
-  // ただしresetTimeScale単体だと最新足へスクロール位置ごと戻ってしまう（「表示をリセット
-  // したら最新足へ飛んでしまう、スケールだけ直したい」という指摘を受けて対応）。
-  // resetTimeScale前の中心の足を控えておき、リセット後（＝デフォルトの本数が決まった後）に
-  // 同じ本数を保ったまま中心をその足へ戻すことで、スケールだけをデフォルトに戻し
-  // スクロール位置（今見ている期間）はそのまま保つ
-  useEffect(() => {
-    if (fitSignal === 0 || !chartRef.current) return;
-    const chart = chartRef.current;
-    const ts = chart.timeScale();
-    const cs = displayCandlesRef.current;
-    const prevRange = ts.getVisibleLogicalRange();
-    let centerTime: number | null = null;
-    if (prevRange && cs.length > 0) {
-      const centerIdx = Math.max(0, Math.min(cs.length - 1, Math.round((prevRange.from + prevRange.to) / 2)));
-      centerTime = cs[centerIdx].time;
-    }
-    ts.resetTimeScale();
-    chart.priceScale('right').applyOptions({ autoScale: true });
-    // resetTimeScale()は内部的に更新を次の描画フレームへキューするだけで、
-    // 呼び出し直後にgetVisibleLogicalRange()を読んでもリセット前の古い範囲が
-    // そのまま返ってくる（確認済み: 結果として下のspan計算が常に「リセット前の
-    // 本数」になり、表示が何も変わらないように見えるバグになっていた）。
-    // 1フレーム待ってから新しいデフォルト範囲を読み直す
-    let raf2: number | null = null;
-    const raf1 = requestAnimationFrame(() => {
-      if (centerTime !== null) {
-        const newRange = ts.getVisibleLogicalRange();
-        if (newRange && cs.length > 0) {
-          const span = newRange.to - newRange.from;
-          let lo = 0, hi = cs.length - 1, idx = 0;
-          while (lo <= hi) {
-            const mid = (lo + hi) >> 1;
-            if (cs[mid].time <= centerTime) { idx = mid; lo = mid + 1; } else hi = mid - 1;
-          }
-          ts.setVisibleLogicalRange({ from: idx - span / 2, to: idx + span / 2 });
-        }
-      }
-      // setVisibleLogicalRange直後の座標ズレ対策（雲の塗りつぶし等が一瞬ズレて見える、
-      // 他の箇所と同じ既知の挙動）
-      raf2 = requestAnimationFrame(() => {
-        syncCloudRef.current();
-        syncVLinesRef.current();
-        syncRectsRef.current();
-        syncTrendLinesRef.current();
-        syncChannelsRef.current();
-        syncArrowsRef.current();
-        syncBrushesRef.current();
-        syncTextsRef.current();
-        syncWeekLinesRef.current();
-        syncSessionsRef.current();
-        syncTradeMarkersRef.current();
-      });
-    });
-    return () => {
-      cancelAnimationFrame(raf1);
-      if (raf2 !== null) cancelAnimationFrame(raf2);
-    };
-  }, [fitSignal]);
-
-  // 最新足に固定: 縮尺は維持したまま、最新足が右オフセット分の位置に来るよう追従。
-  // 組み込みのscrollToRealTime()は使わない——内部で即座に確定するのではなく既定400msの
-  // アニメーション（lightweight-charts自身の内部更新キュー駆動）でスクロールする仕様で、
-  // その間に他のeffect（非メインパネルのseries.setData()等）がsetVisibleLogicalRange系の
-  // 操作を行うとアニメーションが巻き戻され、最新足まで到達しないまま止まってしまう不具合が
-  // あった（1Dは自分の足が閉じる頻度が低く遭遇しにくいため「1D以外は何回か実行しないと
-  // 最新足が出てこない」という非対称な症状になっていた）。setVisibleLogicalRangeは即座に
-  // 確定する（読み直しても安全な）操作のため、目標範囲をここで自前計算して直接指定することで
-  // アニメーション競合そのものを避ける。
-  // ボタンを押した瞬間だけでなく、followLatest中は新しい足が現れるたびにも同じ処理を
-  // 呼びたいため、関数として切り出してrefに持つ（syncCloudRef等と同じパターン）。
-  // 表示本数（span）と右オフセットは毎回prevRangeから読み直さない——setVisibleLogicalRange
-  // 直後は座標がレイアウト未確定で不安定なことがある既知の挙動（他の箇所と同じ地雷）があり、
-  // followLatestで毎tick読み直す形にすると、その誤差が次のtickの入力になり何度も
-  // 積み重なって縮尺がどんどん壊れていく（実際に再生を続けるとロウソク足が異常に
-  // 巨大化する不具合として発覚）。ボタンを押した瞬間（またはfollowLatestが有効になった
-  // 瞬間）にだけprevRangeから読み取ってrefに固定し、以降の継続追従ではその固定値を
-  // 使い回すことで誤差の蓄積を断つ。
-  // offsetは「最新足からrefで何本分右にずらして表示するか」——既定はCHART_RIGHT_OFFSET_BARSだが、
-  // ユーザーがこのパネルだけ手動でパン/ズームした場合は、その操作後の位置を新しいoffset/spanとして
-  // captureFollowAnchorFromCurrentView（上の方のmousedown/wheelハンドラ）が上書きする。
-  // これによって「操作したパネルはその位置で固定、他のパネルは無関係に追従を続ける」を実現している
-  // （followAnchorRefはパネルインスタンスごとに独立したrefのため）
-  const followAnchorRef = useRef<{ span: number; offset: number } | null>(null);
-  // captureFollowAnchorFromCurrentView（上の巨大effect内で定義）を、jumpSyncSignal依存の
-  // 別effectから呼ぶための公開先（他のsyncXRefと同じ「関数をrefに入れて共有する」パターン）
+  // 「最新足に固定」の追従アンカー（パネルごと）。マウント時effectのパン/ホイール処理
+  // （captureFollowAnchorFromCurrentView）とメインのデータ投入effectも使う
+  const followAnchorRef = useRef<FollowAnchor | null>(null);
+  // captureFollowAnchorFromCurrentView（マウント時effect内で定義）をジャンプ同期から呼ぶための公開先
   const captureFollowAnchorRef = useRef<() => void>(() => {});
   const applyLatestViewRef = useRef<(captureSpan: boolean) => void>(() => {});
-  applyLatestViewRef.current = (captureSpan: boolean) => {
-    if (!chartRef.current) return;
-    const chart = chartRef.current;
-    // メインパネルのdisplayCandles（=candles）はcursorより先の未来分も含む全期間配列
-    // （非メインのnonMainVisibleと違い先出し防止クリップ済みではない）。実際にseries.setData()
-    // で描画されているのはcandles.slice(0, cursor+1)までなので、「最新（＝実際に描画されている
-    // 最後の足）」はcs.length-1ではなくcursorを使うこと——cs.length-1を使うと、リプレイ途中
-    // （cursorがcandles.length-1より手前）でメイン以外に昇格させたばかりのパネル等で、実際の
-    // 描画範囲よりずっと先の空欄領域に表示位置が飛んでしまう（実際に4H等を昇格させた直後に
-    // 「最新足に固定」を押すと画面が空になる不具合として発覚）
-    const lastIdx = effectiveCursorRef.current;
-    if (lastIdx >= 0) {
-      // ボタン（「最新足に固定」）を押した瞬間は、パネルごとの手動オフセットをリセットして
-      // 必ず既定の右寄せ位置に戻す（ボタンは「全パネルを標準の最新足表示に揃える」操作のため）
-      if (captureSpan) followAnchorRef.current = null;
-      if (followAnchorRef.current === null) {
-        const prevRange = chart.timeScale().getVisibleLogicalRange();
-        const rawSpan = prevRange && prevRange.to > prevRange.from
-          ? prevRange.to - prevRange.from
-          : MIN_JUMP_SPAN_BARS;
-        followAnchorRef.current = { span: rawSpan, offset: CHART_RIGHT_OFFSET_BARS };
-      }
-      // 保存済みズーム幅（localStorageのvt:chartView等）は別データセット（本数が違う）の
-      // ものを引き継いでいる場合がある。実際の本数を大きく超える幅をそのまま使うと、
-      // 実データがごく一部に押し込められほぼ空欄の画面になってしまうため頭打ちする——
-      // ただし基準は「今revealされている本数」（lastIdx+1）ではなく「CSV全期間の本数」を
-      // 使うこと。revealされている本数で頭打ちすると、リプレイ序盤で実際に描画されている
-      // 本数がまだ少ない間は、せっかく広く記憶していたズーム幅がその少数本数まで潰され、
-      // 少数のロウソク足が画面いっぱいに間延びして見える「デカ足」になる（CSV読み込み直後の
-      // 初期フィット処理で既に踏んだのと同種の取り違え——「最新足に固定」ボタンはその後で
-      // 別途この頭打ちをかけ直してしまっていたため、ボタンを押すとかえってデカ足になっていた）
-      const fullTotal = isMainRef.current ? candles.length : nonMainCandlesRef.current.length;
-      let { span: rawSpan, offset } = followAnchorRef.current;
-      // offsetはパン/ズーム操作時（captureFollowAnchorFromCurrentView）にも「range.to - lastIdx」
-      // として保存されるため、ユーザーがかなり過去へスクロールした直後の値だと大きな負数になり
-      // 得る。その状態でfullTotal + offsetが0以下まで落ちるとspanが負になり、直後の
-      // setVisibleLogicalRangeが「from > to」で例外を投げてチャートごと落ちる（実際に
-      // 発生したクラッシュ）。既定の右寄せオフセットへフォールバックして防ぐ
-      if (fullTotal + offset <= 0) {
-        offset = CHART_RIGHT_OFFSET_BARS;
-        followAnchorRef.current = { span: rawSpan, offset };
-      }
-      const span = Math.min(rawSpan, fullTotal + offset);
-      const to = lastIdx + offset;
-      chart.timeScale().setVisibleLogicalRange({ from: to - span, to });
-    } else {
-      chart.timeScale().scrollToRealTime();
-    }
+  // 表示範囲を変えた1フレーム後に全オーバーレイを描き直す（chart/useViewRange.tsから呼ぶ）
+  const syncAllOverlays = () => {
+    syncCloudRef.current();
+    syncVLinesRef.current();
+    syncRectsRef.current();
+    syncTrendLinesRef.current();
+    syncChannelsRef.current();
+    syncArrowsRef.current();
+    syncBrushesRef.current();
+    syncTextsRef.current();
+    syncWeekLinesRef.current();
+    syncSessionsRef.current();
+    syncTradeMarkersRef.current();
+  };
+  const viewRangeRefs = {
+    chartRef, displayCandlesRef, effectiveCursorRef, isMainRef, nonMainCandlesRef,
+    followAnchorRef, applyLatestViewRef, syncAllOverlays,
   };
 
-  useEffect(() => {
-    if (scrollToLatestSignal === 0 || !chartRef.current) return;
-    applyLatestViewRef.current(true);
-    const raf = requestAnimationFrame(() => {
-      syncCloudRef.current();
-      syncVLinesRef.current();
-      syncRectsRef.current();
-      syncTrendLinesRef.current();
-      syncChannelsRef.current();
-      syncArrowsRef.current();
-      syncBrushesRef.current();
-      syncTextsRef.current();
-      syncWeekLinesRef.current();
-      syncSessionsRef.current();
-      syncTradeMarkersRef.current();
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [scrollToLatestSignal]);
+  // レイアウト切替時のリサイズ・「表示をリセット」・「最新足に固定」ボタン（chart/useViewRange.ts）
+  useViewRangeCommands({ ...viewRangeRefs, handleResizeRef }, { chartLayout, fitSignal, scrollToLatestSignal, candles });
 
   // リプレイモード: カーソル変化時にデータ更新（ローソク足 + EMA200）。
   // このステップ最適化（.update()による差分更新）はグローバルcandlesが1本ずつ
@@ -4025,245 +3882,13 @@ export function CandleChart({
     return () => cancelAnimationFrame(raf);
   }, [isMain, nonMainVisible, nonMainCandles, timeframeSec]);
 
-  // 「最新足に固定」の継続追従（followLatest）。リプレイ再生中も最新足を右寄せ位置に
-  // 保ち続けたい、という要望を受けて追加。「押した瞬間だけ移動して、再生を続けると
-  // 画面外に出て行ってしまう」という不具合として報告された——ボタンは元々ワンショットの
-  // ジャンプ（scrollToLatestSignal）でしかなく、以降の新しい足には追従していなかった。
-  // メインはcursor、非メインはnonMainVisible（＝displayCandles、どちらもeffective
-  // CursorRefに反映済み）が変わるたびに実行する。ユーザーがこのパネルを手動でパン/ズーム
-  // した場合は、追従自体は止めず、captureFollowAnchorFromCurrentView（上の方のmousedown/
-  // wheelハンドラ）がfollowAnchorRefをその操作後の位置に上書きするので、以降はその新しい
-  // 位置を保ったまま追従を続ける（他のパネルは自分のfollowAnchorRefのまま無関係に追従継続）。
-  // 非メイン（4画面の他3枠）はfollowLatestトグルに関わらず常時この追従を行う——非メインは
-  // データセット変更時に1回フィットするだけで以降は自動で進まず、メイン（1H等）だけが
-  // リプレイの進行に合わせて表示され4H/1D等がほぼ置いてけぼりになる不具合として発覚した。
-  // メインは従来通りfollowLatestトグル依存のまま（.update()によるネイティブ追従が既にある）。
-  // 非メインのsetData/初回フィットeffect（直前）より必ず後ろで宣言すること——先に置くと、
-  // データセット変更直後にこのeffectが先に走ってしまい、まだseries.setData()前（＝chartの
-  // 可視範囲がデフォルトの空状態）のタイミングでfollowAnchorRefを捕捉してしまう。一度
-  // 捕捉されたfollowAnchorRefはnullに戻らない限り使い回されるため、この不正な初期値が
-  // そのパネルの追従位置としてリプレイ中ずっと使われ続け、ロウソク足が表示されない
-  // 不具合になっていた（実際に4画面中1枠だけロウソク足が全く表示されない不具合として発覚）
-  useEffect(() => {
-    const active = isMainRef.current ? followLatest : true;
-    // followLatestがfalseになってもfollowAnchorRefはここでnullに戻さないこと。
-    // メイン側のデータ同期effect（stepBack等でisStep=falseになる分岐）は、直前まで
-    // 固定されていたかをfollowAnchorRefの非nullで判定し、非nullならscrollToRealTime()
-    // ではなくこのanchorを使って位置を確定する。ここで毎回nullに戻すと、stepBackを
-    // 2回目に押した時点（1回目のstepBackで既にfollowLatestがfalseになり、このeffectが
-    // 一度inactiveとして走った後）にはもうanchorが失われており、2回目以降また既定位置へ
-    // ジャンプしてしまう（「1回目はOKだが2回目でまた後ろにオフセットする」不具合として発覚）。
-    // 再捕捉は「最新足に固定」ボタン押下時（captureSpan=true）にだけ行う
-    if (!active) return;
-    if (!chartRef.current) return;
-    applyLatestViewRef.current(false);
-    const raf = requestAnimationFrame(() => {
-      syncCloudRef.current();
-      syncVLinesRef.current();
-      syncRectsRef.current();
-      syncTrendLinesRef.current();
-      syncChannelsRef.current();
-      syncArrowsRef.current();
-      syncBrushesRef.current();
-      syncTextsRef.current();
-      syncWeekLinesRef.current();
-      syncSessionsRef.current();
-      syncTradeMarkersRef.current();
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [followLatest, cursor, nonMainVisible, isMain]);
-
-  // 4画面時、他パネルの十字カーソルに追従表示する（自分がホバー元のときは何もしない）。
-  // 上のメイン/非メインどちらのsetData effectよりも後ろで宣言すること——Reactは同一
-  // コミット内のeffectを宣言順に実行するため、これより前に置くと「displayCandlesは
-  // 新しい値に更新済みだが、series.setData()自体はまだ実行されていない（seriesRef.current
-  // の実データが古いまま）」瞬間に当たってしまうことがある。その状態でhit.timeを渡しても
-  // seriesにはまだ存在しない時刻のため、setCrosshairPositionの内部座標解決がnullになり
-  // 例外を投げる（"Value is null" at ensureNotNull として実際に踏んだ——リプレイ再生中に
-  // 他パネルをホバーすると再現しやすい、足が更新されるのと同じコミットでズレるため）。
-  // パネル切替の瞬間にチャートが破棄されかけている可能性もあるため try/catch でも保護し、
-  // 万一失敗しても画面全体をクラッシュさせない（失敗はerrorLogに記録）。
-  // さらに、setCrosshairPosition自体もtimeToCoordinate等と同じ座標変換API（上の
-  // 「非メイン: series.setData()」effectのrAFコメント参照）で、setData直後は価格スケールの
-  // firstValueキャッシュがまだ未確定（null）なことがあり、そのままensureNotNullに
-  // 弾かれてValue is nullを投げる（時刻自体は正しくクリップ済みでも起きた——effect宣言順の
-  // 修正だけでは直らなかった実例）。同ファイルの他箇所と同じくrequestAnimationFrameで
-  // 1フレーム後（chart側の内部再計算後）に呼ぶことで回避する。
-  // 加えて、1画面表示（chartLayout==='1'）中は非メイン3枠がwidth:0/height:0で非表示のまま
-  // マウントされ続けている（App.tsx参照、remount回避のため）。この状態でもメイン枠の
-  // ホバーでcrosshairTimeは更新され続けるため、このeffect自体は動いてしまう——だが
-  // サイズ0のペインは価格スケールのfirstValueが恒久的にnullで、rAFで何回待ってもensureNotNull
-  // が必ず失敗する（データや時刻の問題ではなく描画領域が無いこと自体が原因のため）。
-  // どのみち見えないパネルへの同期は無意味なので、非表示時はそもそも呼ばない
-  useEffect(() => {
-    // 非表示パネル（1画面時の非メイン3枠、3画面時の使わない枠3）は上のコメント通り同期が無意味
-    const isHiddenPane = chartLayout === '1' || (chartLayout === '3' && slot === 3);
-    if (isHiddenPane && !isMain) return;
-    if (!chartRef.current || !seriesRef.current || crosshairSourceId === mySourceId) return;
-    const chart = chartRef.current;
-    const series = seriesRef.current;
-    if (crosshairTime === null) {
-      const raf = requestAnimationFrame(() => {
-        try { chart.clearCrosshairPosition(); } catch (e) { logError('CandleChart:crosshairSync', e); }
-      });
-      return () => cancelAnimationFrame(raf);
-    }
-    // メインパネルのdisplayCandles(=candles)はcursorより先の未来分も含む全期間配列で、
-    // 実際にseries.setData()で描画されているのはcandles.slice(0, cursor+1)までしかない
-    // (上のapplyLatestViewRefのコメント参照)。そのまま渡すとまだ描画されていない未来足に
-    // ヒットしてしまい、同じくValue is nullで例外を投げる(他パネルが先の未来足をホバー
-    // した時に再現)。必ずeffectiveCursorRefで実描画範囲にクリップしたcandlesを使うこと。
-    const visibleForCrosshair = isMain
-      ? displayCandles.slice(0, effectiveCursorRef.current + 1)
-      : displayCandles;
-    const hit = priceAtTime(visibleForCrosshair, crosshairTime, timeframeSec);
-    const raf = requestAnimationFrame(() => {
-      try {
-        if (hit === null) { chart.clearCrosshairPosition(); return; }
-        chart.setCrosshairPosition(hit.price, hit.time as Time, series);
-      } catch (e) {
-        logError('CandleChart:crosshairSync', e);
-      }
-    });
-    return () => cancelAnimationFrame(raf);
-  }, [crosshairSourceId, crosshairTime, displayCandles, timeframeSec, mySourceId, isMain, cursor, chartLayout, slot]);
-
-  // 時間軸の切替・新規CSV読み込み時の表示位置決定。
-  // 切替先の時間足自身の前回のズーム/スケール（`vt:chartView:<timeframeSec>`）を常に
-  // 復元した上で、最新足に固定する。以前は切替直前の実時間範囲をそのまま引き継ぐ方式
-  // だったが、1H→15mのように細かい方へ切り替えると同じ実時間幅に4倍の本数が詰め込まれ
-  // 足が小さく見えてしまい、「切替先自身の前回のズームを覚えていてほしい」という
-  // 要望を受けてこちらに統一した（リプレイモード側の setData/scrollToRealTime より
-  // 後に実行し、その結果を上書きする）
-  useEffect(() => {
-    if (!chartRef.current || candles.length === 0) return;
-    const key = `${timeframeSec}:${dataVersion}`;
-    if (restoredViewKeyRef.current === key) return;
-    restoredViewKeyRef.current = key;
-
-    const saved = loadChartView(timeframeSec);
-    // spanのクランプ基準はcandles.length（CSV全期間の本数）を使うこと。cursor+1（今
-    // revealされている本数）でクランプしていた以前の実装は、新規読み込み直後は常に
-    // cursor=0＝1本のためほぼ必ずガードに引っかかって復元自体がスキップされ、結果として
-    // 1本のロウソク足が全幅に間延びする「デカ足」表示になっていた（非メインパネルの
-    // nonMainVisible/nonMainCandlesと同種の取り違え）。spanはズーム率の記憶なので、
-    // 全期間本数を基準にクランプしないと意味がない。位置の方はrelativeViewToLogicalRange
-    // の計算結果（barsFromRight基準）を使わず、常にcursor（今revealされている最新足）を
-    // 右オフセット分の位置に置く——保存ビューは縮尺だけ引き継ぎ、位置は「先頭から見る」
-    // 仕様どおり常に最新足に固定する
-    if (saved && candles.length > 0) {
-      const { from, to } = relativeViewToLogicalRange(saved, candles.length);
-      const span = to - from;
-      // revealされている本数（cursor+1）がspanより少ない序盤は、fromが負（＝実データの
-      // 無い過去側）にはみ出す。負のlogical indexにはlightweight-chartsが架空の時刻を
-      // 外挿してしまい、軸の日付が実データとずれて見える／実足が右端に押しやられて
-      // 見える不具合になるため、toは固定したままfromを0未満にクランプする
-      const rangeTo = cursor + CHART_RIGHT_OFFSET_BARS;
-      chartRef.current.timeScale().setVisibleLogicalRange({ from: Math.max(0, rangeTo - span), to: rangeTo });
-    } else {
-      chartRef.current.timeScale().scrollToRealTime();
-    }
-  }, [timeframeSec, dataVersion, candles, cursor]);
-
-  // 指定時刻を中心に表示（縮尺=現在の表示本数は維持したまま移動）
-  // リプレイモード側の setData/scrollToRealTime より後に実行し、最終的な表示位置を確定させる。
-  // 時刻ベースの座標（getVisibleRange/setVisibleRange）は setData 直後のレイアウト未確定時に
-  // 不安定になることがあるため、足のインデックス（logical range）ベースで計算する。
-  // 読み込み直後など一度もズームしていない状態は表示本数が極端に少ないことがあるため、
-  // 最小表示本数を下回らないようにする
-  useEffect(() => {
-    const cs = displayCandlesRef.current;
-    if (centerSignal === 0 || !chartRef.current || cs.length === 0) return;
-    const chart = chartRef.current;
-    // centerTarget（時刻）に対応する足のインデックスを二分探索。グローバルなcandles
-    // （メインの時間軸データ）ではなく、このパネル自身が表示しているdisplayCandlesRefを
-    // 使う——4画面時、非メインパネルは別の時間軸（本数が異なる別配列）を表示しているため、
-    // メインの配列で求めたインデックスをそのまま使うと全く違う時刻・本数の位置に飛んで
-    // しまう（日付移動でメインだけ正しく移動し、他3枠は無関係な日付や空白域に飛ぶ不具合として発覚）
-    let lo = 0, hi = cs.length - 1, targetIdx = 0;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (cs[mid].time <= centerTarget) { targetIdx = mid; lo = mid + 1; }
-      else hi = mid - 1;
-    }
-    const logicalRange = chart.timeScale().getVisibleLogicalRange();
-    const currentSpan = logicalRange ? logicalRange.to - logicalRange.from : 0;
-    const span = Math.max(currentSpan, MIN_JUMP_SPAN_BARS);
-    const half = span / 2;
-    chart.timeScale().setVisibleLogicalRange({ from: targetIdx - half, to: targetIdx + half });
-    // setVisibleLogicalRange直後はtimeToCoordinate/priceToCoordinateがレイアウト未確定で
-    // 古い座標を返すことがある（他の箇所と同じ既知の挙動）。onRangeChange経由のsyncCloud等は
-    // 効いているはずだがそれも同じタイミングで走るため巻き添えでズレる。雲の塗りつぶしが
-    // 一瞬ズレてマウスを動かすと直る、という形で発覚したためrAFで1フレーム遅れて描き直す
-    const raf = requestAnimationFrame(() => {
-      syncCloudRef.current();
-      syncVLinesRef.current();
-      syncRectsRef.current();
-      syncTrendLinesRef.current();
-      syncChannelsRef.current();
-      syncArrowsRef.current();
-      syncBrushesRef.current();
-      syncTextsRef.current();
-      syncWeekLinesRef.current();
-      syncSessionsRef.current();
-      syncTradeMarkersRef.current();
-    });
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [centerSignal]);
-
-  // 他時間足へのジャンプ同期: クリックが発生したパネル自身は動かさず（ヒアリング済み）、
-  // 他の枠だけ「クリックされた足の時刻」を中心に表示位置を移動する。上のcenterSignalと
-  // 似ているが、こちらは各パネル自身が表示しているdisplayCandles（メインならcandles、
-  // 非メインなら自前集計のnonMainVisible）で二分探索する必要がある——グローバルなcandles
-  // （メインの時間軸）をそのまま使うと非メインパネルでは全く違う配列に対するインデックスに
-  // なってしまい、無関係な位置へ飛んでしまう
-  useEffect(() => {
-    if (jumpSyncSignal === 0 || !chartRef.current) return;
-    if (jumpSyncSourceId === mySourceIdRef.current) return;
-    const chart = chartRef.current;
-    const cs = displayCandlesRef.current;
-    if (cs.length === 0) return;
-    let lo = 0, hi = cs.length - 1, targetIdx = 0;
-    while (lo <= hi) {
-      const mid = (lo + hi) >> 1;
-      if (cs[mid].time <= jumpSyncTarget) { targetIdx = mid; lo = mid + 1; }
-      else hi = mid - 1;
-    }
-    const logicalRange = chart.timeScale().getVisibleLogicalRange();
-    const currentSpan = logicalRange ? logicalRange.to - logicalRange.from : 0;
-    const span = Math.max(currentSpan, MIN_JUMP_SPAN_BARS);
-    const half = span / 2;
-    chart.timeScale().setVisibleLogicalRange({ from: targetIdx - half, to: targetIdx + half });
-    // setVisibleLogicalRange直後の座標ズレ対策。上のcenterSignal効果と同じ理由
-    // （雲の塗りつぶしが一瞬ズレてマウスを動かすと直る、という形で発覚）
-    const raf = requestAnimationFrame(() => {
-      // 非メインパネルは「最新足に固定」トグルに関わらず常時追従がデフォルト（下の
-      // followLatest継続追従effect）。ジャンプ後にfollowAnchorRefを更新しないと、
-      // ここまで手動パン/ホイール操作した場合と違って古いアンカー（ジャンプ前の
-      // 「最新足付近」の位置）が残ったままになり、他パネルをメインに昇格させる等で
-      // candles/cursorが変わってnonMainVisibleの参照が更新された瞬間、その古い
-      // アンカーで「最新足に固定」の追従effectが再発火してジャンプ後の位置を
-      // 上書きしてしまう（3画面でジャンプ後に別パネルをクリックすると、ジャンプした
-      // はずの他の非メインパネルが最新足へ勝手に戻る不具合として発覚）。ジャンプ直後の
-      // 位置を新しいアンカーとして採用し、以降はその位置を基準に追従を続けさせる
-      captureFollowAnchorRef.current();
-      syncCloudRef.current();
-      syncVLinesRef.current();
-      syncRectsRef.current();
-      syncTrendLinesRef.current();
-      syncChannelsRef.current();
-      syncArrowsRef.current();
-      syncBrushesRef.current();
-      syncTextsRef.current();
-      syncWeekLinesRef.current();
-      syncSessionsRef.current();
-      syncTradeMarkersRef.current();
-    });
-    return () => cancelAnimationFrame(raf);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [jumpSyncSignal]);
-
+  // 最新足への継続追従・4画面の十字カーソル同期・時間足切替時の表示位置・日付移動・ジャンプ同期
+  // （chart/useViewRange.ts）。メイン/非メインのsetData effectより後ろで呼ぶこと（effectの実行順）
+  useViewRangeSync({ ...viewRangeRefs, seriesRef, restoredViewKeyRef, mySourceIdRef, captureFollowAnchorRef }, {
+    followLatest, cursor, nonMainVisible, isMain, crosshairSourceId, crosshairTime, displayCandles,
+    timeframeSec, mySourceId, chartLayout, slot, candles, dataVersion,
+    centerSignal, centerTarget, jumpSyncSignal, jumpSyncSourceId, jumpSyncTarget,
+  });
 
   return (
     <div
