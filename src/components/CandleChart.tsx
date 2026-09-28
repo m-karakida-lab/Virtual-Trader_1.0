@@ -32,6 +32,8 @@ import { createSyncBrushes } from './chart/brushesOverlay';
 import { createSyncTexts } from './chart/textsOverlay';
 import { createSyncCloud } from './chart/cloudOverlay';
 import { createUpdateRRPreview } from './chart/rrPreviewOverlay';
+import { createUpdateMeasureBox } from './chart/measureOverlay';
+import { candleIndexAt } from './chart/candleIndex';
 
 // 水平方向にドラッグ可能な対象（水平線 / 未約定注文 / TP / SL）
 type DragTarget =
@@ -149,31 +151,10 @@ function computeCloudPoint(cs: Candle[], idx: number): { a: number; b: number } 
   return { a: (tenkan + kijun) / 2, b: (senkouBW.hi + senkouBW.lo) / 2 };
 }
 
-function fmtDuration(sec: number): string {
-  const abs = Math.abs(sec);
-  const days = Math.floor(abs / 86400);
-  const hours = Math.floor((abs % 86400) / 3600);
-  if (days > 0) return `${days}d ${hours}h`;
-  const mins = Math.floor((abs % 3600) / 60);
-  if (hours > 0) return `${hours}h ${mins}m`;
-  return `${mins}m`;
-}
-
 // TP/SLの価格ライン表示用: エントリー価格からの距離をpips単位で返す
 function pipsBetween(entryPrice: number, target: number): number {
   return Math.abs(target - entryPrice) / inferPipSize(entryPrice);
 }
-
-function candleIndexAt(candles: Candle[], t: number): number {
-  let lo = 0, hi = candles.length - 1, idx = 0;
-  while (lo <= hi) {
-    const mid = (lo + hi) >> 1;
-    if (candles[mid].time <= t) { idx = mid; lo = mid + 1; }
-    else hi = mid - 1;
-  }
-  return idx;
-}
-
 
 // 水平線・四角形を指定の時間足パネルで表示すべきか（hiddenTimeframesを持つ図形なら
 // 共通で使える）。hiddenTimeframesは1H/4H/1D/1W/MNのみを個別に保持でき、5m/15mは
@@ -1268,90 +1249,14 @@ export function CandleChart({
     // 判定できないため、ストローク確定時にこちらを使って判定する
     let brushPxPoints: { x: number; y: number }[] = [];
 
-    // ── ものさし（ドラッグで価格差・本数・期間を計測） ──────────────
+    // ── ものさし（表示はchart/measureOverlay.ts、ドラッグの開始/終了はここ） ──────────────
     let measuringDrag = false;
     let measureStart: { x: number; y: number; price: number; time: number } | null = null;
 
-    const updateMeasureBox = (x1: number, y1: number, x2: number, y2: number) => {
-      if (!measureOverlayRef.current || !measureBoxRef.current || !measureLabelRef.current) return;
-      if (!measureStart || !seriesRef.current || !chartRef.current) return;
-      const overlay = measureOverlayRef.current;
-      const box = measureBoxRef.current;
-      const label = measureLabelRef.current;
-
-      const endPrice = seriesRef.current.coordinateToPrice(y2);
-      const endTime = chartRef.current.timeScale().coordinateToTime(x2);
-      if (endPrice === null) return;
-
-      overlay.style.display = 'block';
-
-      const left = Math.min(x1, x2);
-      const top = Math.min(y1, y2);
-      const width = Math.abs(x2 - x1);
-      const height = Math.abs(y2 - y1);
-
-      // 色・符号はドラッグの始点→終点（下から上にドラッグしたら＋）で決める。
-      // 画面左→右（時系列順）で決めると、時間方向にわずかでも逆行しただけで
-      // 上方向にドラッグしたのに赤（マイナス）表示になってしまう
-      const priceDiff = endPrice - measureStart.price;
-      const pct = (priceDiff / measureStart.price) * 100;
-      const up = priceDiff >= 0;
-      const color = up ? '#26a69a' : '#ef5350';
-
-      box.style.left = `${left}px`;
-      box.style.top = `${top}px`;
-      box.style.width = `${width}px`;
-      box.style.height = `${height}px`;
-      box.style.border = `1px solid ${color}`;
-      box.style.backgroundColor = up ? 'rgba(38,166,154,0.12)' : 'rgba(239,83,80,0.12)';
-
-      // 上下の中央線（始点・終点価格の中間値を示す横線）
-      if (measureMidLineRef.current) {
-        const mid = measureMidLineRef.current;
-        mid.style.display = 'block';
-        mid.style.left = `${left}px`;
-        mid.style.top = `${(y1 + y2) / 2}px`;
-        mid.style.width = `${width}px`;
-        mid.style.borderTop = `1px dashed ${color}`;
-      }
-
-      let barText = '';
-      if (endTime !== null) {
-        const cs = displayCandlesRef.current;
-        if (cs.length > 0) {
-          const bars = Math.abs(candleIndexAt(cs, endTime as number) - candleIndexAt(cs, measureStart.time));
-          const dur = fmtDuration((endTime as number) - measureStart.time);
-          barText = `${bars}本 · ${dur}`;
-        }
-      }
-
-      const pipSize = inferPipSize(measureStart.price);
-      const pips = priceDiff / pipSize;
-
-      label.innerHTML = '';
-      const priceLine = document.createElement('div');
-      priceLine.style.color = color;
-      priceLine.style.fontWeight = '700';
-      priceLine.style.fontSize = '16px';
-      priceLine.textContent = `${priceDiff >= 0 ? '+' : ''}${priceDiff.toFixed(pricePrecision(measureStart.price))} (${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%)`;
-      const pipsLine = document.createElement('div');
-      pipsLine.style.color = color;
-      pipsLine.style.fontSize = '14px';
-      pipsLine.style.marginTop = '2px';
-      pipsLine.textContent = `${pips >= 0 ? '+' : ''}${pips.toFixed(1)} pips`;
-      const barLine = document.createElement('div');
-      barLine.style.color = '#aaa';
-      barLine.style.fontSize = '14px';
-      barLine.style.marginTop = '2px';
-      barLine.textContent = barText;
-      label.appendChild(priceLine);
-      label.appendChild(pipsLine);
-      label.appendChild(barLine);
-
-      label.style.display = 'block';
-      label.style.left = `${x2 + 8}px`;
-      label.style.top = `${y2}px`;
-    };
+    const updateMeasureBox = createUpdateMeasureBox({
+      chartRef, seriesRef, overlayRef: measureOverlayRef, boxRef: measureBoxRef, midLineRef: measureMidLineRef,
+      labelRef: measureLabelRef, displayCandlesRef, getMeasureStart: () => measureStart,
+    });
 
     // ものさしドラッグを開始する。「ものさし」ツール選択中の左クリックドラッグと、
     // ツール選択に関わらず使えるホイールクリック（中央ボタン）ドラッグの両方から呼ばれる
