@@ -1,6 +1,6 @@
 // インジケーター（EMA・ボリンジャーバンド・一目均衡表の雲）の計算ロジック。
 // メインパネルは増分計算の最適化版（chart/useIndicatorSeries.ts）を別途持つが、非メインパネル
-// （3画面/4画面の他の枠）は表示更新のたびに全期間を再計算しても軽いため、こちらの単純な全体計算版を使う。
+// （3画面/4画面の他の枠）は、足が増減した時はこちらの全体計算版、再生中の1ステップ更新は末尾だけのcomputeTailを使う。
 import type { Time, LineData } from 'lightweight-charts';
 import type { Candle } from '../types';
 
@@ -103,7 +103,7 @@ export function computeBB(candles: Candle[]): BBSeries {
   return { basis, upper1, lower1, upper2, lower2 };
 }
 
-function computeCloudPoint(cs: Candle[], idx: number): { a: number; b: number } | null {
+export function computeCloudPoint(cs: Candle[], idx: number): { a: number; b: number } | null {
   if (idx < SENKOU_B_PERIOD - 1) return null;
   const tenkanW  = highLowWindow(cs, idx, TENKAN_PERIOD);
   const kijunW   = highLowWindow(cs, idx, KIJUN_PERIOD);
@@ -151,4 +151,48 @@ export function computeCloud(candles: Candle[], timeframeSec: number, allCandles
     points.push({ time: displaced, a: pt.a, b: pt.b });
   }
   return { senkouA, senkouB, points };
+}
+
+export interface TailUpdate {
+  ema: LineData[]; sma: LineData[]; bb: BBSeries;
+  senkouA: LineData[]; senkouB: LineData[]; points: { time: number; a: number; b: number }[];
+  emaAtClosed: number; // 末尾の1本前（確定済み）時点のEMA値。次回のemaBeforeに使う
+}
+
+// 非メインパネルの再生中の増分更新用。cs[from..末尾]だけの指標点を返す（cs[from]は前回の形成中足を
+// 差し替える位置）。from>=EMA_PERIOD、かつemaBefore=cs[from-1]時点のEMA値であること。
+// 全体計算（computeEMA等）と同じ値になる。SMA/BB/雲は窓が短いので窓ごとに直接計算する
+export function computeTail(cs: Candle[], from: number, timeframeSec: number, allCandles: Candle[], emaBefore: number): TailUpdate {
+  const k = 2 / (EMA_PERIOD + 1);
+  const out: TailUpdate = {
+    ema: [], sma: [], bb: { basis: [], upper1: [], lower1: [], upper2: [], lower2: [] },
+    senkouA: [], senkouB: [], points: [], emaAtClosed: emaBefore,
+  };
+  let ema = emaBefore;
+  for (let i = from; i < cs.length; i++) {
+    const time = cs[i].time as Time;
+    ema = cs[i].close * k + ema * (1 - k);
+    out.ema.push({ time, value: ema });
+    if (i === cs.length - 2) out.emaAtClosed = ema;
+    let sum = 0;
+    for (let j = i - SMA_PERIOD + 1; j <= i; j++) sum += cs[j].close;
+    out.sma.push({ time, value: sum / SMA_PERIOD });
+    let bs = 0, bq = 0;
+    for (let j = i - BB_PERIOD + 1; j <= i; j++) { bs += cs[j].close; bq += cs[j].close * cs[j].close; }
+    const mean = bs / BB_PERIOD;
+    const sd = Math.sqrt(Math.max(bq / BB_PERIOD - mean * mean, 0));
+    out.bb.basis.push({ time, value: mean });
+    out.bb.upper1.push({ time, value: mean + sd });
+    out.bb.lower1.push({ time, value: mean - sd });
+    out.bb.upper2.push({ time, value: mean + 2 * sd });
+    out.bb.lower2.push({ time, value: mean - 2 * sd });
+    const pt = computeCloudPoint(cs, i);
+    if (pt) {
+      const displaced = cloudDisplacedTime(allCandles, i, timeframeSec);
+      out.senkouA.push({ time: displaced as Time, value: pt.a });
+      out.senkouB.push({ time: displaced as Time, value: pt.b });
+      out.points.push({ time: displaced, a: pt.a, b: pt.b });
+    }
+  }
+  return out;
 }

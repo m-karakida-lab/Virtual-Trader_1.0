@@ -38,7 +38,21 @@ export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRe
     overlay.style.display = show ? 'block' : 'none';
     if (!show) return;
 
-    const boundaries = boundariesRef.current;
+    // 全期間分（数千本）のDOM・座標計算を毎回やると再生が間に合わないので、表示範囲の区切りだけ扱う
+    // （boundariesは時刻の昇順）。左右に1本ずつ余裕を持たせる
+    const allBoundaries = boundariesRef.current;
+    let boundaries = allBoundaries;
+    const range = chartRef.current.timeScale().getVisibleLogicalRange();
+    const dc = displayCandlesRef.current;
+    if (range && dc.length > 0) {
+      const fromTime = range.from < 0 ? -Infinity : dc[Math.min(dc.length - 1, Math.floor(range.from))].time;
+      const toTime = range.to > dc.length - 1 ? Infinity : dc[Math.max(0, Math.ceil(range.to))].time;
+      let lo = 0, hi = allBoundaries.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (allBoundaries[mid] < fromTime) lo = mid + 1; else hi = mid; }
+      let end = lo;
+      while (end < allBoundaries.length && allBoundaries[end] <= toTime) end++;
+      boundaries = allBoundaries.slice(Math.max(0, lo - 1), Math.min(allBoundaries.length, end + 1));
+    }
     const els = elsRef.current;
 
     // lightweight-charts自身の目盛り（tickMarkFormatter）は間隔優先の自動配置のため、

@@ -42,6 +42,8 @@ function jumpFieldStyle(width: string): React.CSSProperties {
 }
 
 // Unix秒 → "M/D HH:mm"（UTC基準、垂直線チップ表示用）。DrawToolbarの描画管理ポップアップからも使う
+const MAX_CATCHUP_STEPS = 30;
+
 export function fmtVTime(sec: number): string {
   const d = new Date(sec * 1000);
   const M = d.getUTCMonth() + 1;
@@ -377,8 +379,10 @@ export function Controls() {
     let rafId: number;
     const loop = (now: number) => {
       if (now - lastTick >= msPerCandle) {
-        lastTick = now;
-        if (!advance()) return;
+        // 描画が重くてフレームが間に合わない時も、経過時間ぶん（上限あり）まとめて進めて速度を保つ
+        const steps = Math.min(Math.floor((now - lastTick) / msPerCandle), MAX_CATCHUP_STEPS);
+        lastTick = steps === MAX_CATCHUP_STEPS ? now : lastTick + steps * msPerCandle;
+        if (!advance(steps)) return;
       }
       rafId = requestAnimationFrame(loop);
     };

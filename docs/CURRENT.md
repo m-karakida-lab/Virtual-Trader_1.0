@@ -48,7 +48,7 @@
 - ものさし: ドラッグまたはホイールクリックドラッグで価格差・pips・%・本数・期間を計測
 
 ### 再生
-- ▶自動再生（1〜20倍、速度記憶）/⏭1コマ進む/⏮1コマ戻る（表示のみ、約定は取り消さない）。ボタンは下部`Controls.tsx`
+- ▶自動再生（1〜20倍、速度記憶。フレームが間に合わない時は経過時間ぶん最大30本まとめて`advance(steps)`し速度を保つ。メイン/非メインとも複数本を差分更新）/⏭1コマ進む/⏮1コマ戻る（表示のみ、約定は取り消さない）。ボタンは下部`Controls.tsx`
 - キーボード: ←1コマ戻る／→・スペース1コマ進む／↑再生・一時停止（`App.tsx`でグローバルに1箇所だけ拾う。テキスト入力中は無効）
 - チャート全表示（`advanceToEnd`、通過範囲の約定判定込み）。末尾では発注パネル・速度スライダー無効
 
@@ -98,7 +98,7 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - `lib/timezone.ts` / `currency.ts` / `pips.ts` — ブローカー時間→JST、通貨ペア検出、pip単位推定
 - `lib/vtd.ts` — `splitVtdBundle`/`buildVtdBundle`。区切りより前は素のCSV、取引履歴の無い旧形式は空配列で読める
 - `lib/chartViewState.ts` — ズームを時間軸ごとに相対位置で保存/復元（`relativeViewToLogicalRange`）
-- `lib/indicators.ts` — EMA/SMA/BB/雲/ATRのフル計算（非メインが使用）、`cloudDisplacedTime`
+- `lib/indicators.ts` — EMA/SMA/BB/雲/ATRのフル計算と末尾だけの`computeTail`（非メインが使用）、`cloudDisplacedTime`
 - `lib/weekLines.ts`（`computeSeparatorBoundaries`/`computeDayBoundaries`）、`lib/sessions.ts`（`computeSessionBands`、取引分析用`sessionKeyAt`）
 - `lib/partialCandle.ts` — `buildPartialCandle`/`findBucketIndexContaining`（形成中足の部分集計、非メイン描画とメイン切替で共有）
 - `lib/crosshairSync.ts` — `priceAtTime`（範囲外null、戻り値`time`は自パネルの足の時刻）
@@ -167,6 +167,9 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - `setTimeframe`のcursor復元は`mainRevealedUntil`基準、未確定なら`buildPartialCandle`の形成中足に置く
 - ヘッダーの現在時刻表示は`mainDisplayTime`（切替をまたいで据え置き）を表示
 - 非メインの`nonMainVisible`は空でも`setData([])`する（`length===0`で早期return禁止）
+- 非メインは、確定足が前回と同じ（先頭・末尾直前が同一参照、増分400本以内、200本以上）なら`computeTail`で末尾だけ`update()`。それ以外は全体`setData`（`nonMainPrevRef`。メイン中は必ず破棄）
+- 全期間を走査するオーバーレイ処理（`cutCandlesFromCanvas`/雲/セッション帯/区切り線）は表示範囲（`getVisibleLogicalRange`）だけ処理する。区切り線・セッション帯の元データは非メインでは`nonMainCandles`（毎tick再計算しない）
+- lightweight-charts 4.2.3はデータ更新のたび、その系列の全点を再構築する（描画コストが系列本数×総本数に比例）。10年分の1Hを表示するパネルの再生が重い主因
 - 起動時メイン時間軸は`vt:quad3`/`vt:quad4`の`timeframes[mainSlot]`から決まる（別に保存しない）
 - 1画面時の非メイン3枠・3画面時の枠3は`width/height:0`でマウントし続ける（remount回避）
 - `CandleChart`ルート`<div>`は`width/height:100%`必須

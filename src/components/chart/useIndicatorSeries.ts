@@ -271,7 +271,7 @@ export function useIndicatorSeries(refs: IndicatorSeriesRefs, opts: IndicatorSer
     const displaced = cloudDisplacedTime(cs, idx, timeframeSec);
     senkouASeriesRef.current?.update({ time: displaced as Time, value: pt.a });
     senkouBSeriesRef.current?.update({ time: displaced as Time, value: pt.b });
-    cloudDataRef.current = [...cloudDataRef.current, { time: displaced, a: pt.a, b: pt.b }];
+    cloudDataRef.current.push({ time: displaced, a: pt.a, b: pt.b }); // 数万点の配列を毎回コピーしない
     syncCloudRef.current();
   }
 

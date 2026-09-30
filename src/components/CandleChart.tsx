@@ -13,7 +13,7 @@ import { ChartHeader, type RestrictOption } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { computeSessionBands, type SessionBand } from '../lib/sessions';
-import { computeEMA, computeSMA, computeBB, computeCloud, computeATR } from '../lib/indicators';
+import { computeEMA, computeSMA, computeBB, computeCloud, computeATR, computeTail, EMA_PERIOD } from '../lib/indicators';
 import { logError } from '../lib/errorLog';
 import { initDuckDB, queryCandles } from '../lib/duckdb';
 import { findBucketIndexContaining, buildPartialCandle } from '../lib/partialCandle';
@@ -269,6 +269,8 @@ export function CandleChart({
   // 中身（本数・両端の足）が前回と変わっていなければ前回の配列参照をそのまま返して
   // 参照を安定させる（同じ`nonMainCandles`からのprefixフィルタなので要素の中身比較は不要、
   // 本数と両端の要素が同じなら中身も同じと判定できる）
+  // 非メインの直前setData内容（再生中の末尾だけの差分更新の判定用）。emaClosedは末尾1本前のEMA値
+  const nonMainPrevRef = useRef<{ source: Candle[]; tf: number; data: Candle[]; emaClosed: number } | null>(null);
   const nonMainVisibleRef = useRef<Candle[]>([]);
   const nonMainVisibleSourceRef = useRef<Candle[] | null>(null);
   const nonMainVisible = useMemo(() => {
@@ -673,8 +675,14 @@ export function CandleChart({
       // メインは displayCandlesRef が未開示（cursorより先）の足まで含むグローバルcandlesその
       // ものなので、effectiveCursorRefで開示済みの範囲だけに絞る。絞らないと四角形・雲の塗り
       // つぶしが「まだ見えていない将来の足」の分まで見越して抜けてしまう
-      const revealedCandles = displayCandlesRef.current.slice(0, effectiveCursorRef.current + 1);
-      for (const c of revealedCandles) {
+      // 数万本を毎回なぞらないよう、表示範囲（論理インデックス=配列インデックス）の足だけ処理する
+      const dc = displayCandlesRef.current;
+      const range = chartRef.current.timeScale().getVisibleLogicalRange();
+      const lastIdx = Math.min(dc.length - 1, effectiveCursorRef.current);
+      const fromIdx = range ? Math.max(0, Math.floor(range.from) - 1) : 0;
+      const toIdx = range ? Math.min(lastIdx, Math.ceil(range.to) + 1) : lastIdx;
+      for (let ci = fromIdx; ci <= toIdx; ci++) {
+        const c = dc[ci];
         const cx = timeToX(c.time);
         if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
         const yHigh = series.priceToCoordinate(c.high);
@@ -1487,9 +1495,10 @@ export function CandleChart({
   }, [texts, selected]);
 
   // 価格軸の表示精度: 読み込んだペアの価格帯に合わせる（JPYクロス=小数3桁、それ以外=小数5桁）
+  const firstClose = displayCandles[0]?.close;
   useEffect(() => {
-    if (displayCandles.length === 0) return;
-    const precision = pricePrecision(displayCandles[0].close);
+    if (firstClose === undefined) return;
+    const precision = pricePrecision(firstClose);
     const minMove = 1 / 10 ** precision;
     const priceFormat = { type: 'price' as const, precision, minMove };
     seriesRef.current?.applyOptions({ priceFormat });
@@ -1512,13 +1521,16 @@ export function CandleChart({
         chartRef.current.timeScale().height(),
       );
     });
-  }, [displayCandles, isMain]);
+  }, [firstClose, isMain]);
 
+  // 区切り線・セッション帯の元データ。非メインのdisplayCandlesは再生の毎tick新しい配列になり、
+  // 数十万本の再計算が毎tick走るため、全期間の集計済み足（未来分はオーバーレイ側で隠す）を使う
+  const separatorSource = isMain ? displayCandles : nonMainCandles;
   // 区切り線: candles 変化時に境界を再計算（1D足は週区切り、それ以外は日区切り）、showWeekLines 変化時は表示トグル
   useEffect(() => {
-    weekBoundariesRef.current = computeSeparatorBoundaries(displayCandles, timeframeSec);
+    weekBoundariesRef.current = computeSeparatorBoundaries(separatorSource, timeframeSec);
     syncWeekLinesRef.current();
-  }, [displayCandles, timeframeSec]);
+  }, [separatorSource, timeframeSec]);
 
   useEffect(() => {
     syncWeekLinesRef.current();
@@ -1526,10 +1538,10 @@ export function CandleChart({
 
   // セッション帯（東京/ロンドン/NY）: candles変化時に帯を再計算、showSessions/timeframeSec変化時は表示トグル
   useEffect(() => {
-    sessionBandsRef.current = computeSessionBands(displayCandles);
+    sessionBandsRef.current = computeSessionBands(separatorSource);
     syncSessionsRef.current();
     syncTradeMarkersRef.current();
-  }, [displayCandles, timeframeSec]);
+  }, [separatorSource, timeframeSec]);
 
   useEffect(() => {
     syncSessionsRef.current();
@@ -1598,14 +1610,17 @@ export function CandleChart({
 
     const isStep =
       candles === prevCandlesRef.current &&
-      cursor === prevCursorRef.current + 1;
+      cursor > prevCursorRef.current && cursor - prevCursorRef.current <= 30;
 
     if (isStep) {
-      seriesRef.current.update(toBar(candles[cursor]));
-      updateEmaStep(candles[cursor]);
-      updateSMAStep(candles, cursor);
-      updateBBStep(candles, cursor);
-      updateCloudStep(candles, cursor);
+      // 再生のフレーム落ち補正で複数本まとめて進むことがあるので、1本ずつ差分更新する
+      for (let i = prevCursorRef.current + 1; i <= cursor; i++) {
+        seriesRef.current.update(toBar(candles[i]));
+        updateEmaStep(candles[i]);
+        updateSMAStep(candles, i);
+        updateBBStep(candles, i);
+        updateCloudStep(candles, i);
+      }
     } else {
       seriesRef.current.setData(candles.slice(0, cursor + 1).map(toBar));
       // 位置の決め方は「直前まで最新足に固定されていたか」で分ける。followLatestは
@@ -1682,11 +1697,45 @@ export function CandleChart({
     // （新しいCSVを読み込んだ直後、cursor=0付近では上位時間足ほどまだ1本も閉じておらず
     // 0本になりやすい。この枠をクリックしてメインに昇格させると別経路の描画に切り替わり
     // 正しいデータに見えるため、あたかも「クリックしないと読み込まれない」不具合に見えていた）
+    if (isMain) nonMainPrevRef.current = null; // メイン中のseriesは別内容になるので、降格後は必ず全体setDataから
     if (isMain || !seriesRef.current) return;
 
+    // 再生中は「確定済みの足は同じで、末尾の形成中足の差し替え＋数本の追加だけ」が毎tick起きる。
+    // その場合は全期間のsetData・指標の全再計算をせず、末尾だけ差分更新する（1Hパネルで数万本を
+    // 毎tick作り直すと再生が間に合わなくなる）
+    const prev = nonMainPrevRef.current;
+    let tailFrom = -1;
+    if (prev && prev.source === nonMainCandles && prev.tf === timeframeSec) {
+      const pl = prev.data.length, nl = nonMainVisible.length, s = pl - 1;
+      if (pl >= EMA_PERIOD + 1 && nl >= pl && nl - pl <= 400 &&
+          nonMainVisible[0] === prev.data[0] && nonMainVisible[s - 1] === prev.data[s - 1] &&
+          nonMainVisible[s].time === prev.data[s].time) tailFrom = s;
+    }
+    if (prev && tailFrom >= 0) {
+      const tail = computeTail(nonMainVisible, tailFrom, timeframeSec, nonMainCandles, prev.emaClosed);
+      for (let i = tailFrom; i < nonMainVisible.length; i++) seriesRef.current.update(toBar(nonMainVisible[i]));
+      for (const pt of tail.ema) emaSeriesRef.current?.update(pt);
+      for (const pt of tail.sma) smaSeriesRef.current?.update(pt);
+      for (let i = 0; i < tail.bb.basis.length; i++) {
+        bbBasisSeriesRef.current?.update(tail.bb.basis[i]);
+        bbUpper1SeriesRef.current?.update(tail.bb.upper1[i]);
+        bbLower1SeriesRef.current?.update(tail.bb.lower1[i]);
+        bbUpper2SeriesRef.current?.update(tail.bb.upper2[i]);
+        bbLower2SeriesRef.current?.update(tail.bb.lower2[i]);
+      }
+      for (const pt of tail.senkouA) senkouASeriesRef.current?.update(pt);
+      for (const pt of tail.senkouB) senkouBSeriesRef.current?.update(pt);
+      if (tail.points.length > 0) {
+        const pts = cloudDataRef.current;
+        while (pts.length > 0 && pts[pts.length - 1].time >= tail.points[0].time) pts.pop();
+        cloudDataRef.current = [...pts, ...tail.points];
+      }
+      nonMainPrevRef.current = { source: nonMainCandles, tf: timeframeSec, data: nonMainVisible, emaClosed: tail.emaAtClosed };
+    } else {
     seriesRef.current.setData(nonMainVisible.map(toBar));
 
-    emaSeriesRef.current?.setData(computeEMA(nonMainVisible));
+    const emaData = computeEMA(nonMainVisible);
+    emaSeriesRef.current?.setData(emaData);
     smaSeriesRef.current?.setData(computeSMA(nonMainVisible));
 
     const bb = computeBB(nonMainVisible);
@@ -1700,6 +1749,10 @@ export function CandleChart({
     senkouASeriesRef.current?.setData(cloud.senkouA);
     senkouBSeriesRef.current?.setData(cloud.senkouB);
     cloudDataRef.current = cloud.points;
+    nonMainPrevRef.current = emaData.length >= 2
+      ? { source: nonMainCandles, tf: timeframeSec, data: nonMainVisible, emaClosed: emaData[emaData.length - 2].value }
+      : null;
+    }
     syncCloudRef.current();
 
     syncVLinesRef.current();

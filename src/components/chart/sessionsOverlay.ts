@@ -41,7 +41,21 @@ export function createSyncSessions(deps: SessionsOverlayDeps): () => void {
     overlay.style.display = visible ? 'block' : 'none';
     if (!visible) return;
 
-    const bands = bandsRef.current;
+    // 全期間分（10年で数千本）のDOMを毎回並べ直すと再生が間に合わないので、表示範囲に
+    // かかる帯だけを対象にする（bandsは開始時刻の昇順で終了時刻も単調増加）
+    const allBands = bandsRef.current;
+    let bands = allBands;
+    const range = chartRef.current.timeScale().getVisibleLogicalRange();
+    const dc = displayCandlesRef.current;
+    if (range && dc.length > 0) {
+      const fromTime = range.from < 0 ? -Infinity : dc[Math.min(dc.length - 1, Math.floor(range.from))].time;
+      const toTime = range.to > dc.length - 1 ? Infinity : dc[Math.max(0, Math.ceil(range.to))].time;
+      let lo = 0, hi = allBands.length;
+      while (lo < hi) { const mid = (lo + hi) >> 1; if (allBands[mid].end <= fromTime) lo = mid + 1; else hi = mid; }
+      let end = lo;
+      while (end < allBands.length && allBands[end].start <= toTime) end++;
+      bands = allBands.slice(lo, end);
+    }
     const els = elsRef.current;
 
     while (els.length < bands.length) {

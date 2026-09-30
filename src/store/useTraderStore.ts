@@ -434,7 +434,7 @@ interface TraderState {
   saveChartFile: () => Promise<void>;
   autoSaveTick: () => Promise<void>; // 定期タイマー（App.tsx）から呼ばれる。armed/差分の判定含め自己完結
   setTimeframe: (sec: TimeframeSec, preloadedCandles?: Candle[]) => Promise<void>;
-  advance: () => boolean;
+  advance: (steps?: number) => boolean; // steps本まとめて進める（再生のフレーム落ち補正用）。末尾に達したらfalse
   stepBack: () => boolean;
   jumpToTime: (targetSec: number, opts?: { rewind?: boolean }) => void;
   fitToScreen: () => void;
@@ -1037,10 +1037,10 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     }
   },
 
-  advance: () => {
+  advance: (steps = 1) => {
     const { cursor, candles, timeframeSec, positions, pendingOrders, closedTrades, balance, nextId } = get();
     if (cursor < candles.length - 1) {
-      const newCursor = cursor + 1;
+      const newCursor = Math.min(cursor + Math.max(1, steps), candles.length - 1);
       const result = processOrderRange(candles, cursor, newCursor, positions, pendingOrders, closedTrades, balance, nextId);
       set({
         cursor: newCursor,
