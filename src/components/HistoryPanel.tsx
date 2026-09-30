@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react';
 import { createChart, type IChartApi, type ISeriesApi, type Time } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { ClosedTrade } from '../types';
@@ -230,6 +230,8 @@ export function HistoryPanel() {
   const seriesRef = useRef<ISeriesApi<'Line'> | null>(null);
   const rowRefs = useRef<Map<number, HTMLTableRowElement>>(new Map());
   const [highlightedTradeId, setHighlightedTradeId] = useState<number | null>(null);
+  const memoTradeId = useTraderStore(s => s.memoTradeId);
+  const setMemoTradeId = useTraderStore(s => s.setMemoTradeId);
   // lightweight-charts標準の最終値価格ライン（priceLineVisible）はチャート全幅に横線を引く
   // 仕様で短くできないため無効化し、自前のDOMオーバーレイで「現在値〜価格軸のラベル」の
   // 区間だけの短い線を描く（過去側には線を伸ばさない、という要望に対応）
@@ -598,26 +600,27 @@ export function HistoryPanel() {
           }}>
             <thead>
               <tr style={{ color: '#666', textAlign: 'left', borderBottom: '1px solid #1e1e1e' }}>
-                <th style={{ padding: '8px 16px', width: '5%' }}>#</th>
+                <th style={{ padding: '8px 4px', width: '3%' }} title="トレード日誌メモ"></th>
+                <th style={{ padding: '8px 16px', width: '4%' }}>#</th>
                 <th style={{ padding: '8px 16px', width: '9%' }}>方向</th>
                 <th style={{ padding: '8px 16px', width: '10%' }}>ロット</th>
                 <th style={{ padding: '8px 16px', width: '10%' }}>エントリー</th>
                 <th style={{ padding: '8px 16px', width: '10%' }}>決済</th>
                 <th style={{ padding: '8px 16px', width: '9%' }}>開始</th>
                 <th style={{ padding: '8px 16px', width: '9%' }}>終了</th>
-                <th style={{ padding: '8px 16px', width: '8%' }}>保有期間</th>
-                <th style={{ padding: '8px 16px', width: '8%' }} title="エントリー時点のTP/SLから算出したリスクリワード比">R:R</th>
+                <th style={{ padding: '8px 16px', width: '7%' }}>保有期間</th>
+                <th style={{ padding: '8px 16px', width: '7%' }} title="エントリー時点のTP/SLから算出したリスクリワード比">R:R</th>
                 <th style={{ padding: '8px 16px', width: '10%', textAlign: 'right' }}>獲得(損失)pips</th>
                 <th style={{ padding: '8px 16px', width: '12%', textAlign: 'right' }}>損益</th>
               </tr>
             </thead>
             <tbody>
               {sorted.length === 0 ? (
-                <tr><td colSpan={11} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
+                <tr><td colSpan={12} style={{ padding: '24px', textAlign: 'center', color: '#444' }}>まだ取引がありません</td></tr>
               ) : (
                 [...sorted].reverse().map((t, i) => (
+                  <Fragment key={t.id}>
                   <tr
-                    key={t.id}
                     ref={el => { if (el) rowRefs.current.set(t.id, el); else rowRefs.current.delete(t.id); }}
                     onClick={() => { jumpToTime(t.openTime); toggleHistoryPanel(); }}
                     title="クリックでこのトレードの開始位置へチャートを移動"
@@ -629,6 +632,16 @@ export function HistoryPanel() {
                     onMouseEnter={e => { if (highlightedTradeId !== t.id) e.currentTarget.style.backgroundColor = '#161616'; }}
                     onMouseLeave={e => { e.currentTarget.style.backgroundColor = highlightedTradeId === t.id ? 'rgba(66,165,245,0.25)' : 'transparent'; }}
                   >
+                    <td style={{ padding: '6px 4px', textAlign: 'center' }}>
+                      <button
+                        onClick={e => { e.stopPropagation(); setMemoTradeId(memoTradeId === t.id ? null : t.id); }}
+                        title={t.memo ? 'トレード日誌メモを開く' : 'トレード日誌メモを書く'}
+                        style={{
+                          background: 'none', border: 'none', cursor: 'pointer', padding: 0, fontSize: '13px',
+                          color: t.memo ? '#42a5f5' : '#444',
+                        }}
+                      >{t.memo ? '📝' : '📄'}</button>
+                    </td>
                     <td style={{ padding: '6px 16px', color: '#555' }}>{sorted.length - i}</td>
                     <td style={{ padding: '6px 16px', color: t.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{t.side}</td>
                     <td style={{ padding: '6px 16px', color: '#888' }}>{t.lots.toLocaleString()}</td>
@@ -651,6 +664,7 @@ export function HistoryPanel() {
                       {t.pnl >= 0 ? '+' : ''}{sym}{fmt(t.pnl)}
                     </td>
                   </tr>
+                  </Fragment>
                 ))
               )}
             </tbody>
@@ -660,3 +674,4 @@ export function HistoryPanel() {
     </div>
   );
 }
+

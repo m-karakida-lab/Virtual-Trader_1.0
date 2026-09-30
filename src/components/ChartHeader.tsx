@@ -19,10 +19,18 @@ function fmtCurrentTime(sec: number): string {
 // TradingView風のパネルヘッダー（左上の「シンボル + 時間足」表示 + 全画面切替）。
 // onSelectTimeframe を渡すと時間足部分がクリックで開くドロップダウンになる。
 // currentTime（リプレイ中の現在足時刻・Unix秒）を渡すと同じ行の右側に日付時刻を表示する
+// 「この時間足のみ表示」のドロップダウンに出す1種類ぶん（水平線なら複数あっても1項目）
+export interface RestrictOption {
+  kind: 'h' | 'v' | 'rect' | 'trend' | 'channel' | 'arrow' | 'brush' | 'text';
+  label: string;
+  count: number; // このパネルの時間足で今表示中の個数（表示だけ、0件の種類はそもそも渡さない）
+}
+
 export function ChartHeader({
   symbol, timeframeLabel, timeframeSec, onSelectTimeframe, disabled = false,
   isFullscreen, onToggleFullscreen, currentTime, atrPips, chartRightMargin = 0,
   restoreLayoutLabel = '4画面', tradeMarkersVisible, onToggleTradeMarkers,
+  restrictOptions, onRestrictKind, restoreOptions, onRestoreKind,
 }: {
   symbol: string;
   timeframeLabel: string;
@@ -37,9 +45,15 @@ export function ChartHeader({
   restoreLayoutLabel?: string; // 1画面解除時に戻る先のレイアウト名（ボタンのtitleに使う）
   tradeMarkersVisible?: boolean; // このパネルの時間足でトレード履歴マーカーを表示中か
   onToggleTradeMarkers?: () => void; // 省略時はトレード履歴の表示/非表示ボタン自体を出さない
+  restrictOptions?: RestrictOption[]; // このパネルの時間足で今表示中の描画種類の一覧（空配列でもボタン自体は出す）
+  onRestrictKind?: (kind: RestrictOption['kind']) => void; // 省略時は「この時間足のみ表示」ボタン自体を出さない
+  restoreOptions?: RestrictOption[]; // このパネルの時間足で今非表示中の描画種類の一覧（restrictの逆）
+  onRestoreKind?: (kind: RestrictOption['kind']) => void; // 「全時間足で表示に戻す」。省略時はその項目群を出さない
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const [restrictOpen, setRestrictOpen] = useState(false);
+  const restrictRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -49,6 +63,15 @@ export function ChartHeader({
     document.addEventListener('mousedown', onClick);
     return () => document.removeEventListener('mousedown', onClick);
   }, [open]);
+
+  useEffect(() => {
+    if (!restrictOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (restrictRef.current && !restrictRef.current.contains(e.target as Node)) setRestrictOpen(false);
+    };
+    document.addEventListener('mousedown', onClick);
+    return () => document.removeEventListener('mousedown', onClick);
+  }, [restrictOpen]);
 
   return (
     <>
@@ -77,7 +100,7 @@ export function ChartHeader({
           color: 'rgba(255,255,255,0.9)', fontSize: '14px', fontWeight: 600,
           fontVariantNumeric: 'tabular-nums',
         }}>
-          日付：{fmtCurrentTime(currentTime)}
+          {fmtCurrentTime(currentTime)}
         </div>
       </div>
     )}
@@ -196,6 +219,98 @@ export function ChartHeader({
           </svg>
         )}
       </button>
+      {onRestrictKind && (
+        <div ref={restrictRef} style={{ position: 'relative', pointerEvents: 'auto' }}>
+          <button
+            onMouseDown={e => e.stopPropagation()}
+            onMouseUp={e => e.stopPropagation()}
+            onClick={() => !disabled && setRestrictOpen(o => !o)}
+            disabled={disabled}
+            title="この時間足のみ表示（描画をこの時間足だけに絞り込む）"
+            style={{
+              width: '28px', height: '28px', pointerEvents: 'auto',
+              display: 'flex', alignItems: 'center', justifyContent: 'center',
+              background: 'linear-gradient(rgba(255,255,255,0.12), rgba(255,255,255,0.12)), #0d0d0d',
+              border: 'none', borderRadius: '8px',
+              color: 'rgba(255,255,255,0.75)', cursor: disabled ? 'default' : 'pointer', padding: 0,
+            }}
+          >
+            <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+              <rect x="3" y="3" width="18" height="18" rx="2" />
+              <line x1="3" y1="9" x2="21" y2="9" />
+              <line x1="3" y1="15" x2="21" y2="15" />
+            </svg>
+          </button>
+          {restrictOpen && (
+            <div style={{
+              position: 'absolute', top: 'calc(100% + 4px)', left: 0,
+              backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '6px',
+              padding: '4px', boxShadow: '0 8px 24px rgba(0,0,0,0.5)', zIndex: 60,
+              display: 'flex', flexDirection: 'column', minWidth: '180px',
+            }}>
+              {(restrictOptions ?? []).length === 0 && (restoreOptions ?? []).length === 0 ? (
+                <span style={{
+                  padding: '6px 10px', fontSize: '13px', color: '#666', fontFamily: CHART_FONT_FAMILY,
+                }}>この時間足に描画はありません</span>
+              ) : (
+                <>
+                  {(restrictOptions ?? []).length > 0 && (
+                    <>
+                      <span style={{
+                        padding: '4px 10px', fontSize: '11px', color: '#666', fontFamily: CHART_FONT_FAMILY,
+                      }}>この時間足のみ表示にする</span>
+                      {(restrictOptions ?? []).map(o => (
+                        <button
+                          key={o.kind}
+                          onMouseDown={e => e.stopPropagation()}
+                          onMouseUp={e => e.stopPropagation()}
+                          onClick={() => { onRestrictKind(o.kind); setRestrictOpen(false); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+                            background: 'none', border: 'none', color: '#e0e0e0',
+                            padding: '6px 10px', fontSize: '13px', textAlign: 'left', cursor: 'pointer',
+                            borderRadius: '4px', fontFamily: CHART_FONT_FAMILY,
+                          }}
+                        >
+                          <span>{o.label}</span>
+                          <span style={{ color: '#666' }}>{o.count}</span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                  {onRestoreKind && (restoreOptions ?? []).length > 0 && (
+                    <>
+                      <span style={{
+                        padding: '4px 10px', fontSize: '11px', color: '#666', fontFamily: CHART_FONT_FAMILY,
+                        marginTop: (restrictOptions ?? []).length > 0 ? '4px' : 0,
+                        borderTop: (restrictOptions ?? []).length > 0 ? '1px solid #2a2a2a' : 'none',
+                        paddingTop: (restrictOptions ?? []).length > 0 ? '8px' : '4px',
+                      }}>全時間足で表示に戻す</span>
+                      {(restoreOptions ?? []).map(o => (
+                        <button
+                          key={o.kind}
+                          onMouseDown={e => e.stopPropagation()}
+                          onMouseUp={e => e.stopPropagation()}
+                          onClick={() => { onRestoreKind(o.kind); setRestrictOpen(false); }}
+                          style={{
+                            display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '12px',
+                            background: 'none', border: 'none', color: '#e0e0e0',
+                            padding: '6px 10px', fontSize: '13px', textAlign: 'left', cursor: 'pointer',
+                            borderRadius: '4px', fontFamily: CHART_FONT_FAMILY,
+                          }}
+                        >
+                          <span>{o.label}</span>
+                          <span style={{ color: '#666' }}>{o.count}</span>
+                        </button>
+                      ))}
+                    </>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      )}
     </div>
     </>
   );

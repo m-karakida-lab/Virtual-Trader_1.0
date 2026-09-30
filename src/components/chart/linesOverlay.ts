@@ -53,7 +53,7 @@ export function createLinesOverlay(deps: LinesOverlayDeps) {
     if (!frame) return;
     const { ctx, w, h } = frame;
 
-    const { chartBottomMargin: bottomMargin } = useTraderStore.getState();
+    const { chartBottomMargin: bottomMargin, showVLineDateLabel } = useTraderStore.getState();
     const dragPreview = getVLineDragPreview();
     const lines: { x: number; color: string; dash: 'solid' | 'dashed' | 'dotted'; width: number }[] = [];
     for (const v of getVisibleDrawings().vlines) {
@@ -63,8 +63,9 @@ export function createLinesOverlay(deps: LinesOverlayDeps) {
     }
     if (lines.length === 0) return;
 
-    // ラベルの有無に関わらず日付軸欄の手前で止める（軸欄に線を食い込ませない）
-    const bottom = h - bottomMargin;
+    // 垂直系は原則日付軸欄の手前で止める。日付ラベルを出している間だけは、ラベルと一体に
+    // 見えるよう軸欄の帯の中央（ラベル位置）まで伸ばす
+    const bottom = h - (showVLineDateLabel ? bottomMargin / 2 : bottomMargin);
     for (const l of lines) {
       ctx.save();
       ctx.strokeStyle = l.color;

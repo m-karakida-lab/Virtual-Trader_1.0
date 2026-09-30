@@ -44,6 +44,8 @@ export interface ClosedTrade {
   // 取引（vtd/旧セッション）には無いため任意。手動決済等でTP/SL未設定だった場合もundefined
   tp?: number;
   sl?: number;
+  // トレード日誌用の自由メモ（取引履歴パネルで編集、vtdに保存される）。未入力ならundefined
+  memo?: string;
 }
 
 // 表示時間軸（秒）。月足は暦月ごとに日数が違うため厳密な秒数ではなく、
@@ -63,6 +65,22 @@ export const TIMEFRAMES = [
 ] as const;
 
 export type TimeframeSec = typeof TIMEFRAMES[number]['sec'];
+
+// hiddenTimeframesが個別に持てる時間足（5m/15mは単独指定不可で1Hに連動）
+export const HIDABLE_TIMEFRAMES: TimeframeSec[] = [3600, 14400, 86400, WEEK_SEC, MONTH_SEC];
+
+// hiddenTimeframesの判定キー（5m/15mは1H扱い）
+export function timeframeHideKey(timeframeSec: TimeframeSec): TimeframeSec {
+  return timeframeSec < 3600 ? 3600 : timeframeSec;
+}
+
+// 水平線・垂直線・四角形等（hiddenTimeframesを持つ全8種共通）を指定の時間足パネルで
+// 表示すべきか。CandleChart（描画・当たり判定）とuseTraderStore（一括操作）の両方から使う
+export function isHiddenTimeframesVisibleAt(obj: { hiddenTimeframes?: TimeframeSec[] }, timeframeSec: TimeframeSec): boolean {
+  const hidden = obj.hiddenTimeframes;
+  if (!hidden || hidden.length === 0) return true;
+  return !hidden.includes(timeframeHideKey(timeframeSec));
+}
 
 // チャート画面のレイアウト: 1画面 / 3画面（左1枠+右2枠） / 4画面（2x2）
 export type ChartLayout = '1' | '3' | '4';

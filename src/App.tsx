@@ -6,6 +6,7 @@ import { HistoryPanel } from './components/HistoryPanel';
 import { DrawToolbar } from './components/DrawToolbar';
 import { PalettePanel } from './components/PalettePanel';
 import { OrderPanel } from './components/OrderPanel';
+import { TradeMemoWindow } from './components/TradeMemoWindow';
 import { useTraderStore } from './store/useTraderStore';
 import { initDuckDB } from './lib/duckdb';
 
@@ -62,22 +63,30 @@ export default function App() {
     return () => clearInterval(id);
   }, []);
 
-  // スペースキー／矢印キーで「1コマ進む」「1コマ戻る」（下部ボタン行の⏭/⏮ボタンと同じ
-  // advance()/stepBack()）。ここ（App.tsx側1箇所）で拾うのは、CandleChartは4画面時に
-  // 4インスタンス同時にマウントされておりインスタンスごとにwindow.addEventListenerすると
-  // 同じキー入力に4回反応してしまうため（Delete/Undo/コピペ等はパネル固有の操作なので
-  // activePanelSlotで絞っているが、advance()/stepBack()はパネルに依存しないグローバルな
-  // 操作なのでそもそも1箇所で受ければ足りる）。テキストボックス編集中はキー入力を
-  // 奪わないよう除外する
+  // スペースキー／矢印キーで「1コマ進む」「1コマ戻る」「再生/一時停止」（下部ボタン行の
+  // ⏭/⏮/▶ボタンと同じadvance()/stepBack()/togglePlay()）。ここ（App.tsx側1箇所）で拾うのは、
+  // CandleChartは4画面時に4インスタンス同時にマウントされておりインスタンスごとに
+  // window.addEventListenerすると同じキー入力に4回反応してしまうため（Delete/Undo/コピペ等は
+  // パネル固有の操作なのでactivePanelSlotで絞っているが、advance()/stepBack()/togglePlay()は
+  // パネルに依存しないグローバルな操作なのでそもそも1箇所で受ければ足りる）。テキストボックス
+  // 編集中はキー入力を奪わないよう除外する
   useEffect(() => {
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.code !== 'Space' && e.code !== 'ArrowRight' && e.code !== 'ArrowLeft') return;
+      if (e.code !== 'Space' && e.code !== 'ArrowRight' && e.code !== 'ArrowLeft' && e.code !== 'ArrowUp') return;
       const active = document.activeElement as HTMLElement | null;
       const tag = (active?.tagName || '').toLowerCase();
       if (tag === 'input' || tag === 'textarea' || active?.isContentEditable) return;
       e.preventDefault(); // ページスクロール・フォーカス中ボタンの再クリックを防ぐ
-      if (e.code === 'ArrowLeft') useTraderStore.getState().stepBack();
-      else useTraderStore.getState().advance();
+      if (e.code === 'ArrowLeft') { useTraderStore.getState().stepBack(); return; }
+      if (e.code === 'ArrowUp') {
+        // 再生ボタンと同じ無効条件（未読込・末尾の足では再生できない）
+        const { isLoaded, candles, cursor } = useTraderStore.getState();
+        const atEnd = candles.length > 0 && cursor >= candles.length - 1;
+        if (!isLoaded || atEnd) return;
+        useTraderStore.getState().togglePlay();
+        return;
+      }
+      useTraderStore.getState().advance();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
@@ -172,6 +181,10 @@ export default function App() {
             position: 'absolute', inset: 0,
             display: chartLayout === '1' ? 'block' : 'grid',
             gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
+            // gapは各枠のchart本体（不透明背景）の隙間からそのまま覗く色。周囲の#0d0d0dと
+            // ほぼ同化して目立たないという指摘を受け、gap自体に明るめの色を敷いて枠の境界を
+            // 太い1本の線として見せる（1画面時はgridでないのでgapは使われず無関係）
+            backgroundColor: chartLayout === '1' ? undefined : '#3a3a3a',
           }}>
             {QUAD_POSITIONS.map((_, slot) => {
               // 3画面と4画面は各枠の時間軸・メイン枠を別管理しているため、どちらの状態を
@@ -244,6 +257,7 @@ export default function App() {
             </div>
           )}
           {showHistoryPanel && <HistoryPanel />}
+          <TradeMemoWindow />
         </div>
       </div>
 

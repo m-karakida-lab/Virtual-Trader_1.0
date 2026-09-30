@@ -11,21 +11,34 @@ import {
   readErrorLogFileText, clearErrorLogFile,
 } from '../lib/errorLogFile';
 
-// "YYYY-MM-DD" + "HH:mm" を UTC 前提で Unix秒に変換
-function parseDateAsUTC(dateStr: string): number | null {
-  const dm = dateStr.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-  if (!dm) return null;
-  const [, y, mo, d] = dm;
-  return Math.floor(Date.UTC(+y, +mo - 1, +d, 0, 0) / 1000);
+// 全角数字（U+FF10-FF19）を半角に矯正する。日付移動の年/月/日欄はIME入力で全角になりがちなため
+function toHalfWidthDigits(s: string): string {
+  return s.replace(/[０-９]/g, ch => String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
 }
 
-// Unix秒 → "YYYY-MM-DD"（UTC基準、datetime input の min/max 用）
-function toDateUTC(sec: number): string {
-  const d = new Date(sec * 1000);
-  const y = d.getUTCFullYear();
-  const mo = String(d.getUTCMonth() + 1).padStart(2, '0');
-  const day = String(d.getUTCDate()).padStart(2, '0');
-  return `${y}-${mo}-${day}`;
+// 年/月/日を別々の入力欄から受け取ってUnix秒へ変換。年は空欄可で、その場合は
+// currentYearSec（現在リプレイ中の足の時刻）が指す年を補う
+function buildJumpSec(yearStr: string, monthStr: string, dayStr: string, currentYearSec?: number): number | null {
+  const moStr = monthStr.trim(), dStr = dayStr.trim();
+  if (!/^\d{1,2}$/.test(moStr) || !/^\d{1,2}$/.test(dStr)) return null;
+  const mo = +moStr, d = +dStr;
+  if (mo < 1 || mo > 12 || d < 1 || d > 31) return null;
+  const yStr = yearStr.trim();
+  if (yStr && !/^\d{4}$/.test(yStr)) return null;
+  const y = yStr ? +yStr : new Date((currentYearSec ?? 0) * 1000).getUTCFullYear();
+  const sec = Math.floor(Date.UTC(y, mo - 1, d, 0, 0) / 1000);
+  // Date.UTCは月/日が範囲外でも繰り上げてしまう（例: 2/30→3/2）。往復させて弾く
+  const check = new Date(sec * 1000);
+  if (check.getUTCFullYear() !== y || check.getUTCMonth() !== mo - 1 || check.getUTCDate() !== d) return null;
+  return sec;
+}
+
+// 日付移動の年/月/日入力欄（幅だけ違う）
+function jumpFieldStyle(width: string): React.CSSProperties {
+  return {
+    backgroundColor: '#1a1a1a', color: '#e0e0e0', border: '1px solid #2a2a2a',
+    borderRadius: '3px', padding: '8px 6px', fontSize: '14px', width, textAlign: 'center',
+  };
 }
 
 // Unix秒 → "M/D HH:mm"（UTC基準、垂直線チップ表示用）。DrawToolbarの描画管理ポップアップからも使う
@@ -122,12 +135,17 @@ function OrderRow({ order, onCancel }: { order: PendingOrder; onCancel: () => vo
 }
 
 // ── クリックで開閉するメニューボタン（下部バーの上方向にポップアップ）───────────
+// open/onOpenChangeを渡すと開閉を外側から制御できる（例: 日付移動は「移動」実行後に自動で閉じたい）。
+// 渡さなければ従来通り内部stateだけで開閉する
 function MenuButton({
-  label, active = false, disabled = false, children,
+  label, active = false, disabled = false, children, open: openProp, onOpenChange,
 }: {
   label: string; active?: boolean; disabled?: boolean; children: React.ReactNode;
+  open?: boolean; onOpenChange?: (open: boolean) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  const [internalOpen, setInternalOpen] = useState(false);
+  const open = openProp ?? internalOpen;
+  const setOpen = (next: boolean) => { onOpenChange ? onOpenChange(next) : setInternalOpen(next); };
   const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -142,7 +160,7 @@ function MenuButton({
   return (
     <div ref={ref} style={{ position: 'relative', flexShrink: 0 }}>
       <button
-        onClick={() => setOpen(o => !o)}
+        onClick={() => setOpen(!open)}
         disabled={disabled}
         style={tfBtn(active || open, disabled)}
       >{label} {open ? '▴' : '▾'}</button>
@@ -328,19 +346,28 @@ export function Controls() {
     return [pos.id, pnl];
   }));
 
-  const [jumpDate, setJumpDate] = useState('');
+  const [jumpYear, setJumpYear] = useState('');
+  const [jumpMonth, setJumpMonth] = useState('');
+  const [jumpDay, setJumpDay] = useState('');
+  const [dateMenuOpen, setDateMenuOpen] = useState(false);
+  // 「現在いる年」= リプレイ上でいま開示されている足の時刻の年（現実の今日の年ではない）
+  const currentYearSec = candles[cursor]?.time;
+  const jumpSec = buildJumpSec(jumpYear, jumpMonth, jumpDay, currentYearSec);
+  const resetJumpFields = () => { setJumpYear(''); setJumpMonth(''); setJumpDay(''); };
   const handleJump = () => {
-    const sec = parseDateAsUTC(jumpDate);
-    if (sec !== null) jumpToTime(sec);
+    if (jumpSec === null) return;
+    jumpToTime(jumpSec);
+    resetJumpFields();
+    setDateMenuOpen(false);
   };
   // 「移動」は表示位置だけ動かす（最新足＝リプレイの開示境界はそのまま）。
   // 「巻き戻し」は指定日付を新しい最新足にする（それより先の足を隠す）
   const handleRewind = () => {
-    const sec = parseDateAsUTC(jumpDate);
-    if (sec !== null) jumpToTime(sec, { rewind: true });
+    if (jumpSec === null) return;
+    jumpToTime(jumpSec, { rewind: true });
+    resetJumpFields();
+    setDateMenuOpen(false);
   };
-  const minDate = candles.length > 0 ? toDateUTC(candles[0].time) : undefined;
-  const maxDate = candles.length > 0 ? toDateUTC(candles[candles.length - 1].time) : undefined;
 
   // rAF 自動再生
   useEffect(() => {
@@ -447,17 +474,15 @@ export function Controls() {
         {/* チャートレイアウト。1画面への切替はここでは行わず、各パネルヘッダー左上の
             全画面ボタン（ChartHeader）でそのパネルを1画面化する導線に一本化している */}
         <div style={{ display: 'flex', gap: '3px', padding: '0 8px', flexShrink: 0 }}>
+          {/* 3画面中にもう一度押すと配置（左1枠+右2枠／上1枠+下2枠）が切り替わる */}
           <button
-            onClick={() => setChartLayout('3')}
+            onClick={() => { if (chartLayout === '3') toggleQuad3Pattern(); else setChartLayout('3'); }}
             disabled={!isLoaded}
+            title={chartLayout === '3'
+              ? (quad3Pattern === 'left' ? '3画面の配置を「上1枠+下2枠」に切替' : '3画面の配置を「左1枠+右2枠」に切替')
+              : '3画面表示'}
             style={tfBtn(chartLayout === '3', !isLoaded)}
           >3画面</button>
-          <button
-            onClick={toggleQuad3Pattern}
-            disabled={!isLoaded}
-            title={quad3Pattern === 'left' ? '3画面の配置を「上1枠+下2枠」に切替' : '3画面の配置を「左1枠+右2枠」に切替'}
-            style={tfBtn(false, !isLoaded)}
-          >⇄</button>
           <button
             onClick={() => setChartLayout('4')}
             disabled={!isLoaded}
@@ -485,32 +510,51 @@ export function Controls() {
 
         {/* 日付ジャンプ（メニュー） */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
-          <MenuButton label="📅 日付移動" disabled={!isLoaded}>
+          <MenuButton label="📅 日付移動" disabled={!isLoaded} open={dateMenuOpen} onOpenChange={setDateMenuOpen}>
             <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
               <input
-                type="date"
-                value={jumpDate}
-                onChange={e => setJumpDate(e.target.value)}
-                onKeyDown={e => { if (e.key === 'Enter' && isLoaded && jumpDate) handleJump(); }}
-                min={minDate}
-                max={maxDate}
+                type="text"
+                inputMode="numeric"
+                value={jumpYear}
+                onChange={e => setJumpYear(toHalfWidthDigits(e.target.value))}
+                onKeyDown={e => { if (e.key === 'Enter' && isLoaded && jumpSec !== null) handleJump(); }}
+                placeholder="YYYY"
+                title="空欄にすると現在いる年（リプレイ中の足の年）が使われます"
                 disabled={!isLoaded}
-                style={{
-                  backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
-                  borderRadius: '3px', padding: '8px 8px', fontSize: '20px',
-                  colorScheme: 'dark',
-                }}
+                style={jumpFieldStyle('44px')}
+              />
+              <span style={{ color: '#555' }}>-</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={jumpMonth}
+                onChange={e => setJumpMonth(toHalfWidthDigits(e.target.value))}
+                onKeyDown={e => { if (e.key === 'Enter' && isLoaded && jumpSec !== null) handleJump(); }}
+                placeholder="MM"
+                disabled={!isLoaded}
+                style={jumpFieldStyle('32px')}
+              />
+              <span style={{ color: '#555' }}>-</span>
+              <input
+                type="text"
+                inputMode="numeric"
+                value={jumpDay}
+                onChange={e => setJumpDay(toHalfWidthDigits(e.target.value))}
+                onKeyDown={e => { if (e.key === 'Enter' && isLoaded && jumpSec !== null) handleJump(); }}
+                placeholder="DD"
+                disabled={!isLoaded}
+                style={jumpFieldStyle('32px')}
               />
               <button
                 onClick={handleJump}
-                disabled={!isLoaded || !jumpDate}
-                style={tfBtn(false, !isLoaded || !jumpDate)}
+                disabled={!isLoaded || jumpSec === null}
+                style={tfBtn(false, !isLoaded || jumpSec === null)}
               >移動</button>
               <button
                 onClick={handleRewind}
-                disabled={!isLoaded || !jumpDate}
+                disabled={!isLoaded || jumpSec === null}
                 title="指定日付を最新足にする（それより先の足を隠す）"
-                style={tfBtn(false, !isLoaded || !jumpDate)}
+                style={tfBtn(false, !isLoaded || jumpSec === null)}
               >巻き戻し</button>
             </div>
           </MenuButton>

@@ -6,10 +6,10 @@ import {
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, TimeframeSec } from '../types';
-import { TIMEFRAMES } from '../types';
+import { TIMEFRAMES, HIDABLE_TIMEFRAMES, isHiddenTimeframesVisibleAt } from '../types';
 import { inferPipSize, pricePrecision } from '../lib/pips';
 import { CHART_FONT_FAMILY, CHART_AXIS_TEXT_COLOR, CHART_AXIS_FONT_SIZE, DASH_TO_STYLE } from '../lib/chartTheme';
-import { ChartHeader } from './ChartHeader';
+import { ChartHeader, type RestrictOption } from './ChartHeader';
 import { loadChartView, saveChartView, relativeViewToLogicalRange } from '../lib/chartViewState';
 import { computeSeparatorBoundaries } from '../lib/weekLines';
 import { computeSessionBands, type SessionBand } from '../lib/sessions';
@@ -60,16 +60,6 @@ const toBar = (c: Candle): CandlestickData => ({
   time: c.time as Time,
   open: c.open, high: c.high, low: c.low, close: c.close,
 });
-
-// 水平線・四角形を指定の時間足パネルで表示すべきか（hiddenTimeframesを持つ図形なら
-// 共通で使える）。hiddenTimeframesは1H/4H/1D/1W/MNのみを個別に保持でき、5m/15mは
-// 単独指定できないため1H(3600)がOFFかどうかに連動させる
-function isHiddenTimeframesVisibleAt(obj: { hiddenTimeframes?: TimeframeSec[] }, timeframeSec: TimeframeSec): boolean {
-  const hidden = obj.hiddenTimeframes;
-  if (!hidden || hidden.length === 0) return true;
-  const key = timeframeSec < 3600 ? 3600 : timeframeSec;
-  return !hidden.includes(key as TimeframeSec);
-}
 
 // slot/isMain/timeframeSecは3画面/4画面レイアウトで複数インスタンスとして使うためのprops。
 // 省略時（1画面時）は今まで通り「唯一のメインパネル」として振る舞う（isMain=true, slot=0）。
@@ -214,6 +204,8 @@ export function CandleChart({
   const finestSourceCursor = useTraderStore(s => s.finestSourceCursor);
   const setTimeframe = useTraderStore(s => s.setTimeframe);
   const setQuadTimeframe = useTraderStore(s => s.setQuadTimeframe);
+  const restrictKindToTimeframe = useTraderStore(s => s.restrictKindToTimeframe);
+  const showKindOnAllTimeframes = useTraderStore(s => s.showKindOnAllTimeframes);
   const chartLayout = useTraderStore(s => s.chartLayout);
   const preMultiLayout = useTraderStore(s => s.preMultiLayout);
   const isLoaded = useTraderStore(s => s.isLoaded);
@@ -337,6 +329,32 @@ export function CandleChart({
     return atr / inferPipSize(displayCandles[idx].close);
   }, [displayCandles, isMain, cursor]);
 
+  // ヘッダーの「この時間足のみ表示」／「全時間足で表示に戻す」ドロップダウン用。どちらも
+  // このパネルで表示中の描画が対象。前者は「この時間足限定」にまだなっていないもの、後者は
+  // 他の時間足で非表示に制限されているもの（＝制限をかけたこの時間足のパネルで戻せる）。
+  // 描画種類を1項目ずつ（同じ種類が複数あっても1つにまとめる）、0件の種類は出さない
+  const [restrictOptions, restoreOptions] = useMemo(() => {
+    const groups: { kind: RestrictOption['kind']; label: string; items: { hiddenTimeframes?: TimeframeSec[] }[] }[] = [
+      { kind: 'h', label: '水平線', items: lines },
+      { kind: 'v', label: '垂直線', items: vlines },
+      { kind: 'rect', label: '四角形', items: rects },
+      { kind: 'trend', label: 'トレンドライン', items: trendLines },
+      { kind: 'channel', label: '平行チャネル', items: channels },
+      { kind: 'arrow', label: '矢印', items: arrows },
+      { kind: 'brush', label: 'ブラシ', items: brushes },
+      { kind: 'text', label: 'テキスト', items: texts },
+    ];
+    const isOnlyHere = (o: { hiddenTimeframes?: TimeframeSec[] }) =>
+      (o.hiddenTimeframes?.length ?? 0) >= HIDABLE_TIMEFRAMES.length - 1;
+    const build = (pick: (o: { hiddenTimeframes?: TimeframeSec[] }) => boolean) => groups
+      .map(g => ({ kind: g.kind, label: g.label, count: g.items.filter(o => isHiddenTimeframesVisibleAt(o, timeframeSec) && pick(o)).length }))
+      .filter(o => o.count > 0);
+    return [
+      build(o => !isOnlyHere(o)),
+      build(o => (o.hiddenTimeframes?.length ?? 0) > 0),
+    ];
+  }, [lines, vlines, rects, trendLines, channels, arrows, brushes, texts, timeframeSec]);
+
   // マウント時1回のみ実行される巨大なイベント設定用useEffect（下のchart初期化）はpropsを
   // クロージャで固定してしまうため、4画面でisMain/slotがremountなしに切り替わることに
   // 対応できない。イベントハンドラ内から常に最新値を読めるようrefに都度反映しておく
@@ -363,6 +381,20 @@ export function CandleChart({
   // 初期値をそのまま入れておく）
   const prevIsMainRef = useRef(isMain);
   useEffect(() => {
+    // メイン→非メインへ降格した瞬間、その時点の実際の表示位置を追従アンカーとして採用する。
+    // 降格直後の非メインは自前集計の足データがまだ空（初めて非メインになる枠）か古いままで、
+    // 下のeffectRefs更新後のeffectiveCursorRef（=nonMainVisibleの末尾）が-1になり、
+    // captureFollowAnchorFromCurrentViewでは捕捉できない（アンカー未設定のまま最新足へ
+    // 飛んでしまう——ジャンプ後にメインを切り替えると降格した枠が動く不具合の原因）。
+    // effectiveCursorRefを上書きする前の値（=メイン時のcursor）とチャートの現在の可視範囲から
+    // 直接アンカーを作る
+    if (prevIsMainRef.current && !isMain) {
+      const range = chartRef.current?.timeScale().getVisibleLogicalRange();
+      const lastIdx = effectiveCursorRef.current;
+      if (range && range.to > range.from && lastIdx >= 0) {
+        followAnchorRef.current = { span: range.to - range.from, offset: range.to - lastIdx };
+      }
+    }
     isMainRef.current = isMain;
     slotRef.current = slot;
     mySourceIdRef.current = mySourceId;
@@ -380,9 +412,6 @@ export function CandleChart({
     // 「ジャンプ直後に降格して戻る」不具合とは発生タイミングが違う、同根の別ケース）。
     // 降格した瞬間、その時点の実際の表示位置をアンカーとして採用することで、降格後も
     // 直前の見た目のまま追従を続けられるようにする
-    if (prevIsMainRef.current && !isMain) {
-      captureFollowAnchorRef.current();
-    }
     prevIsMainRef.current = isMain;
   }, [isMain, slot, mySourceId, nonMainCandles, displayCandles, cursor, timeframeSec, isPlaying]);
   // 非メイン時、クリック（ドラッグでない）でメインへ昇格させるための始点記録
@@ -641,7 +670,11 @@ export function CandleChart({
       ctx.save();
       ctx.globalCompositeOperation = 'destination-out';
       ctx.fillStyle = '#000';
-      for (const c of displayCandlesRef.current) {
+      // メインは displayCandlesRef が未開示（cursorより先）の足まで含むグローバルcandlesその
+      // ものなので、effectiveCursorRefで開示済みの範囲だけに絞る。絞らないと四角形・雲の塗り
+      // つぶしが「まだ見えていない将来の足」の分まで見越して抜けてしまう
+      const revealedCandles = displayCandlesRef.current.slice(0, effectiveCursorRef.current + 1);
+      for (const c of revealedCandles) {
         const cx = timeToX(c.time);
         if (cx === null || cx < -barSpacing || cx > w + barSpacing) continue;
         const yHigh = series.priceToCoordinate(c.high);
@@ -1030,6 +1063,8 @@ export function CandleChart({
     ]);
 
 
+    // チャート本体をつかんでパンしている間true（カーソルを「つかんでいる手」にする）
+    let panGrabbing = false;
     const onMouseDown = (e: MouseEvent) => {
       // Phase 4: 4画面時、Delete/Undo/コピペ等のキーボードショートカットを「最後に
       // マウス操作した1枠」だけに効かせるための目印。クリックの種類を問わず常に更新する
@@ -1120,6 +1155,16 @@ export function CandleChart({
         // 図形の外（余白）をクリックしたら選択解除する（TradingView等と同じ挙動）
         useTraderStore.getState().selectLine(null);
       }
+      // 何にもヒットしなかった＝チャート本体のパン（つかんで移動）の開始。プロット領域内
+      // （価格軸・日付軸のスケール操作は除く）のドラッグ中だけ「つかんでいる手」のカーソルにする
+      if (e.button === 0) {
+        const r = container.getBoundingClientRect();
+        const ts = chart.timeScale();
+        if (e.clientX - r.left < ts.width() && e.clientY - r.top < r.height - ts.height()) {
+          panGrabbing = true;
+          container.style.cursor = 'grabbing';
+        }
+      }
       // 非メインで、描画ツールも無く、既存図形にもヒットしなかった＝空白クリックの候補。
       // ドラッグでない単純クリックだった場合のみonMouseUp側でメインへ昇格させる
       if (!isMainRef.current) {
@@ -1150,12 +1195,16 @@ export function CandleChart({
       // 図形をドラッグ編集できる状態ではない（クリックは足の時刻ピックに使われる）ため、
       // 垂直線等に重なっても「ドラッグできる」ことを示す矢印カーソルは出さない
       const { isDrawingLine: dH, isDrawingVLine: dV, isMeasuring: isM, isDrawingRect: isR, isDrawingTrendLine: isTL, isDrawingChannel: isCh, isDrawingArrow: isAr, isDrawingBrush: isB, isDrawingText: dT, pickTarget: pick, isJumpSync: jumpSync } = useTraderStore.getState();
-      if (!dH && !dV && !isM && !isR && !isTL && !isCh && !isAr && !isB && !dT && pick === null && !jumpSync) {
+      if (!panGrabbing && !dH && !dV && !isM && !isR && !isTL && !isCh && !isAr && !isB && !dT && pick === null && !jumpSync) {
         container.style.cursor = editTools.hoverCursor(x, y) ?? 'default';
       }
     };
 
     const onMouseUp = (e: MouseEvent) => {
+      if (panGrabbing) {
+        panGrabbing = false;
+        container.style.cursor = 'default';
+      }
       if (activeSession) {
         const rect = container.getBoundingClientRect();
         const session = activeSession;
@@ -1671,7 +1720,10 @@ export function CandleChart({
     // 別パネルが動いたように見える不具合になる（実際に指摘を受けて判明。あるパネルを
     // クリックしてメインに昇格させると、それまでメインだった別パネルが降格してこの
     // 分岐を初めて通ることになるため）
-    if (fittedNonMainDataRef.current !== nonMainCandles) {
+    // 空配列（自前集計の完了前）は「新しいデータセット」に数えない。数えると降格直後の
+    // 再フィットスキップ（skipNextNonMainFitRef）が空データの同期で消費され、本物のデータ
+    // が届いた時に再フィットが走って降格した枠が最新足へ飛んでしまう
+    if (nonMainCandles.length > 0 && fittedNonMainDataRef.current !== nonMainCandles) {
       fittedNonMainDataRef.current = nonMainCandles;
       if (skipNextNonMainFitRef.current) {
         skipNextNonMainFitRef.current = false;
@@ -1759,6 +1811,10 @@ export function CandleChart({
         restoreLayoutLabel={`${preMultiLayout}画面`}
         tradeMarkersVisible={tradeMarkersVisible}
         onToggleTradeMarkers={() => toggleTradeMarkersForTimeframe(timeframeSec)}
+        restrictOptions={restrictOptions}
+        onRestrictKind={kind => restrictKindToTimeframe(kind, timeframeSec)}
+        restoreOptions={restoreOptions}
+        onRestoreKind={kind => showKindOnAllTimeframes(kind, timeframeSec)}
         onToggleFullscreen={() => {
           const s = useTraderStore.getState();
           if (s.chartLayout !== '1') {

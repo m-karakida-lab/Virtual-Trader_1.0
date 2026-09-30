@@ -1,6 +1,6 @@
 import { create } from 'zustand';
 import type { Candle, Position, ClosedTrade, PendingOrder, OrderType, Side, TimeframeSec, ChartLayout, DrawnLine, DrawnVLine, DrawnRect, DrawnTrendLine, DrawnChannel, DrawnArrow, DrawnBrush, DrawnText, LineDash, LineWidth, LineSelection, MagnetMode, TextFontSize, TextBorderStyle } from '../types';
-import { LINE_COLORS, TIMEFRAMES, DEFAULT_BRUSH_SMOOTHING } from '../types';
+import { LINE_COLORS, TIMEFRAMES, DEFAULT_BRUSH_SMOOTHING, HIDABLE_TIMEFRAMES, timeframeHideKey, isHiddenTimeframesVisibleAt } from '../types';
 import { initDuckDB, loadCSVFiles, queryCandles } from '../lib/duckdb';
 import { detectQuoteCurrency, detectPairSymbol } from '../lib/currency';
 import { splitVtdBundle, buildVtdBundle } from '../lib/vtd';
@@ -143,6 +143,66 @@ function saveLineLabels(showHLinePriceLabel: boolean, showVLineDateLabel: boolea
   }
 }
 
+// 描画物（水平線・垂直線・四角形・トレンドライン・平行チャネル・矢印・ブラシ・テキスト）を
+// 新規配置する時のデフォルトスタイル（各種Draft）。パレットで変更するたびlocalStorageへ記憶し、
+// 次回起動時も引き継ぐ。水平線・垂直線は元々lineDraftを共有する設計のまま（分離しない）
+const DRAW_DRAFTS_STORAGE_KEY = 'vt:drawDrafts';
+
+interface DrawDrafts {
+  lineDraft: { color: string; dash: LineDash; width: LineWidth };
+  rectDraft: { color: string; dash: LineDash; width: LineWidth };
+  trendLineDraft: { color: string; dash: LineDash; width: LineWidth };
+  channelDraft: { color: string; dash: LineDash; width: LineWidth };
+  arrowDraft: { color: string; dash: LineDash; width: LineWidth };
+  brushDraft: { color: string; width: LineWidth; smoothing: number };
+  textDraft: { color: string; fontSize: TextFontSize; border: TextBorderStyle };
+}
+
+function defaultDrawDrafts(): DrawDrafts {
+  return {
+    lineDraft: { color: '#e0e0e0', dash: 'solid', width: 2 },
+    rectDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 }, // パレットにある青（#42a5f5）
+    trendLineDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
+    channelDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
+    arrowDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
+    brushDraft: { color: LINE_COLORS[3], width: 2, smoothing: DEFAULT_BRUSH_SMOOTHING },
+    textDraft: { color: '#e0e0e0', fontSize: 18, border: 'solid' },
+  };
+}
+
+function loadSavedDrawDrafts(): DrawDrafts {
+  const defaults = defaultDrawDrafts();
+  try {
+    const raw = localStorage.getItem(DRAW_DRAFTS_STORAGE_KEY);
+    if (!raw) return defaults;
+    const parsed = JSON.parse(raw);
+    return {
+      lineDraft: { ...defaults.lineDraft, ...parsed.lineDraft },
+      rectDraft: { ...defaults.rectDraft, ...parsed.rectDraft },
+      trendLineDraft: { ...defaults.trendLineDraft, ...parsed.trendLineDraft },
+      channelDraft: { ...defaults.channelDraft, ...parsed.channelDraft },
+      arrowDraft: { ...defaults.arrowDraft, ...parsed.arrowDraft },
+      brushDraft: { ...defaults.brushDraft, ...parsed.brushDraft },
+      textDraft: { ...defaults.textDraft, ...parsed.textDraft },
+    };
+  } catch {
+    return defaults;
+  }
+}
+
+function saveDrawDrafts(drafts: DrawDrafts): void {
+  try {
+    localStorage.setItem(DRAW_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+  } catch {
+    // localStorage が使えない場合は無視
+  }
+}
+
+function pickDrawDrafts(s: DrawDrafts): DrawDrafts {
+  const { lineDraft, rectDraft, trendLineDraft, channelDraft, arrowDraft, brushDraft, textDraft } = s;
+  return { lineDraft, rectDraft, trendLineDraft, channelDraft, arrowDraft, brushDraft, textDraft };
+}
+
 // 3画面/4画面レイアウトの「どの枠にどの時間軸を表示するか」（枠の位置は固定、中身の時間軸と
 // メイン枠だけユーザーが選べる）は、3画面と4画面で完全に別管理（vt:quad3 / vt:quad4）。
 // 切り替えてもお互いの状態に影響しない。デフォルトは共に 15m・1H・4H(・1D)
@@ -220,7 +280,7 @@ interface TraderState {
   // 昇格）ではこの値を変えない——切替は「今の瞬間」を変えない見た目の変更でしかない。
   // データ開示境界（新しい時間足でどのバケットを形成中とみなすか）の判定に使う
   mainRevealedUntil: number | null;
-  // 画面ヘッダー「日付：」に表示する値。mainRevealedUntilと違い+timeframeSecしない
+  // 画面ヘッダーの現在時刻表示に使う値。mainRevealedUntilと違い+timeframeSecしない
   // 生の時刻（＝実際にカーソルを動かした時点のcandles[cursor].time）を保持する。
   // 時間足を切り替えると新しい時間足のバケット開始時刻（例: 1Dなら07:00始まり等）に
   // 丸まって見えてしまい、「切り替えても今の時刻の表示は変わらないでほしい」という
@@ -335,6 +395,7 @@ interface TraderState {
   showSessions: boolean; // 東京/ロンドン/NYの取引時間帯を背景帯で表示するインジケータ
   overlaysHidden: boolean; // インジケータ・描画物（線/図形等）を一括で非表示にするトグル。データは消さない
   showHistoryPanel: boolean; // 取引履歴・損益グラフのパネル表示
+  memoTradeId: number | null; // トレード日誌メモのポップアップ窓で開いている取引（閉じていればnull、永続化しない）
   // チャート上のエントリー/決済マーカー（トレード履歴）を時間足ごとに表示/非表示。
   // キーは時間足(sec)、値がfalseのものだけ非表示（未登録=表示）。時間足単位で管理する
   // ため、同じ時間足を複数パネルで表示していれば連動し、パネル自体の位置には紐付かない
@@ -454,6 +515,14 @@ interface TraderState {
   toggleDrawText: () => void;
   setTextDraft: (patch: Partial<{ color: string; fontSize: TextFontSize; border: TextBorderStyle }>) => void;
   toggleContinuousDrawing: () => void;
+  setTradeMemo: (id: number, memo: string) => void; // 決済済み取引のトレード日誌メモ（空文字で削除）
+  // 指定の種類（水平線・垂直線・四角形・トレンドライン・平行チャネル・矢印・ブラシ・テキスト）
+  // のうち、このtimeframeSecで今表示中のものだけを対象に「この時間足でのみ表示」にする
+  // （対象外＝元から非表示だった図形には触らない）。パネルヘッダーの「この時間足のみ表示」用
+  restrictKindToTimeframe: (kind: LineSelection['kind'], timeframeSec: TimeframeSec) => void;
+  // restrictKindToTimeframeの逆。このtimeframeSecで表示中かつ他の時間足で非表示に制限されて
+  // いるものだけを対象にhiddenTimeframesを空にして全時間足で表示に戻す
+  showKindOnAllTimeframes: (kind: LineSelection['kind'], timeframeSec: TimeframeSec) => void;
   undo: () => void; // 水平線・垂直線・四角形・トレンドライン・矢印・ブラシ・テキストの直前の変更を1つ戻す
   setMagnetMode: (mode: MagnetMode) => void;
   toggleMagnet: () => void;
@@ -468,6 +537,7 @@ interface TraderState {
   toggleSessions: () => void;
   advanceToEnd: () => void;
   toggleHistoryPanel: () => void;
+  setMemoTradeId: (id: number | null) => void;
   toggleTradeMarkersForTimeframe: (sec: TimeframeSec) => void;
   openHistoryForTrade: (tradeId: number) => void;
   setScrollToTradeId: (tradeId: number | null) => void;
@@ -690,13 +760,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   magnetMode: loadSavedMagnetStrength(), // デフォルトでON（起動のたびON、強さは前回記憶した方から始まる）
   magnetStrength: loadSavedMagnetStrength(),
   selected: null,
-  lineDraft: { color: '#e0e0e0', dash: 'solid', width: 2 },
-  rectDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 }, // パレットにある青（#42a5f5）
-  trendLineDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
-  channelDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
-  arrowDraft: { color: LINE_COLORS[3], dash: 'solid', width: 2 },
-  brushDraft: { color: LINE_COLORS[3], width: 2, smoothing: DEFAULT_BRUSH_SMOOTHING },
-  textDraft: { color: '#e0e0e0', fontSize: 18, border: 'solid' },
+  ...loadSavedDrawDrafts(),
   paletteMode: false,
   paletteStyle: { color: '#42a5f5', dash: 'solid', width: 2, fontSize: 18, border: 'solid' },
   showEMA: false,
@@ -707,6 +771,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   showWeekLines: true,
   showSessions: true,
   showHistoryPanel: false,
+  memoTradeId: null,
   tradeMarkersVisible: {},
   scrollToTradeId: null,
   orderPanelOpen: false,
@@ -1300,7 +1365,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     return { isDrawingLine: next, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingChannel: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
   // 水平線・垂直線は同じlineDraftを共有する（addLine/addVLineとも参照している通り）
-  setLineDraft: patch => set(s => ({ lineDraft: { ...s.lineDraft, ...patch } })),
+  setLineDraft: patch => { set(s => ({ lineDraft: { ...s.lineDraft, ...patch } })); saveDrawDrafts(pickDrawDrafts(get())); },
 
   addVLine: (time: number) => {
     pushDrawHistory(get, set);
@@ -1386,7 +1451,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const next = !s.isDrawingRect;
     return { isDrawingRect: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingTrendLine: false, isDrawingChannel: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
-  setRectDraft: patch => set(s => ({ rectDraft: { ...s.rectDraft, ...patch } })),
+  setRectDraft: patch => { set(s => ({ rectDraft: { ...s.rectDraft, ...patch } })); saveDrawDrafts(pickDrawDrafts(get())); },
 
   addTrendLine: (time1: number, price1: number, time2: number, price2: number) => {
     pushDrawHistory(get, set);
@@ -1424,7 +1489,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const next = !s.isDrawingTrendLine;
     return { isDrawingTrendLine: next, isDrawingChannel: false, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
-  setTrendLineDraft: patch => set(s => ({ trendLineDraft: { ...s.trendLineDraft, ...patch } })),
+  setTrendLineDraft: patch => { set(s => ({ trendLineDraft: { ...s.trendLineDraft, ...patch } })); saveDrawDrafts(pickDrawDrafts(get())); },
 
   addChannel: (time1: number, price1: number, time2: number, price2: number, offset: number) => {
     pushDrawHistory(get, set);
@@ -1462,7 +1527,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const next = !s.isDrawingChannel;
     return { isDrawingChannel: next, isDrawingTrendLine: false, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingArrow: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
-  setChannelDraft: patch => set(s => ({ channelDraft: { ...s.channelDraft, ...patch } })),
+  setChannelDraft: patch => { set(s => ({ channelDraft: { ...s.channelDraft, ...patch } })); saveDrawDrafts(pickDrawDrafts(get())); },
 
   addArrow: (time1: number, price1: number, time2: number, price2: number) => {
     pushDrawHistory(get, set);
@@ -1500,7 +1565,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const next = !s.isDrawingArrow;
     return { isDrawingArrow: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingChannel: false, isDrawingBrush: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
-  setArrowDraft: patch => set(s => ({ arrowDraft: { ...s.arrowDraft, ...patch } })),
+  setArrowDraft: patch => { set(s => ({ arrowDraft: { ...s.arrowDraft, ...patch } })); saveDrawDrafts(pickDrawDrafts(get())); },
 
   addBrush: (points: { time: number; price: number }[], opts?: { shape?: 'triangle' | 'circle' }) => {
     pushDrawHistory(get, set);
@@ -1538,7 +1603,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const next = !s.isDrawingBrush;
     return { isDrawingBrush: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingChannel: false, isDrawingArrow: false, isDrawingText: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
-  setBrushDraft: patch => set(s => ({ brushDraft: { ...s.brushDraft, ...patch } })),
+  setBrushDraft: patch => { set(s => ({ brushDraft: { ...s.brushDraft, ...patch } })); saveDrawDrafts(pickDrawDrafts(get())); },
 
   addText: (time: number, price: number, text: string) => {
     pushDrawHistory(get, set);
@@ -1582,9 +1647,53 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     const next = !s.isDrawingText;
     return { isDrawingText: next, isDrawingLine: false, isDrawingVLine: false, isMeasuring: false, isDrawingRect: false, isDrawingTrendLine: false, isDrawingChannel: false, isDrawingArrow: false, isDrawingBrush: false, pickTarget: null, isJumpSync: false, ...armPatch(next) };
   }),
-  setTextDraft: patch => set(s => ({ textDraft: { ...s.textDraft, ...patch } })),
+  setTextDraft: patch => { set(s => ({ textDraft: { ...s.textDraft, ...patch } })); saveDrawDrafts(pickDrawDrafts(get())); },
   // 描画ツールの切替（toggleDrawLine等）では触らない独立したロック的トグル
   toggleContinuousDrawing: () => set(s => ({ continuousDrawing: !s.continuousDrawing })),
+
+  setTradeMemo: (id, memo) => set(s => ({
+    closedTrades: s.closedTrades.map(t => t.id === id ? { ...t, memo: memo === '' ? undefined : memo } : t),
+  })),
+
+  restrictKindToTimeframe: (kind, timeframeSec) => {
+    pushDrawHistory(get, set);
+    // 指定timeframeSecだけ残し、他の個別指定可能な時間足（1H/4H/1D/1W/MN）は全部隠す
+    const hiddenTimeframes = HIDABLE_TIMEFRAMES.filter(t => t !== timeframeHideKey(timeframeSec));
+    const restrict = <T extends { hiddenTimeframes?: TimeframeSec[] }>(arr: T[]): T[] =>
+      arr.map(o => isHiddenTimeframesVisibleAt(o, timeframeSec) ? { ...o, hiddenTimeframes } : o);
+    set(s => {
+      switch (kind) {
+        case 'h': return { lines: restrict(s.lines) };
+        case 'v': return { vlines: restrict(s.vlines) };
+        case 'rect': return { rects: restrict(s.rects) };
+        case 'trend': return { trendLines: restrict(s.trendLines) };
+        case 'channel': return { channels: restrict(s.channels) };
+        case 'arrow': return { arrows: restrict(s.arrows) };
+        case 'brush': return { brushes: restrict(s.brushes) };
+        case 'text': return { texts: restrict(s.texts) };
+      }
+    });
+  },
+
+  showKindOnAllTimeframes: (kind, timeframeSec) => {
+    pushDrawHistory(get, set);
+    // restrictKindToTimeframeの逆: このtimeframeSecで表示中かつどこかの時間足で非表示に
+    // 制限されているものだけを対象にhiddenTimeframesを空にする（制限の無い図形には触らない）
+    const restore = <T extends { hiddenTimeframes?: TimeframeSec[] }>(arr: T[]): T[] =>
+      arr.map(o => isHiddenTimeframesVisibleAt(o, timeframeSec) && (o.hiddenTimeframes?.length ?? 0) > 0 ? { ...o, hiddenTimeframes: [] } : o);
+    set(s => {
+      switch (kind) {
+        case 'h': return { lines: restore(s.lines) };
+        case 'v': return { vlines: restore(s.vlines) };
+        case 'rect': return { rects: restore(s.rects) };
+        case 'trend': return { trendLines: restore(s.trendLines) };
+        case 'channel': return { channels: restore(s.channels) };
+        case 'arrow': return { arrows: restore(s.arrows) };
+        case 'brush': return { brushes: restore(s.brushes) };
+        case 'text': return { texts: restore(s.texts) };
+      }
+    });
+  },
 
   undo: () => {
     const { drawHistory } = get();
@@ -1663,6 +1772,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     });
   },
   toggleHistoryPanel: () => set(s => ({ showHistoryPanel: !s.showHistoryPanel })),
+  setMemoTradeId: id => set({ memoTradeId: id }),
   toggleTradeMarkersForTimeframe: (sec) => set(s => {
     const currentlyVisible = s.tradeMarkersVisible[sec] !== false; // 未登録＝表示がデフォルト
     return { tradeMarkersVisible: { ...s.tradeMarkersVisible, [sec]: !currentlyVisible } };

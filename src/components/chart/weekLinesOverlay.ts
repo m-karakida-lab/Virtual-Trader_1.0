@@ -112,10 +112,10 @@ export function createSyncWeekLines({ chartRef, overlayRef, boundariesRef, elsRe
       } else {
         el.style.display = 'block';
         el.style.left = `${x}px`;
-        // ラベルを出さない土曜日の区切り線は軸欄手前ギリギリで止める（平日の区切り線は
-        // ラベルの有無に関わらず軸欄の帯の中央＝ラベル位置まで伸ばす）
+        // 垂直系は原則日付軸欄に侵入させず手前で止める。ラベルを出す1本だけは、ラベルと
+        // 一体に見えるよう軸欄の帯の中央＝ラベル位置まで伸ばす
         const labeled = i === latestIdx;
-        lineEl.style.height = `calc(100% - ${isSaturday(t) && !labeled ? bottomMargin : bottomMargin / 2}px)`;
+        lineEl.style.height = `calc(100% - ${labeled ? bottomMargin / 2 : bottomMargin}px)`;
         if (!labeled) {
           label.style.display = 'none';
         } else {

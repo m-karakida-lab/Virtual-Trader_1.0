@@ -22,7 +22,7 @@ export interface TradeMarkersOverlayDeps {
 
 // トレード履歴マーカー（エントリー/決済）をローソク足・インジケータと重ならない
 // 専用行にDOM要素で描く。セッション帯のすぐ上（セッション非表示時はスクラバーの
-// すぐ上）に積む。番号ラベル付きの小さいタグで、クリックで取引履歴の該当行へ飛べる
+// すぐ上）に積む。番号ラベル付きの小さいタグで、クリックで取引履歴の該当行へ、右クリックでトレード日誌メモ窓を開ける（メモの有無はタグに出さない、幅を食うため）
 // （以前のcanvas描画+近似当たり判定は不要になったため撤去した）
 export function createSyncTradeMarkers(deps: TradeMarkersOverlayDeps): () => void {
   const { chartRef, seriesRef, overlayRef, elsRef, lineElsRef, timeframeSecRef, timeToX } = deps;
@@ -97,7 +97,9 @@ export function createSyncTradeMarkers(deps: TradeMarkersOverlayDeps): () => voi
         el.style.pointerEvents = m.tradeId !== null ? 'auto' : 'none';
         if (m.tradeId !== null) {
           el.style.cursor = 'pointer';
+          el.title = 'クリック: 履歴の該当行へ / 右クリック: トレード日誌メモ';
           el.onclick = () => useTraderStore.getState().openHistoryForTrade(m.tradeId!);
+          el.oncontextmenu = e => { e.preventDefault(); useTraderStore.getState().setMemoTradeId(m.tradeId!); };
         }
         overlay.appendChild(el);
         els.set(m.key, el);

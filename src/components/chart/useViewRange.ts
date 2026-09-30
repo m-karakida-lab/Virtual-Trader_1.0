@@ -276,7 +276,13 @@ export function useViewRangeSync(
     const span = Math.max(currentSpan, MIN_JUMP_SPAN_BARS);
     const half = span / 2;
     chart.timeScale().setVisibleLogicalRange({ from: targetIdx - half, to: targetIdx + half });
-    const raf = requestAnimationFrame(syncAllOverlays);
+    const raf = requestAnimationFrame(() => {
+      // 移動後の位置を追従アンカーとして採用する（ジャンプ同期と同じ理由）。捕捉しないと、
+      // 非メインはメイン切替等でnonMainVisibleが更新された時に追従effectが古い/未設定の
+      // アンカーを使い、日付移動した位置から最新足側へ動いてしまう
+      captureFollowAnchorRef.current();
+      syncAllOverlays();
+    });
     return () => cancelAnimationFrame(raf);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [centerSignal]);
@@ -285,7 +291,13 @@ export function useViewRangeSync(
   // 「クリックされた足の時刻」を中心に移動する（インデックスは上と同じく自パネルの配列で求める）
   useEffect(() => {
     if (jumpSyncSignal === 0 || !chartRef.current) return;
-    if (jumpSyncSourceId === mySourceIdRef.current) return;
+    if (jumpSyncSourceId === mySourceIdRef.current) {
+      // クリックした発信元は動かさないが、その位置を追従アンカーとして採用しておく。
+      // 未設定のままだと、メイン切替等でnonMainVisibleが更新された時に追従effectが既定位置
+      // （最新足）へ動かしてしまう
+      const raf = requestAnimationFrame(() => captureFollowAnchorRef.current());
+      return () => cancelAnimationFrame(raf);
+    }
     const chart = chartRef.current;
     const cs = displayCandlesRef.current;
     if (cs.length === 0) return;
