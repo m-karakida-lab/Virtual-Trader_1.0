@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
+import { TIMEFRAMES } from '../types';
 import { loadMemoWin, saveMemoWin, type MemoWinRect } from '../lib/tradeMemoWin';
 
 const MIN_W = 240;
@@ -24,6 +25,11 @@ export function TradeMemoWindow() {
   const setMemoTradeId = useTraderStore(s => s.setMemoTradeId);
   const closedTrades = useTraderStore(s => s.closedTrades);
   const setTradeMemo = useTraderStore(s => s.setTradeMemo);
+  const chartLayout = useTraderStore(s => s.chartLayout);
+  const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
+  const quad3Timeframes = useTraderStore(s => s.quad3Timeframes);
+  const quad4Timeframes = useTraderStore(s => s.quad4Timeframes);
+  const insertRef = useRef<((text: string) => void) | null>(null);
   const trade = memoTradeId === null ? undefined : closedTrades.find(t => t.id === memoTradeId);
 
   const [rect, setRect] = useState<MemoWinRect>(() => clampToViewport(loadMemoWin()));
@@ -74,6 +80,11 @@ export function TradeMemoWindow() {
   }, [open]);
 
   if (!trade) return null;
+  // 表示中パネルの時間足を大きい順に並べた見出しテンプレート（1画面はメインの1つだけ）
+  const shown = chartLayout === '1' ? [mainTimeframeSec]
+    : chartLayout === '3' ? quad3Timeframes.slice(0, 3) : quad4Timeframes;
+  const template = [...new Set(shown)].sort((a, b) => b - a)
+    .map(sec => `■${TIMEFRAMES.find(t => t.sec === sec)?.label ?? sec}\n\n`).join('\n');
   const sorted = [...closedTrades].sort((a, b) => a.closeTime - b.closeTime);
   const no = sorted.findIndex(t => t.id === trade.id) + 1;
 
@@ -106,21 +117,31 @@ export function TradeMemoWindow() {
           <span style={{ marginLeft: '8px', color: trade.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{trade.side}</span>
           <span style={{ marginLeft: '8px' }}>{trade.pnl >= 0 ? '+' : ''}{Math.round(trade.pnl).toLocaleString()}</span>
         </span>
+        <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+        <button
+          onMouseDown={e => e.preventDefault()}
+          onClick={() => insertRef.current?.(template)}
+          title="表示中パネルの時間足ごとの見出しをカーソル位置に挿入"
+          style={{ background: 'none', border: '1px solid #444', borderRadius: '3px', color: '#aaa', cursor: 'pointer', fontSize: '11px', padding: '1px 6px' }}
+        >テンプレ</button>
         <button
           onMouseDown={e => e.stopPropagation()}
           onClick={() => setMemoTradeId(null)}
           title="閉じる（入力中の内容は保存されます）"
           style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', fontSize: '16px', lineHeight: 1 }}
         >×</button>
+        </span>
       </div>
-      <MemoEditor key={trade.id} value={trade.memo ?? ''} onCommit={v => setTradeMemo(trade.id, v)} />
+      <MemoEditor key={trade.id} value={trade.memo ?? ''} onCommit={v => setTradeMemo(trade.id, v)} insertRef={insertRef} />
     </div>
   );
 }
 
 // 1打鍵ごとにstoreへ書くと取引履歴の集計・MAE/MFE再計算が走って重いので、手元のstateで編集して
 // フォーカスが外れた時・閉じる時・別の取引に切り替わる時だけコミットする
-function MemoEditor({ value, onCommit }: { value: string; onCommit: (v: string) => void }) {
+function MemoEditor({ value, onCommit, insertRef }: {
+  value: string; onCommit: (v: string) => void; insertRef: { current: ((text: string) => void) | null };
+}) {
   const [draft, setDraft] = useState(value);
   const draftRef = useRef(draft);
   draftRef.current = draft;
@@ -132,8 +153,19 @@ function MemoEditor({ value, onCommit }: { value: string; onCommit: (v: string) 
     }
   };
   useEffect(() => commit, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const taRef = useRef<HTMLTextAreaElement>(null);
+  // カーソル位置（未フォーカスなら末尾）へ挿入し、挿入直後にカーソルを置く
+  insertRef.current = text => {
+    const ta = taRef.current;
+    const d = draftRef.current;
+    const pos = ta ? ta.selectionStart : d.length;
+    const end = ta ? ta.selectionEnd : d.length;
+    setDraft(d.slice(0, pos) + text + d.slice(end));
+    requestAnimationFrame(() => { ta?.focus(); ta?.setSelectionRange(pos + text.length, pos + text.length); });
+  };
   return (
     <textarea
+      ref={taRef}
       value={draft}
       onChange={e => setDraft(e.target.value)}
       onBlur={commit}
