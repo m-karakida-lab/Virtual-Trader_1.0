@@ -1180,7 +1180,20 @@ export function CandleChart({
       }
     };
 
+    // Shiftの押下/解除はマウスを動かさないとmoveに伝わらないため、ドラッグ中はキー操作でも
+    // 直近のマウス位置でmoveを呼び直す（Shiftで水平拘束等がその場で効く）
+    let lastMouse: { clientX: number; clientY: number } | null = null;
+    const onShiftKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Shift' || e.repeat || !activeSession || !lastMouse) return;
+      const rect = container.getBoundingClientRect();
+      const synthetic = new MouseEvent('mousemove', { clientX: lastMouse.clientX, clientY: lastMouse.clientY, shiftKey: e.type === 'keydown' });
+      activeSession.move(lastMouse.clientX - rect.left, lastMouse.clientY - rect.top, synthetic);
+    };
+    window.addEventListener('keydown', onShiftKey);
+    window.addEventListener('keyup', onShiftKey);
+
     const onMouseMove = (e: MouseEvent) => {
+      lastMouse = { clientX: e.clientX, clientY: e.clientY };
       const rect = container.getBoundingClientRect();
       const x = e.clientX - rect.left;
       const y = e.clientY - rect.top;
@@ -1332,6 +1345,8 @@ export function CandleChart({
       container.removeEventListener('mousedown', onMouseDown);
       container.removeEventListener('dblclick', onDblClick);
       window.removeEventListener('mousemove', onMouseMove);
+      window.removeEventListener('keydown', onShiftKey);
+      window.removeEventListener('keyup', onShiftKey);
       window.removeEventListener('mouseup', onMouseUp);
       window.removeEventListener('keydown', onKeyDown);
       scrubber.dispose();

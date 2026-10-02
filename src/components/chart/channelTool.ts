@@ -48,6 +48,8 @@ export function createChannelTool(deps: ChannelToolDeps) {
     chart: deps.chart, container: deps.container, seriesRef: deps.seriesRef, displayCandlesRef: deps.displayCandlesRef,
     magnetSnap: deps.magnetSnap, pixelToTime: deps.pixelToTime, timeToX: deps.timeToX,
     selectionKind: 'channel', selectionPart: 'base', resetCursorAfterEndpoint: true,
+    // Shiftで基準線を水平にする（新規描画・端点ドラッグとも）
+    shiftConstrains: 'horizontal',
     list: channels,
     // 基準線のドラッグは確定させず、オフセット決定待ちに移る（ドラッグせず単にクリックした
     // だけ＝始点と終点が同じなら何も始めず、ツールをアクティブなまま維持する）

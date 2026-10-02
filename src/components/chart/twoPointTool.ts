@@ -36,7 +36,8 @@ export interface TwoPointToolDeps<S extends TwoPointShape> {
   pixelToTime: (x: number) => number | null;
   timeToX: TimeToX;
   // Shiftを押しながら新規描画・端点ドラッグすると、反対側の点を基準に水平/垂直へ強制する（矢印のみ）
-  shiftConstrains?: boolean;
+  // 'horizontal'は水平のみに強制する（平行チャネルの基準線。垂直には意味が無い）
+  shiftConstrains?: boolean | 'horizontal';
   // 端点ドラッグの確定後にカーソルを既定に戻す（平行チャネル）
   resetCursorAfterEndpoint?: boolean;
 }
@@ -70,7 +71,7 @@ export function createTwoPointTool<S extends TwoPointShape>(deps: TwoPointToolDe
         pendingEnd = { x: mx, y: s.y, price: s.price };
         // Shift: 始点を基準に、カーソルが横寄りなら水平（始点と同じ価格）、縦寄りなら垂直（始点と同じ時刻）
         if (shiftConstrains && e.shiftKey) {
-          if (Math.abs(mx - start.x) >= Math.abs(my - start.y)) pendingEnd = { x: mx, y: start.y, price: start.price };
+          if (shiftConstrains === 'horizontal' || Math.abs(mx - start.x) >= Math.abs(my - start.y)) pendingEnd = { x: mx, y: start.y, price: start.price };
           else pendingEnd = { x: start.x, y: s.y, price: s.price };
         }
         setNewDraft({ x1: start.x, y1: start.y, x2: pendingEnd.x, y2: pendingEnd.y });
@@ -114,7 +115,7 @@ export function createTwoPointTool<S extends TwoPointShape>(deps: TwoPointToolDe
             const fixedX = timeToX(fixedTime);
             const fixedY = seriesRef.current.priceToCoordinate(fixedPrice);
             if (fixedX !== null && fixedY !== null) {
-              if (Math.abs(x - fixedX) >= Math.abs(y - fixedY)) price = fixedPrice;
+              if (shiftConstrains === 'horizontal' || Math.abs(x - fixedX) >= Math.abs(y - fixedY)) price = fixedPrice;
               else time = fixedTime;
             }
           }
