@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   createChart, LineStyle, CrosshairMode,
   type IChartApi, type ISeriesApi, type CandlestickSeriesOptions,
-  type Time, type UTCTimestamp, type CandlestickData, type IPriceLine,
+  type Time, type Logical, type UTCTimestamp, type CandlestickData, type IPriceLine,
 } from 'lightweight-charts';
 import { useTraderStore } from '../store/useTraderStore';
 import type { Candle, TimeframeSec } from '../types';
@@ -604,6 +604,30 @@ export function CandleChart({
       const visible = displayCandlesRef.current;
       if (visible.length === 0) return null;
       if (t <= visible[0].time) return ts.timeToCoordinate(visible[0].time as Time);
+      // 開示済みの最後の足より先（未来）の時刻。最後の足にクランプすると、未来に伸びた
+      // トレンドライン等の端点が最後の足の位置に潰れて角度が変わってしまう（時間足ごとに
+      // 線の見え方が変わる原因になっていた）。全期間の足（メインはcandles全体、非メインは
+      // 自前集計の全期間）上での位置をバー番号で求め、実在しない先はtimeframe間隔で外挿する
+      const revealedIdx = Math.min(visible.length - 1, effectiveCursorRef.current);
+      const revealedLast = visible[revealedIdx];
+      if (revealedLast && t > revealedLast.time) {
+        const full = isMainRef.current ? visible : nonMainCandlesRef.current;
+        if (full.length === 0) return ts.timeToCoordinate(revealedLast.time as Time);
+        let lo = 0, hi = full.length - 1;
+        while (lo < hi) {
+          const mid = (lo + hi + 1) >> 1;
+          if (full[mid].time <= t) lo = mid; else hi = mid - 1;
+        }
+        let logical: number;
+        if (lo >= full.length - 1) logical = full.length - 1 + (t - full[full.length - 1].time) / timeframeSecRef.current;
+        else logical = lo + (t - full[lo].time) / (full[lo + 1].time - full[lo].time);
+        // logicalToCoordinateは小数のindexだと0を返す仕様なので、整数2点の座標から補間する
+        const base = Math.floor(logical);
+        const xa = ts.logicalToCoordinate(base as Logical);
+        const xb = ts.logicalToCoordinate((base + 1) as Logical);
+        if (xa === null || xb === null) return null;
+        return xa + (logical - base) * (xb - xa);
+      }
       if (t >= visible[visible.length - 1].time) return ts.timeToCoordinate(visible[visible.length - 1].time as Time);
       let lo = 0, hi = visible.length - 1;
       while (hi - lo > 1) {
