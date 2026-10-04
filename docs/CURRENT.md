@@ -59,7 +59,7 @@
 - トレードマーカー: 下部専用行の「#N」タグ（採番は取引履歴の#と同じcloseTime昇順）。クリックで取引履歴の該当行へ、右クリックでトレード日誌メモ窓を開く
 - 取引履歴パネル: エクイティカーブ・指標・方向別/セッション別/曜日別/保有期間帯別分析・取引一覧（行クリックでエントリー時点へ移動）。MAE/MFE・決済後12h/24hの値動き（`tradeExcursion.ts`）
 - トレード日誌: 取引一覧の行頭アイコン／チャートの#Nタグ右クリックでメモ窓（`TradeMemoWindow.tsx`、`fixed`・z110）。自由テキスト（`ClosedTrade.memo`、.vtd保存）。ヘッダーのドラッグで移動・右下でリサイズ、位置は`vt:tradeMemoWin`。保存はblur/閉じる/別取引切替時（打鍵ごとだと集計が再計算される）。ヘッダーはpips・保有期間、「テンプレ」で表示中パネルの時間足見出し（■1D等）を挿入。AIエクスポートには未反映
-- R:R画像: TP/SL付きで発注すると、その時のチャート領域を`rrImage`としてPosition/PendingOrder/ClosedTradeへ引き継ぐ（.vtd保存）。メモ窓上部の「📎 発注時のR:R画像（NNKB）」クリックで拡大。生成は`lib/screenshot.ts`: `captureChartAreaCanvas`（canvasを直接重ね、DOMだけhtml-to-image）→`encodeCanvasFitted`（WebP・100KB以内に品質を二分探索）。符号化は発注後に裏で行い`attachRrImage`で付与
+- R:R画像: TP/SL付きで発注すると、その時のチャート領域を`rrImage`としてPosition/PendingOrder/ClosedTradeへ引き継ぐ（.vtd保存）。メモ窓上部の「📎 発注時のR:R画像（NNKB）」クリックで拡大。生成は`lib/screenshot.ts`（ADR 005）: `captureChartAreaCanvas`（canvasを直接重ね、DOMだけhtml-to-image）→`encodeCanvasFitted`（WebP・100KB以内に品質を二分探索）。符号化は発注後に裏で行い`attachRrImage`で付与
 - 「📊 AI分析用エクスポート」（`aiExport.ts`）: 前提説明＋指標＋全取引をMarkdownで書き出し
 - 曜日別・保有期間帯別は試験的指標（`HOLD_BUCKETS`/`WEEKDAY_LABELS`、不要なら削除）
 
@@ -170,7 +170,7 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - 非メインの`nonMainVisible`は空でも`setData([])`する（`length===0`で早期return禁止）
 - 非メインは、確定足が前回と同じ（先頭・末尾直前が同一参照、増分400本以内、200本以上）なら`computeTail`で末尾だけ`update()`、それ以外は全体`setData`（`nonMainPrevRef`、メイン中は破棄）
 - 全期間を走査するオーバーレイ（`cutCandlesFromCanvas`/雲/セッション帯/区切り線）は表示範囲（`getVisibleLogicalRange`）だけ処理。区切り線・セッション帯の元データは非メインでは`nonMainCandles`
-- lightweight-charts 4.2.3はデータ更新のたび系列の全点を再構築する（描画コストは系列本数×総本数）。長期間の細かい時間足パネルが再生の重さの主因
+- lightweight-charts 4.2.3はデータ更新のたび系列の全点を再構築する（描画コストは系列本数×総本数）。長期間の細かい時間足パネルが再生の重さの主因（ADR 004）
 - 起動時メイン時間軸は`vt:quad3`/`vt:quad4`の`timeframes[mainSlot]`から決まる（別に保存しない）
 - 1画面時の非メイン3枠・3画面時の枠3は`width/height:0`でマウントし続ける（remount回避）
 - chart/series APIを呼ぶeffectはtry/catch＋`errorLog`で継続（`window.onerror`に漏れても動作継続）
