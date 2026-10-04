@@ -70,6 +70,7 @@ export function FileLoader() {
   const saveChartFile = useTraderStore(s => s.saveChartFile);
   const canSave     = useTraderStore(s => s.rawCsvText !== null);
   const canOverwrite = useTraderStore(s => s.rawFileHandle !== null && s.rawFileIsBundle);
+  const autoSaveArmed = useTraderStore(s => s.autoSaveArmed);
   const loadedFileLabel = useTraderStore(s => s.loadedFileLabel);
   const isLoaded    = useTraderStore(s => s.isLoaded);
   const advanceToEnd = useTraderStore(s => s.advanceToEnd);
@@ -200,7 +201,8 @@ export function FileLoader() {
             ? '水平線・垂直線・四角形をCSVと1つのファイルにまとめて上書き保存する（元のファイルへ直接書き込み）'
             : '水平線・垂直線・四角形をCSVと1つのファイルにまとめて保存（同じファイル選択欄からそのまま再読込できる）'}
           style={{
-            backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
+            // 上書き保存を1回実行して10分ごとの自動保存が有効になっている間は、文字を青にして示す
+            backgroundColor: '#1a1a1a', color: autoSaveArmed ? '#42a5f5' : '#888', border: '1px solid #2a2a2a',
             borderRadius: '3px', padding: '4px 10px', fontSize: '13px', cursor: 'pointer',
           }}
         >💾 vtd{canOverwrite ? '上書き保存' : '保存'}</button>

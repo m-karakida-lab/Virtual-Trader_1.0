@@ -28,12 +28,37 @@ export interface CoordinateDeps {
   chartRef: ReadRef<IChartApi | null>;
   seriesRef: ReadRef<ISeriesApi<'Candlestick'> | null>;
   displayCandlesRef: ReadRef<Candle[]>;
+  effectiveCursorRef: ReadRef<number>;
+  isMainRef: ReadRef<boolean>;
+  nonMainCandlesRef: ReadRef<Candle[]>;
+  timeframeSecRef: ReadRef<number>;
   timeToX: TimeToX;
 }
 
 // マウス座標→時刻・価格の変換（描画・編集のマウス処理が使う）
 export function createCoordinateHelpers(deps: CoordinateDeps) {
-  const { chartRef, seriesRef, displayCandlesRef, timeToX } = deps;
+  const { chartRef, seriesRef, displayCandlesRef, effectiveCursorRef, isMainRef, nonMainCandlesRef, timeframeSecRef, timeToX } = deps;
+
+  // 開示済みの最後の足より右（未来の空き領域）のX座標を時刻へ変換する。そこにはseriesのデータが
+  // 無くcoordinateToTimeがnullを返すため、最後の足の座標とbarSpacingから足の番号を求め、
+  // 全期間の足の並びから時刻を引く（並びの外側はtimeframe間隔で外挿。timeToXの逆変換）。
+  // snap=trueは足の位置へ丸める。未来領域でなければnull
+  const futureTimeAt = (x: number, snap: boolean): number | null => {
+    if (!chartRef.current) return null;
+    const dc = displayCandlesRef.current;
+    const lastIdx = Math.min(dc.length - 1, effectiveCursorRef.current);
+    if (lastIdx < 0) return null;
+    const ts = chartRef.current.timeScale();
+    const lastX = ts.timeToCoordinate(dc[lastIdx].time as Time);
+    if (lastX === null || x <= lastX) return null;
+    let idx = lastIdx + (x - lastX) / ts.options().barSpacing;
+    if (snap) idx = Math.round(idx);
+    const full = isMainRef.current ? dc : nonMainCandlesRef.current;
+    if (full.length === 0) return null;
+    if (idx >= full.length - 1) return full[full.length - 1].time + (idx - (full.length - 1)) * timeframeSecRef.current;
+    const lo = Math.floor(idx);
+    return full[lo].time + (idx - lo) * (full[lo + 1].time - full[lo].time);
+  };
 
   // 四角形の頂点等のX座標→時刻変換。lightweight-chartsのcoordinateToTimeをそのまま使う
   // （足に吸着する＝ドラッグ幅が1本未満だと細くなるが、それ自体は仕様として許容する）。
@@ -44,6 +69,8 @@ export function createCoordinateHelpers(deps: CoordinateDeps) {
     const ts = chartRef.current.timeScale();
     const t = ts.coordinateToTime(x);
     if (t !== null) return t as number;
+    const future = futureTimeAt(x, true);
+    if (future !== null) return future;
     const visible = displayCandlesRef.current;
     if (visible.length === 0) return null;
     const firstX = ts.timeToCoordinate(visible[0].time as Time);
@@ -60,6 +87,8 @@ export function createCoordinateHelpers(deps: CoordinateDeps) {
   const pixelToContinuousTime = (x: number): number | null => {
     if (!chartRef.current) return null;
     const ts = chartRef.current.timeScale();
+    const future = futureTimeAt(x, false);
+    if (future !== null) return future;
     const visible = displayCandlesRef.current;
     if (visible.length === 0) return null;
     const firstX = ts.timeToCoordinate(visible[0].time as Time);

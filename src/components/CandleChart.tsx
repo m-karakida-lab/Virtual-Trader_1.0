@@ -1008,7 +1008,7 @@ export function CandleChart({
       findArrowEndpointNear, findArrowNear,
       findBrushVertexNear, findBrushCircleCornerNear, findBrushNear, findTextNear,
     } = createHitTests({ chartRef, seriesRef, textElsRef, getVisibleDrawings, timeToX, timeToXSnapped });
-    const { pixelToTime, pixelToContinuousTime, magnetSnap } = createCoordinateHelpers({ chartRef, seriesRef, displayCandlesRef, timeToX });
+    const { pixelToTime, pixelToContinuousTime, magnetSnap } = createCoordinateHelpers({ chartRef, seriesRef, displayCandlesRef, effectiveCursorRef, isMainRef, nonMainCandlesRef, timeframeSecRef, timeToX });
 
     // 価格ラインのドラッグ中にチャート側のライン（createPriceLine）を直接動かすためのマップ
     const priceLineMapFor = (kind: DragTarget['kind']): Map<number, IPriceLine> => {

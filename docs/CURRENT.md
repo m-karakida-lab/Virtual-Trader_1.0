@@ -19,7 +19,7 @@
 - 開いた履歴（Chrome/Edgeのみ、最大12件、`openHistory.ts`）。「ファイル選択▾」から選択、行の×で個別削除（`removeFromHistory`）
 - 1分足→5m/15m/1H/4H/1D/1W/MNへDuckDBで集計。表示はJST（CSVはEU夏時間ルールGMT+2/+3前提で変換）
 - 通貨記号はファイル名から検出（円換算はしない）。価格精度はJPYクロス3桁・他5桁
-- `.vtd`保存（単一ファイル読込時のみ）: CSV＋描画全8種＋`closedTrades`＋`cursorTime`を1ファイル化。vtdを開いた時だけ「上書き保存」、上書き1回成功で10分ごとの差分自動保存が武装（`autoSaveArmed`/`autoSaveTick`、新規読込で解除）
+- `.vtd`保存（単一ファイル読込時のみ）: CSV＋描画全8種＋`closedTrades`＋`cursorTime`を1ファイル化。vtdを開いた時だけ「上書き保存」、上書き1回成功で10分ごとの差分自動保存が武装（`autoSaveArmed`/`autoSaveTick`、新規読込で解除。武装中は「vtd上書き保存」の文字が青）
 - vtd対象外: 建玉・未約定注文・残高設定（残高は初期残高＋復元取引の損益で再計算）、ズーム位置。読込時は`findCursorForTime`で現在の時間軸へcursorを復元
 
 ### チャート表示
@@ -143,7 +143,7 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - `timeToCoordinate`は実在・setData済みの足と完全一致しないとnull（雲の先行範囲と画面外は例外）。図形は`timeToX`（線形補間）経由
 - 垂直線・トレードマーカーは、描画・ハンドル・当たり判定（`findVLineNear`）すべて`timeToXSnapped`（含む足へスナップ）。1箇所だけ変えるとズレる
 - 開示済み最後の足より先（未来）の時刻は、`timeToX`が全期間の足の並び上の位置を`logicalToCoordinate`の整数2点補間で外挿する（最後の足へのクランプは角度が変わる。小数indexを渡すと0が返る）
-- `pixelToTime`は`coordinateToTime`ベース。ブラシ等の連続サンプリングは`pixelToContinuousTime`
+- `pixelToTime`は`coordinateToTime`ベース。開示済み最後の足より右（未来の空き領域）はnullになるため`futureTimeAt`が足の番号→時刻へ変換する（`timeToX`の逆。雲の26本先より遠くにも描ける）。ブラシ等の連続サンプリングは`pixelToContinuousTime`
 - 平行移動・雲のずらしは秒でなく足インデックス（`candleIndexAt`/`cloudDisplacedTime`）。ブラシ移動のみ素の時間差
 - cursorより未来の時刻（セッション終了等）は開示済み最後の足の終わり（`time + timeframeSec`）へクランプしてから`timeToX`
 - 座標APIは`setData`/`setVisibleRange`/`applyOptions`直後に古い値を返す。最後に`requestAnimationFrame`で再同期
