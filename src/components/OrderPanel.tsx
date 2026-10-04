@@ -2,7 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
 import type { OrderType, Side } from '../types';
 import { pricePrecision } from '../lib/pips';
-import { captureChartAreaDataUrl } from '../lib/screenshot';
+import { captureChartAreaCanvas, encodeCanvasFitted } from '../lib/screenshot';
 import { loadOrderPanelPos, saveOrderPanelPos, type PanelPos } from '../lib/orderPanelPos';
 import { tfBtn } from './Controls';
 
@@ -170,11 +170,22 @@ export function OrderPanel() {
 
   const handleExecute = async () => {
     // TP/SLを入れている時だけ、発注前（R:R表示が出ている間）の画面をトレード日誌用に撮る。
-    // submitOrderが下書きTP/SLを消すため、必ずその前に撮る
-    const rrImage = draftTP !== null || draftSL !== null ? await captureChartAreaDataUrl() : null;
+    // submitOrderが下書きTP/SLを消すため、画面の取り込みだけは必ずその前に済ませる。
+    // 重い画像のエンコードは発注後に裏で行い、できたら取引へ付ける（発注を待たせない）
+    const canvas = draftTP !== null || draftSL !== null ? await captureChartAreaCanvas() : null;
+    const before = useTraderStore.getState();
+    const target = before.orderType === 'market'
+      ? { kind: 'position' as const, id: before.nextId }
+      : { kind: 'order' as const, id: before.nextOrderId };
     // 失敗時（残高不足・TP/SLの向きが矛盾等）はパネルを閉じない。閉じてしまうと
     // エラー内容を見ながら入力を直せないため（成功時のみ閉じる）
-    if (submitOrder(selectedSide, rrImage ?? undefined)) setOrderPanelOpen(false);
+    if (!submitOrder(selectedSide)) return;
+    setOrderPanelOpen(false);
+    if (canvas) {
+      void encodeCanvasFitted(canvas).then(img => {
+        if (img) useTraderStore.getState().attachRrImage(target, img);
+      });
+    }
   };
 
   return (

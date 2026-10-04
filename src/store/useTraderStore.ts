@@ -450,7 +450,9 @@ interface TraderState {
   pickPrice: (price: number) => void;
   toggleJumpSync: () => void;
   jumpSyncTo: (sourceId: string, time: number) => void;
-  submitOrder: (side: Side, rrImage?: string) => boolean; // 成立したらtrue（発注パネルを閉じる判断に使う）
+  submitOrder: (side: Side, rrImage?: string) => boolean;
+  // 発注後に裏で作った画像を、その取引（建玉/未約定注文/決済済み）へ後から付ける
+  attachRrImage: (target: { kind: 'position' | 'order'; id: number }, image: string) => void; // 成立したらtrue（発注パネルを閉じる判断に使う）
   cancelOrder: (id: number) => void;
   updateOrderPrice: (id: number, price: number) => void;
   setOrderTP: (id: number, tp: number | undefined) => void;
@@ -1159,6 +1161,13 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   jumpSyncTo: (sourceId: string, time: number) => set(s => ({
     isJumpSync: false, jumpSyncSourceId: sourceId, jumpSyncTarget: time, jumpSyncSignal: s.jumpSyncSignal + 1,
   })),
+
+  attachRrImage: ({ kind, id }, image) => set(s => kind === 'order'
+    ? { pendingOrders: s.pendingOrders.map(o => o.id === id ? { ...o, rrImage: image } : o) }
+    : {
+        positions: s.positions.map(p => p.id === id ? { ...p, rrImage: image } : p),
+        closedTrades: s.closedTrades.map(t => t.id === id ? { ...t, rrImage: image } : t),
+      }),
 
   submitOrder: (side: Side, rrImage?: string) => {
     const { orderType, lots, lotMode, riskPercent, draftPrice, draftTP, draftSL, candles, cursor, positions, nextId, pendingOrders, nextOrderId, balance } = get();
