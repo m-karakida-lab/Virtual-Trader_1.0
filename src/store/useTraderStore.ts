@@ -284,15 +284,13 @@ interface TraderState {
   // 画面ヘッダーの現在時刻表示に使う値。mainRevealedUntilと違い+timeframeSecしない
   // 生の時刻（＝実際にカーソルを動かした時点のcandles[cursor].time）を保持する。
   // 時間足を切り替えると新しい時間足のバケット開始時刻（例: 1Dなら07:00始まり等）に
-  // 丸まって見えてしまい、「切り替えても今の時刻の表示は変わらないでほしい」という
-  // 要望に反するため、表示専用の値として切替をまたいで据え置く
+  // 丸まって見えてしまうため、切り替えても今の時刻の表示が変わらないよう、
+  // 表示専用の値として切替をまたいで据え置く
   mainDisplayTime: number | null;
   // 非メイン各パネルが自分の「形成中の足」を自前集計する際の元データ。実際にカーソルを
   // 動かした時点のcandles/cursorをそのまま保持し、setTimeframe（メイン切替）では
-  // 更新しない——メイン切替直後は新しいcandlesがまだ粗い時間足（例:1D）のことがあり、
-  // それを元データにすると他の非メインパネル（例:4H）が自分より粗いデータからは
-  // 形成中の足を再集計できず、切替前まで正しく出ていた形成中の足が急に消えて
-  // 1つ前の確定済みバケットまで戻って見えてしまう（実際に指摘を受けて判明）
+  // 更新しない。切替直後のcandlesは粗い時間足（例:1D）のことがあり、それを元にすると
+  // 他の非メインパネル（例:4H）が形成中の足を再集計できず、1つ前の確定バケットまで戻って見える
   finestSourceCandles: Candle[];
   finestSourceCursor: number;
   initialBalance: number; // CSV読み込み・リセット時の開始残高
@@ -826,10 +824,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
   // （read_csv側は拡張子を見ないため、読込時に.csv/.vtdどちらでも中身のマーカーだけで判定する）。
   // rawCsvTextは単一ファイル読み込み時のみ保持しているため、複数ファイル読み込み後は何もしない。
   // 直接上書き（writeToHandle）が許されるのは、開いたファイル自体が既にvtdバンドルだった場合
-  // （rawFileIsBundle）だけ。素のCSVを開んだ直後にrawFileHandleへ書き込むと、そのCSVの中身が
-  // 黙ってバンドル形式に書き換わってしまう（実際に踏んだ不具合: 拡張子は.csvのままなのに
-  // 中身だけvtdになり、しかも表示は「.vtdに保存しました」で紛らわしかった）。
-  // 素のCSVの初回保存は必ずダウンロード（新しい.vtdファイルとして書き出す）に倒す
+  // （rawFileIsBundle）だけ。素のCSVを開いた直後にrawFileHandleへ書き込むと、拡張子は.csvのまま
+  // 中身だけがバンドル形式に書き換わってしまう。素のCSVの初回保存は必ずダウンロード
+  // （新しい.vtdファイルとして書き出す）に倒す
   saveChartFile: async () => {
     const { rawCsvText, rawFileHandle, rawFileIsBundle, loadedFileLabel, lines, vlines, rects, trendLines, channels, arrows, brushes, texts, closedTrades, candles, cursor } = get();
     if (rawCsvText === null) return;
@@ -908,14 +905,11 @@ export const useTraderStore = create<TraderState>((set, get) => ({
             newCursor = bi;
           } else {
             // まだ確定していない（形成中の）バケット。旧メインの確定済み足（0..cursor）
-            // からこのバケット範囲だけを自前で再集計した部分足に差し替える——切替直後は
-            // 「今」の瞬間をそのまま見せたいので、確定済みの1つ前のバケットまで戻したく
-            // ない（実際に「1Hが1/8 10:00の時に1Dへ切り替えると1/8 07:00の形成中足では
-            // なく1/7に戻ってしまう」という指摘を受けて、確定バケットへ丸めるのをやめた）
-            // 直前のメイン（candles/cursor）ではなくfinestSourceCandlesを使うこと。
-            // 前回切替でメインが粗い時間足（1D等）になっていた場合、candlesがその
-            // 粗いデータのままだと他の細かい時間足（4H等）の部分集計に必要な粒度が
-            // 無く、本来出せるはずの形成中足が出せなくなる
+            // からこのバケット範囲だけを自前で再集計した部分足に差し替える。切替直後も
+            // 「今」の瞬間をそのまま見せるため、確定済みの1つ前のバケットへは丸めない。
+            // 元データは直前のメイン（candles/cursor）ではなくfinestSourceCandlesを使うこと。
+            // candlesが粗い時間足（1D等）のままだと、他の細かい時間足（4H等）の部分集計に
+            // 必要な粒度が無く、出せるはずの形成中足が出せなくなる
             const partial = buildPartialCandle(finestSourceCandles, finestSourceCursor, bucketStart, bucketEnd);
             if (partial) {
               candlesToUse = newCandles.slice();
@@ -1273,7 +1267,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     // 配置直後はそのまま編集モードに入れる（selectLine経由でパレットモードの自動ONも揃う）。
     // 連続描画中でも呼ぶ——isDrawingLineはcontinuousDrawing側で維持しているので選択に
     // 入れても連続配置は妨げない。呼ばないと置いた直後の図形自身をパレットから直せない
-    // （テキストで同じ理由の不具合を実際に踏んだため、全図形で足並みを揃えた）
+    // （全図形で同じ扱いに揃えてある）
     get().selectLine({ kind: 'h', id: nextLineId });
   },
   updateLine: (id: number, patch: Partial<Omit<DrawnLine, 'id'>>) => {
@@ -1673,9 +1667,9 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     if (!paletteMode || !selected) return;
     applyPaletteStyleTo(get, selected);
     // 次に同じ種類の図形を新規配置する時のデフォルト値（各種Draft）にも引き継ぐ。
-    // 連続描画中に「1つ前でパレットから変えた色が次の配置に反映されない」という指摘を
-    // 受けて追加した（単発配置でも実害は無い——次に別の図形を選択した時はそちらの現在値が
-    // syncPaletteStyleFromで優先して取り込まれるため、Draftを更新しても上書きされない）
+    // 連続描画中に、直前にパレットで変えた色を次の配置へ反映するため。単発配置では、次に別の
+    // 図形を選択した時にそちらの現在値がsyncPaletteStyleFromで優先して取り込まれるので、
+    // Draftを更新しても上書きされない
     if (selected.kind === 'h' || selected.kind === 'v') get().setLineDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
     else if (selected.kind === 'rect') get().setRectDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });
     else if (selected.kind === 'trend') get().setTrendLineDraft({ color: paletteStyle.color, dash: paletteStyle.dash, width: paletteStyle.width });

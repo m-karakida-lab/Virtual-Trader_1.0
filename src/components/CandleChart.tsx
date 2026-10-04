@@ -136,9 +136,8 @@ export function CandleChart({
   const sessionMarkerElRef = useRef<HTMLDivElement | null>(null);
   const syncSessionsRef = useRef<() => void>(() => {});
   // トレード履歴マーカー（エントリー/決済）。ローソク足・インジケータと重ならないよう
-  // セッション帯と同じ下部の専用行にDOM要素で描く（以前はlightweight-charts標準の
-  // シリーズマーカーで足の高安のすぐ外側に描いており、密集すると価格やインジケータと
-  // 重なって見づらいという指摘を受けて撤去した）
+  // セッション帯と同じ下部の専用行にDOM要素で描く（標準のシリーズマーカーだと足の高安の
+  // すぐ外側に出て、密集すると価格やインジケータと重なる）
   const tradeMarkerOverlayRef = useRef<HTMLDivElement>(null);
   const tradeMarkerElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
   const tradeMarkerLineElsRef = useRef<Map<string, HTMLDivElement>>(new Map());
@@ -289,8 +288,8 @@ export function CandleChart({
 
     // 形成中（まだ閉じていない）最新足を末尾に追加する。「上位足が閉じるまで何も
     // 出さない」だと、メインが1本進むたびに上位足の表示が2〜3日分も遅れて見え、
-    // しかもバケットが閉じた瞬間だけ1日分ドンと進むように見えて不自然（実際に指摘を
-    // 受けて判明）。closed（上のsameContent最適化対象）とは別に、こちらは意図的に
+    // しかもバケットが閉じた瞬間だけ1日分ドンと進むように見えて不自然になる。
+    // closed（上のsameContent最適化対象）とは別に、こちらは意図的に
     // メインが1本進むたびに毎回新しい配列を返す（形成中の足はメインの進行に合わせて
     // 中身が変わり続けるべきものなので安定化の対象外にする）
     const curTime = candles[cursor]?.time;
@@ -300,7 +299,7 @@ export function CandleChart({
     // メインより細かい時間足の場合、curTimeはメイン現在足の「開始」でしかなく、closed
     // 側は既にそれより後（メイン現在足の終了）までのバケットを含んでいるため、curTime
     // 基準で探すとclosedの最後より過去のバケットを見つけてしまい、setData時に
-    // 「data must be asc ordered by time」で丸ごとクラッシュする不具合を実際に踏んだ
+    // 「data must be asc ordered by time」で丸ごとクラッシュする
     const searchTime = nonMainCursorEnd ?? curTime;
     const bi = findBucketIndexContaining(nonMainCandles, searchTime);
     if (bi < 0) return closed;
@@ -409,9 +408,7 @@ export function CandleChart({
     // isFollowActiveNow()ガードで弾かれ、followAnchorRefが更新されないまま（null）に
     // なりがち（ジャンプ・パン等でメインの表示位置を動かしても捕捉されない）。この状態で
     // 別パネルをメインへ昇格させてこの枠が降格すると、非メインの「常時追従」effectが
-    // null＝アンカー未設定と判定し、既定値（画面右端＝真の最新足）にリセットしてしまう
-    // ——「Aをメインに昇格→Bが最新足に戻る」のAB逆パターンとして実際に踏んだ（前回直した
-    // 「ジャンプ直後に降格して戻る」不具合とは発生タイミングが違う、同根の別ケース）。
+    // null＝アンカー未設定と判定し、既定値（画面右端＝真の最新足）にリセットしてしまう。
     // 降格した瞬間、その時点の実際の表示位置をアンカーとして採用することで、降格後も
     // 直前の見た目のまま追従を続けられるようにする
     prevIsMainRef.current = isMain;
@@ -449,8 +446,7 @@ export function CandleChart({
       },
       // グリッド線はSeries Primitivesの対象外（zOrderで重なり順を制御できない）で、
       // 常に四角形（zOrder:'bottom'）より前面に描画される。四角形の境界線と交差する
-      // 箇所でグリッド線が上に出てしまう既知の制約があるが、グリッド線自体は残す方を
-      // 優先（一度非表示にしたが、見た目が変わりすぎるとの指摘を受けて元に戻した）
+      // 箇所でグリッド線が上に出てしまう既知の制約があるが、グリッド線自体は残す
       grid: {
         vertLines: { color: '#1a1a1a' },
         horzLines: { color: '#1a1a1a' },
@@ -499,8 +495,7 @@ export function CandleChart({
 
     // lightweight-chartsは後から追加したSeriesほど上に描かれる仕様のため、ロウソク足
     // （addCandlestickSeries）はEMA/SMA/BB/雲より後で追加すること——これらが重なった時に
-    // ロウソク足が上に見えるようにしたいという要望を受けた。以前は先頭で追加しており、
-    // インジケーターがロウソク足の実体・ヒゲを覆い隠して見づらいことがあった
+    // ロウソク足が上に見えるようにする
     const emaSeries = chart.addLineSeries({
       color: EMA_COLOR,
       lineWidth: 2,
@@ -642,10 +637,9 @@ export function CandleChart({
     };
 
     // 垂直線専用: timeToXは足と足の間の時刻を線形補間してしまうため、他時間足のパネルで
-    // 見た時（例: 1Hで引いた線を4Hパネルで表示）に足と足の隙間を指してしまっていた
-    // （実際に指摘を受けて判明）。その時刻を含むロウソク足（floor側の足）自体の位置を
-    // 指すようスナップする。線を引いたパネル自身（同じ時間足）では元々ぴったり一致するため
-    // 影響しない
+    // 見た時（例: 1Hで引いた線を4Hパネルで表示）に足と足の隙間を指してしまう。
+    // その時刻を含むロウソク足（floor側の足）自体の位置を指すようスナップする。
+    // 線を引いたパネル自身（同じ時間足）では元々ぴったり一致するため影響しない
     const timeToXSnapped = (t: number): number | null => {
       if (!chartRef.current) return null;
       const ts = chartRef.current.timeScale();
@@ -668,8 +662,8 @@ export function CandleChart({
     // このパネルの時間足で非表示にしている図形を除いた配列を返す。描画・当たり判定・
     // 選択ハンドルは必ずstoreの生配列ではなくこれから図形を取ること——非表示の図形が最初から
     // 含まれないので、選択中の図形をfindで探す箇所も自動的に「見つからない＝ハンドルを出さない」
-    // になる。以前は各ループで個別にisHiddenTimeframesVisibleAtを呼んでおり、1箇所の
-    // 入れ忘れで「非表示の図形がクリックに反応する」「ハンドルだけ残る」不具合を踏んでいた。
+    // になる（個別にisHiddenTimeframesVisibleAtを呼ぶと、1箇所の入れ忘れで非表示の図形が
+    // クリックに反応したりハンドルだけ残ったりする）。
     // syncVLines等から即時に呼ばれるため、それらより前に宣言すること（TDZ）
     const getVisibleDrawings = () => {
       const { lines, vlines, rects, trendLines, channels, arrows, brushes, texts } = useTraderStore.getState();
@@ -683,12 +677,11 @@ export function CandleChart({
       };
     };
 
-    // 水平線・垂直線・雲の塗りつぶし・四角形が共通で使うロウソク足の透明抜き。以前は
-    // 高値〜安値の全域を実体と同じbarSpacing幅で一律に抜いていたため、ヒゲだけの区間
-    // （高値〜実体上端、実体下端〜安値）でも本体1本ぶんの幅で避けてしまい、線が必要以上に
-    // 途切れて見えていた（実際に指摘を受けて判明）。実体区間はbarSpacing幅、ヒゲ区間は
-    // 細い固定幅（WICK_CUTOUT_PX）に分けて抜くよう変更した。lightweight-charts自体は
-    // ヒゲの実際の描画幅を設定として公開していないため、この幅はTradingView等を参考にした近似値
+    // 水平線・垂直線・雲の塗りつぶし・四角形が共通で使うロウソク足の透明抜き。実体区間は
+    // barSpacing幅、ヒゲ区間（高値〜実体上端、実体下端〜安値）は細い固定幅（WICK_CUTOUT_PX）で
+    // 抜く（全域を実体幅で抜くと、ヒゲだけの区間でも線が必要以上に途切れる）。
+    // lightweight-charts自体はヒゲの実際の描画幅を設定として公開していないため、この幅は
+    // TradingView等を参考にした近似値
     const cutCandlesFromCanvas = (ctx: CanvasRenderingContext2D, w: number) => {
       if (!chartRef.current || !seriesRef.current) return;
       const series = seriesRef.current;
@@ -732,7 +725,7 @@ export function CandleChart({
 
     // 水平線・垂直線の描画（線本体は専用canvas、垂直線の日付ラベルと選択ハンドルのみDOM）。
     // ドラッグ中は store を経由せずここだけ書き換えて即座に再描画するプレビュー用
-    // （他の描画要素と同じ作法）。syncVLinesより前で宣言すること——TDZ、平行チャネルで実際に踏んだ
+    // （他の描画要素と同じ作法）。syncVLinesより前で宣言すること——TDZ
     let vlineDragPreviewX: { id: number; x: number } | null = null;
     let hlineDragPreviewPrice: { id: number; price: number } | null = null;
     const {
@@ -900,16 +893,13 @@ export function CandleChart({
     // 「最新足に固定」の継続追従（followLatest）は4パネル共通のグローバルフラグだが、
     // 個々のパネルの追従アンカー（followAnchorRef、下の方で定義）はパネルごとに独立している。
     // ユーザーが手動でパン/ズームした「そのパネルだけ」、その操作後の位置を新しい固定位置として
-    // 引き継ぎたい（他のパネルは無関係のまま追従を続けてほしい）——という要望を受けて、
-    // グローバルなfollowLatestは触らず、このパネル自身のfollowAnchorRefだけを操作後の
-    // 可視範囲で上書きする方式にした（以前はここでfollowLatestをfalseにして全パネルの
-    // 追従を止めていたが、1パネルの操作で他3パネルまで止まってしまうのは意図と異なっていた）。
-    // 当初はvisibleLogicalRangeChangeイベントで「プログラム側の変更かどうか」を判定しようと
-    // したが、series.update()で足を1本追加するだけでも（明示的にsetVisibleLogicalRangeを
-    // 呼んでいなくても）このイベントが飛ぶため、範囲変更イベントではなくホイール（ズーム）と
-    // ドラッグ（パン）というユーザー操作そのものを直接検知する方式を採る
+    // 引き継ぐ（他のパネルは無関係のまま追従を続ける）ため、グローバルなfollowLatestは触らず、
+    // このパネル自身のfollowAnchorRefだけを操作後の可視範囲で上書きする。
+    // 「プログラム側の変更か」はvisibleLogicalRangeChangeイベントでは判定できない
+    // （series.update()で足を1本追加するだけでも飛ぶ）ので、ホイール（ズーム）と
+    // ドラッグ（パン）というユーザー操作そのものを直接検知する。
     // 非メインパネルは「最新足に固定」トグルに関わらず常時追従がデフォルト（下の
-    // followLatest継続追従effect参照）。メインは従来通りfollowLatestトグル依存のまま
+    // followLatest継続追従effect参照）。メインはfollowLatestトグル依存
     const isFollowActiveNow = () => (isMainRef.current ? useTraderStore.getState().followLatest : true);
     const captureFollowAnchorFromCurrentView = () => {
       if (!isFollowActiveNow() || !chartRef.current) return;
@@ -947,11 +937,9 @@ export function CandleChart({
     // 価格軸のドラッグ（縦方向のスケール変更）だけは時間軸の可視範囲が変わらないため、
     // onRangeChange（timeScale.subscribeVisibleLogicalRangeChange）が発火せず、水平線・
     // 垂直線・四角形・トレンドライン・平行チャネル・雲など全てのcanvas自前描画が
-    // 追従しないままになっていた（実際に「時間軸には追従するのに価格軸だけ追従しない」
-    // という指摘を受けて判明）。lightweight-charts自体は価格軸変更を購読できる
-    // イベントを公開していないため、コンテナ内でのマウスドラッグ中は常にonRangeChangeと
-    // 同じ再同期をかけることで代用する（通常の時間軸パン/ズーム中は二重に呼ばれるだけで
-    // 実害はない）
+    // 追従しない。lightweight-charts自体は価格軸変更を購読できるイベントを公開していないため、
+    // コンテナ内でのマウスドラッグ中は常にonRangeChangeと同じ再同期をかけることで代用する
+    // （通常の時間軸パン/ズーム中は二重に呼ばれるだけで実害はない）
     let isMouseDownInContainerForPriceScale = false;
     const onContainerMouseDownForPriceScale = () => { isMouseDownInContainerForPriceScale = true; };
     const onWindowMouseMoveForPriceScale = () => {
@@ -1311,12 +1299,12 @@ export function CandleChart({
     // lightweight-charts は`applyOptions({width,height})`だけだとlogical range（本数
     // ベースの表示範囲）をそのまま維持する＝ローソク足1本のpx幅（barSpacing）の方が
     // 新しい幅に合わせて伸び縮みする。4画面⇔1画面の切替のように幅が大きく変わる場面では、
-    // 「スケールは変えず表示範囲（本数）だけ広がってほしい」という要望があるため、
+    // 「スケールは変えず表示範囲（本数）だけ広がる」挙動にしたいので、
     // 幅の変化率をそのままbarSpacingの維持に使う＝表示本数をwidth比で明示的に
     // 増減させる。あわせて、本数を増減する基準を右端（最新足）ではなく「リサイズ前に
     // 画面中央にあった足」にすることで、中央の足も常に画面中央のまま保たれるようにする
     // （本数を維持するだけだと中央の足がズレる／中央を保つだけだとスケールが変わって
-    // 見える、という2つの指摘を両方満たす必要があったため、この2段構えにしている）
+    // 見えるため、両方を満たす2段構えにしている）
     let prevChartWidth = 0;
     let pendingResizeRaf: number | null = null;
     const handleResize = () => {
@@ -1350,9 +1338,8 @@ export function CandleChart({
       syncScrubber();
       // timeToCoordinate/priceToCoordinateは、幅変更・setVisibleLogicalRange直後の
       // レイアウト未確定なタイミングだと稀に古い座標を返す（他のデータ更新箇所と同じ既知の
-      // lightweight-charts挙動、docs/CURRENT.mdの地雷参照）。1画面⇔4画面の切替直後に
-      // 雲の塗りつぶしだけズレて見え、マウスを動かす（＝再描画のきっかけになる）と直る、
-      // という形で発覚した。1フレーム遅れて座標が確定した場合でも描き直せるよう、
+      // lightweight-charts挙動、docs/CURRENT.mdの地雷参照）。1画面⇔4画面の切替直後は
+      // 雲の塗りつぶしだけがズレて見える。1フレーム遅れて座標が確定した場合でも描き直せるよう、
       // 同じ同期処理をrequestAnimationFrameでもう一度呼ぶ（連続でリサイズが起きても
       // 前回分のrAFは予約し直す）
       if (pendingResizeRaf !== null) cancelAnimationFrame(pendingResizeRaf);
@@ -1657,7 +1644,7 @@ export function CandleChart({
     // prevCursorRefが未更新（初期値）のため必ずisStep=falseになり、下のelse分岐が
     // 走ってscrollToRealTime()で最新足へ強制スクロールしてしまう。昇格前まで非メイン
     // として表示していた内容と実質同じデータなのに見た目だけジャンプし、パネル切替の
-    // たびに「再読み込みしたように見える」原因になっていた（実際に指摘を受けて判明）。
+    // たびに「再読み込みしたように見える」。
     // 昇格直後だけこのジャンプを避ける（データ自体のsetDataや指標の再計算は必要なので行う）
     const justPromoted = !wasMainForDataSyncRef.current;
     wasMainForDataSyncRef.current = true;
@@ -1698,7 +1685,7 @@ export function CandleChart({
     // 価格軸ドラッグ等で autoScale が無効化されたままだと、連続再生中にローソク足が
     // 上下にはみ出ても追従しなくなるため、再生中（isPlaying）だけ毎ステップ明示的に
     // 再有効化して縦も自動追従させる。「1コマ進む」等の手動ステップでは、ユーザーが
-    // ドラッグ等で調整した価格軸の拡大率・位置をそのまま維持したいという要望があるため
+    // ドラッグ等で調整した価格軸の拡大率・位置をそのまま維持するため
     // ここでは触らない（再有効化するとその都度リセットされてしまう）
     if (isPlayingRef.current) {
       chartRef.current?.priceScale('right').applyOptions({ autoScale: true });
@@ -1823,10 +1810,9 @@ export function CandleChart({
     // 通常のフィット処理はcursor基準のためここでは自前で判定する）。
     // ただし「メインだった枠が今まさに降格した直後」は、この枠は既にメインとして
     // 相応の表示位置になっていたはずなので再フィットしない——スキップしないと、
-    // 降格した瞬間にこの枠が勝手に「全期間表示」へ飛んでしまい、クリックした覚えのない
-    // 別パネルが動いたように見える不具合になる（実際に指摘を受けて判明。あるパネルを
-    // クリックしてメインに昇格させると、それまでメインだった別パネルが降格してこの
-    // 分岐を初めて通ることになるため）
+    // 降格した瞬間にこの枠が勝手に「全期間表示」へ飛び、クリックした覚えのない
+    // 別パネルが動いたように見える（あるパネルをメインに昇格させると、それまでメインだった
+    // 別パネルが降格してこの分岐を初めて通る）。
     // 空配列（自前集計の完了前）は「新しいデータセット」に数えない。数えると降格直後の
     // 再フィットスキップ（skipNextNonMainFitRef）が空データの同期で消費され、本物のデータ
     // が届いた時に再フィットが走って降格した枠が最新足へ飛んでしまう
@@ -1842,9 +1828,8 @@ export function CandleChart({
           // nonMainVisible（未来隠し後の実描画本数）でクランプすると、リプレイ序盤で
           // 実際に描画されている本数がごく少数な間、保存済みのspan（前回のズーム＝
           // 拡大率）がその少数本数まで潰されてしまい、少数のロウソク足が画面いっぱいに
-          // 間延びして見える「デカ足」になる（「前回のスケールを覚えて再現してほしい」
-          // という要望に反する——spanはズーム率の記憶なので、全期間本数を基準に
-          // クランプしないと意味がない）。位置（barsFromRight）の方はrelativeViewToLogicalRange
+          // 間延びして見える（spanはズーム率の記憶なので、全期間本数を基準にクランプしないと
+          // 意味がない）。位置（barsFromRight）の方はrelativeViewToLogicalRange
           // の計算結果を使わず、常にnonMainVisibleの最後（＝実際に描画されている最新足）
           // を右オフセット分の位置に置く——保存ビューは縮尺だけ引き継ぎ、位置は
           // 「先頭から見る」仕様どおり常に今revealされている最新足に合わせる
@@ -1856,15 +1841,14 @@ export function CandleChart({
           chartRef.current?.timeScale().setVisibleLogicalRange({ from: Math.max(0, rangeTo - span), to: rangeTo });
         } else if (nonMainVisible.length > 0) {
           // 時刻ベースのsetVisibleRange()は、setData直後などレイアウト未確定なタイミングで
-          // 呼ぶと内部のtime→logical変換が失敗しクラッシュすることがある（実際に新規CSV
-          // 読み込み直後に「Value is null」で画面クラッシュする形で発覚。centerOnTime等
-          // 既存の地雷と同じ理由）。全期間を表示したいだけなので、時刻変換を経由しない
-          // 足のインデックス（logical range）で直接指定する。
+          // 呼ぶと内部のtime→logical変換が失敗しクラッシュすることがある（"Value is null"。
+          // centerOnTime等既存の地雷と同じ理由）。全期間を表示したいだけなので、時刻変換を
+          // 経由しない足のインデックス（logical range）で直接指定する。
           // ここは実際にseries.setData()した本数＝nonMainVisible（未来隠し後）の本数を
           // 使うこと。nonMainCandles（未来分も含む全本数）を使うと、リプレイ序盤で
           // 実際に描画されている本数（nonMainVisible、ごく少数）がlogical range全体
           // （nonMainCandles、CSV全期間分）のごく一部に押し込められ、パネルがほぼ空欄に
-          // 見える不具合になる（「特定の時間足にロウソク足が出てこない」不具合として発覚）
+          // 見える（「特定の時間足にロウソク足が出てこない」ように見える）
           chartRef.current?.timeScale().setVisibleLogicalRange({ from: 0, to: nonMainVisible.length });
         }
       }
@@ -1961,8 +1945,8 @@ export function CandleChart({
       {/* 平行チャネルもトレンドラインと同じ方式（専用canvas）。基準線＋価格オフセットした2本目の線を描く */}
       <canvas ref={channelCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       {/* 矢印はトレンドラインと同じ2点構造なので同じ方式（専用canvas）で描く。終点に矢印ヘッドを足すだけ。
-          他の描画（四角形・トレンドライン・ブラシ・テキスト）より常に上に見せたいというわがままな
-          要望のため、zIndexだけ他の描画系（9）より1段高くしてある。当たり判定側の優先順位も
+          他の描画（四角形・トレンドライン・ブラシ・テキスト）より常に上に見せるため、
+          zIndexだけ他の描画系（9）より1段高くしてある。当たり判定側の優先順位も
           同じ理由でonMouseDown内の矢印チェックを他の描画より先に置いている */}
       <canvas ref={arrowCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 10, visibility: overlaysHidden ? 'hidden' : 'visible' }} />
       <canvas ref={brushCanvasRef} style={{ position: 'absolute', top: 0, left: 0, bottom: 0, right: `${chartRightMargin}px`, width: `calc(100% - ${chartRightMargin}px)`, height: '100%', pointerEvents: 'none', zIndex: 9, visibility: overlaysHidden ? 'hidden' : 'visible' }} />

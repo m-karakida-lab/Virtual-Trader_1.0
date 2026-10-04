@@ -3,7 +3,7 @@ import type { Candle } from '../types';
 // 東京/ロンドン/NYの大まかな取引時間帯（JST基準、サマータイム等の年内変動は考慮しない簡易版）。
 // 足の時刻は既にJST壁時計時刻として保持されている前提（weekLines.tsと同じ約束事）。
 // 3セッションが重ならないよう境界を揃えてある（東京9-16時、ロンドン16-22時、NY22-7時）。
-// 見づらいという指摘を受けて、全面の薄い背景帯からチャート下部の1行の濃い色帯に変更した
+// セッション帯はチャート下部の1行の濃い色帯で描く（全面の薄い背景帯は見づらいため）
 export const SESSIONS = [
   { key: 'asia',   label: '東京',     color: '#ffb300', startHour: 9,  endHour: 16 },
   { key: 'london', label: 'ロンドン', color: '#43a047', startHour: 16, endHour: 22 },
@@ -17,11 +17,9 @@ export interface SessionBand {
 }
 
 // その時刻が属する日の本当の00:00（UTC相当のゲッターで読む、weekLines.tsのdayOfUTCと同じ約束事）。
-// weekLines.ts の computeDayBoundaries は「その日の最初の足の時刻」を境界に使っており
-// （区切り線1本引ければ十分なため、多少ズレても問題にならない）、週明け等で最初の足が
-// 00:00ちょうどでない日があると、そこから足すセッション時刻（9/17/22時）まで丸ごとズレて
-// しまう（週末明けの月曜だけ帯の位置がおかしく見える不具合として実際に発覚）。
-// セッション帯は正確な時刻が要るため、本当の日付境界を自前で計算する
+// weekLines.ts の computeDayBoundaries は「その日の最初の足の時刻」を境界に使うため、
+// 週明け等で最初の足が00:00ちょうどでない日は、そこから足すセッション時刻（9/17/22時）まで
+// ズレる。セッション帯は正確な時刻が要るので、本当の日付境界を自前で計算する
 function dayStartOf(sec: number): number {
   const d = new Date(sec * 1000);
   return Math.floor(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()) / 1000);

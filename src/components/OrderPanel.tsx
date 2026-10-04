@@ -32,10 +32,8 @@ const sideBtn = (color: string, active: boolean, disabled: boolean): React.CSSPr
   fontSize: '16px', fontWeight: 700, letterSpacing: '0.05em',
 });
 
-// 値（入力値・ボタンのテキスト）と同じ太さ・大きさだと視線の置きどころが探しづらいという
-// 指摘を受け、構造ラベル側を一段暗く軽くして明度差だけで階層をつけた。最初11pxまで
-// 縮めたところ「小さすぎる」という指摘を受け、サイズは元の13pxへ戻し色と太さだけで
-// 階層をつける形に調整した
+// 構造ラベルは値（入力値・ボタンのテキスト）より一段暗く軽くして、明度差だけで階層をつける
+// （同じ太さ・大きさだと視線の置きどころが探しづらい。サイズは13pxのまま、色と太さで差を出す）
 const rowLabel: React.CSSProperties = {
   width: '40px', flexShrink: 0, color: '#6e6e6e', fontSize: '13px', fontWeight: 500,
 };
@@ -47,11 +45,9 @@ const inputStyle = (color: string, borderColor: string, width: string): React.CS
 });
 
 // 発注パネル。パレット（PalettePanel）と同じく、チャート上に独立して浮かぶドラッグ可能な
-// パネルにした。以前はメニューの中に色々詰め込みすぎてゴチャゴチャしていたという指摘を
-// 受けて、「注文/数量/TP/SL/BUY・SELL」を行ごとに分離している。
+// パネル。「注文/数量/TP/SL/BUY・SELL」を行ごとに分離している。
 // 位置はドラッグ終了時にlocalStorageへ保存し、次回開いた時も同じ位置に復元する
-// （PalettePanelはマウント中だけの記憶だが、こちらは明示的に「覚えておいて」という
-// 要望があったため別途永続化する）
+// （PalettePanelはマウント中だけの記憶だが、こちらは明示的に永続化する）
 export function OrderPanel() {
   const orderPanelOpen = useTraderStore(s => s.orderPanelOpen);
   const setOrderPanelOpen = useTraderStore(s => s.setOrderPanelOpen);
@@ -146,9 +142,8 @@ export function OrderPanel() {
     const round = (v: number) => Number(v.toFixed(prec));
     // tpRatio/slRatioは元々「エントリー価格からの距離」として記録している（submitOrder参照）。
     // 指値・逆指値では実際のエントリーは現在値ではなくdraftPriceになるため、TP/SLも現在値
-    // ではなく「今回再現するエントリー価格」を基準に計算しないとRR（損益比）が保たれない。
-    // 以前は無条件に現在値を基準にしていたため、指値/逆指値でエントリーと現在値が離れている
-    // ほどRRが大きくズレる不具合になっていた（例: 1:1のつもりが1:6になる）
+    // ではなく「今回再現するエントリー価格」を基準に計算しないとRR（損益比）が保たれない
+    // （現在値基準だと、エントリーと現在値が離れるほどRRがズレる。例: 1:1のつもりが1:6）
     const priceRatio = ratios.priceRatio;
     const willUsePriceRatio = orderType !== 'market' && priceRatio !== null;
     const entryBase = willUsePriceRatio ? current * (1 + priceRatio) : current;
@@ -343,7 +338,7 @@ export function OrderPanel() {
           onClick={() => setSelectedSide('BUY')}
           disabled={!isLoaded || atEnd}
           // 陽線・TPと同じティール（#26a69a）にして、チャート全体で「上＝ティール」の
-          // 色の意味を統一する（以前はBUYだけ青で、色の対応をもう1つ覚える必要があった）
+          // 色の意味を統一する
           style={sideBtn('#26a69a', selectedSide === 'BUY', !isLoaded || atEnd)}
         >BUY</button>
         <button

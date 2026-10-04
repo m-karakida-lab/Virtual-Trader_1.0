@@ -52,9 +52,9 @@ export function PalettePanel() {
   const setTextDraft = useTraderStore(s => s.setTextDraft);
   const updateBrush = useTraderStore(s => s.updateBrush);
   // 選択編集中の図形の、時間足ごとの表示ON/OFF。全8種の描画要素が同じ仕様で持つので、
-  // 選択中の種類に応じた配列から現在値を引くだけにして、ボタン列のUIは1つにまとめている
-  // （以前は種類ごとにほぼ同じブロックがコピペされていた）。新規配置前のarmed状態には
-  // 対応しない＝常に全時間足ONで配置し、必要なら配置後にここで個別にOFFする運用
+  // 選択中の種類に応じた配列から現在値を引くだけにして、ボタン列のUIは1つにまとめている。
+  // 新規配置前のarmed状態には対応しない＝常に全時間足ONで配置し、必要なら配置後に
+  // ここで個別にOFFする運用
   const selectedHidden = useTraderStore(s => {
     if (!selected) return [];
     const list =
@@ -266,8 +266,7 @@ export function PalettePanel() {
               >{w}px</button>
             ))}
           </div>
-          {/* 手ブレ補正（ボックスフィルタの通過回数）。以前は12固定だったが、
-              自由に調整できるようにしてほしいという要望を受けてスライダーにした。
+          {/* 手ブレ補正（ボックスフィルタの通過回数）のスライダー。
               0=補正なし（生の軌跡のまま）、大きいほど滑らかだが元の軌跡から離れる */}
           <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
             <span style={{ color: '#666', fontSize: '13px', fontWeight: 700, whiteSpace: 'nowrap' }}>補正</span>

@@ -23,7 +23,6 @@ export interface TradeMarkersOverlayDeps {
 // トレード履歴マーカー（エントリー/決済）をローソク足・インジケータと重ならない
 // 専用行にDOM要素で描く。セッション帯のすぐ上（セッション非表示時はスクラバーの
 // すぐ上）に積む。番号ラベル付きの小さいタグで、クリックで取引履歴の該当行へ、右クリックでトレード日誌メモ窓を開ける（メモの有無はタグに出さない、幅を食うため）
-// （以前のcanvas描画+近似当たり判定は不要になったため撤去した）
 export function createSyncTradeMarkers(deps: TradeMarkersOverlayDeps): () => void {
   const { chartRef, seriesRef, overlayRef, elsRef, lineElsRef, timeframeSecRef, timeToX } = deps;
   return () => {
@@ -77,8 +76,8 @@ export function createSyncTradeMarkers(deps: TradeMarkersOverlayDeps): () => voi
     }
 
     // セッション帯が出ている時は、帯そのものではなく現在足の白い縦目印（帯の上端よりさらに
-    // 上に出る、sessionsOverlay参照）の上に積む。帯の上端に合わせただけだとその縦目印と
-    // 高さが重なって見づらいという指摘を受けた。セッション非表示時はスクラバーのすぐ上
+    // 上に出る、sessionsOverlay参照）の上に積む（帯の上端に合わせると縦目印と高さが重なる）。
+    // セッション非表示時はスクラバーのすぐ上
     const sessionsVisible = sessionsOn && tf < 86400;
     const rowBottom = bottomMargin + SCRUBBER_TRACK_HEIGHT + TRADE_MARKER_ROW_GAP
       + (sessionsVisible ? SESSION_ROW_GAP + SESSION_ROW_HEIGHT + SESSION_MARKER_GAP + SESSION_MARKER_HEIGHT : 0);
@@ -105,8 +104,7 @@ export function createSyncTradeMarkers(deps: TradeMarkersOverlayDeps): () => voi
         els.set(m.key, el);
       }
       // マーカーがどの足を指しているか分かるよう、タグからそのエントリー/決済価格の
-      // 位置まで縦線で繋ぐ（専用行に移した結果、足との対応が見た目だけでは分からなく
-      // なったという指摘を受けて追加）
+      // 位置まで縦線で繋ぐ（専用行に置いたため、足との対応が見た目だけでは分からない）
       let lineEl = lineEls.get(m.key);
       if (!lineEl) {
         lineEl = document.createElement('div');

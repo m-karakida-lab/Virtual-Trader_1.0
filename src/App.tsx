@@ -172,18 +172,15 @@ export default function App() {
           {/* 1画面/3画面/4画面とも常にこの4枠構成のまま保つ（chartLayoutでJSXの分岐自体を
               切り替えない）。1画面時はメイン枠だけを画面いっぱいに表示し、3画面時は枠3を、
               1画面時は非メイン3枠を、それぞれwidth/height:0で隠すだけでマウントは維持する。
-              以前はchartLayout==='1'の時別途<CandleChart/>を単独レンダーしており、切替の
-              たびに4枠側がまるごとunmount→再mountしていた（レイアウト切替で表示位置・ズーム
-              が毎回リセットされてしまうという指摘を受けて発覚）。全枠を常時マウントし続ける
-              ことでlightweight-chartsのチャートインスタンス自体を破棄しないようにし、
-              画面数を行き来しても各枠の表示状態がそのまま保たれるようにした */}
+              全枠を常時マウントし続けることでlightweight-chartsのチャートインスタンス自体を
+              破棄しないようにし、画面数を行き来しても各枠の表示位置・ズームがそのまま保たれる */}
           <div style={{
             position: 'absolute', inset: 0,
             display: chartLayout === '1' ? 'block' : 'grid',
             gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr 1fr', gap: '2px',
             // gapは各枠のchart本体（不透明背景）の隙間からそのまま覗く色。周囲の#0d0d0dと
-            // ほぼ同化して目立たないという指摘を受け、gap自体に明るめの色を敷いて枠の境界を
-            // 太い1本の線として見せる（1画面時はgridでないのでgapは使われず無関係）
+            // 同化しないよう、gap自体に明るめの色を敷いて枠の境界を太い1本の線として見せる
+            // （1画面時はgridでないのでgapは使われず無関係）
             backgroundColor: chartLayout === '1' ? undefined : '#3a3a3a',
           }}>
             {QUAD_POSITIONS.map((_, slot) => {
@@ -215,10 +212,9 @@ export default function App() {
                       一目で分かるようにする。1画面時はメイン枠しか表示されないため不要
                       （つけると常時囲われて煩わしいだけ）。セルのboxShadowで描くと
                       CandleChart側のチャート本体（不透明な背景を持つ）に上から塗りつぶされ、
-                      枠の一部（チャートの描画範囲が届かない隙間）しか見えなくなってしまう
-                      （実際に下端の一部しか出ない不具合として発覚）。CandleChartの後に
-                      重ねて描く別要素にすることで、チャート本体より上のレイヤーに出るように
-                      している（pointerEvents:noneでクリック等は透過させる） */}
+                      枠の一部（チャートの描画範囲が届かない隙間）しか見えない。CandleChartの後に
+                      重ねて描く別要素にすることで、チャート本体より上のレイヤーに出している
+                      （pointerEvents:noneでクリック等は透過させる） */}
                   {(chartLayout === '4' || (chartLayout === '3' && !isHiddenInThreeUp)) && (
                     <div style={{
                       position: 'absolute', inset: 0,

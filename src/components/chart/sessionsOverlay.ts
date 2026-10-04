@@ -27,10 +27,9 @@ export interface SessionsOverlayDeps {
 }
 
 // ── 東京/ロンドン/NYセッション帯の位置を再計算してDOMに反映 ──
-// 全面を覆う薄い背景帯だと見づらいという指摘を受け、下の全期間スクラバー（YouTubeの
-// シークバーと同じ見た目・高さ）の少し上に、それと同じ太さの1行で濃い色で描く方式に
-// 変更した。日足以上は1本のローソク足が1日分になり表示する意味が無いため、その時間軸
-// では隠す。週区切り線と同じくDOMオーバーレイ方式
+// 下の全期間スクラバー（YouTubeのシークバーと同じ見た目・高さ）の少し上に、それと同じ
+// 太さの1行で濃い色で描く。日足以上は1本のローソク足が1日分になり表示する意味が無いため、
+// その時間軸では隠す。週区切り線と同じくDOMオーバーレイ方式
 export function createSyncSessions(deps: SessionsOverlayDeps): () => void {
   const { chartRef, overlayRef, bandsRef, elsRef, markerElRef, displayCandlesRef, effectiveCursorRef, timeframeSecRef, timeToX } = deps;
   return () => {
@@ -72,7 +71,7 @@ export function createSyncSessions(deps: SessionsOverlayDeps): () => void {
     }
 
     // 現在足（メインはcursor、非メインは表示中の末尾＝effectiveCursorRef）がどのセッションに
-    // 属するか（境目にいる時にどちらのセッションか分かりにくいという指摘対策）。
+    // 属するか（境目にいる時にどちらのセッションか分かるようにする）。
     // 各セッションは[start, end)の半開区間で重ならないよう定義済みなので、含む帯は必ず1つ
     const currentCandle = displayCandlesRef.current[effectiveCursorRef.current];
     const currentTime = currentCandle?.time;
@@ -111,16 +110,14 @@ export function createSyncSessions(deps: SessionsOverlayDeps): () => void {
       el.style.left = `${x0}px`;
       el.style.width = `${x1 - x0}px`;
       el.style.background = SESSIONS.find(s => s.key === band.key)!.color;
-      // 白枠＋発光は撤回。今いるセッションの帯だけ不透明度を上げて色を濃く見せるだけの
-      // 演出にする（他の帯は薄く、境目でもどちらが濃いかで一目で分かる）。
+      // 今いるセッションの帯だけ不透明度を上げて色を濃く見せる（他の帯は薄く、境目でも
+      // どちらが濃いかで一目で分かる）。
       // NY終了(7時)〜アジア開始(9時)のようにどのセッションにも属さない時間帯
       // （activeIdx===-1）は、どれも「今いる」わけではないので全部薄くする
-      // （以前はここを「判定できない＝全部濃く」にしていたため、セッション外の時間で
-      // 全帯が濃く見える不具合になっていた）
       el.style.opacity = isActive ? '1' : '0.45';
     });
 
-    // 現在足の位置に白い縦の目印を立てる（進捗バーはやりすぎという指摘で撤回し、線1本に戻した）
+    // 現在足の位置に白い縦の目印を立てる（線1本）
     if (!markerElRef.current) {
       const marker = document.createElement('div');
       marker.style.position = 'absolute';

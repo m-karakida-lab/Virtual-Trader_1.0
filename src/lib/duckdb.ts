@@ -26,8 +26,8 @@ export async function initDuckDB(): Promise<duckdb.AsyncDuckDB> {
 
 // 一部の証券会社のCSVエクスポートは末尾にDOS由来のEOFマーカー（0x1A = Ctrl-Z）が
 // 付いていることがある。DuckDBのCSVパーサーはこれを含むと「state machine reached an
-// invalid state」で読み込み全体が失敗する（ignore_errors=trueを指定していても、これは
-// 行単位のエラー耐性であってこの手の壊れたバイト列までは救えない——実際に踏んだ不具合）。
+// invalid state」で読み込み全体が失敗する（ignore_errors=trueは行単位の耐性なので、
+// この手の壊れたバイト列までは救えない）。
 // 末尾の制御文字・空行はCSVの意味上不要なので、安全に取り除いておく
 function stripTrailingGarbageBytes(buffer: ArrayBuffer): Uint8Array {
   const bytes = new Uint8Array(buffer);

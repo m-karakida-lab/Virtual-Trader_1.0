@@ -19,8 +19,8 @@ const SESSION_COLOR: Record<string, string> = {
 
 const fmt = (n: number) => Math.round(n).toLocaleString('ja-JP');
 
-// ラベルと値の間はspace-betweenで箱の端まで離すと、箱の横幅が広い時に間延びして見づらい
-// という指摘を受け、ラベル側を固定幅にして値をすぐ隣に詰めて置く方式にした
+// ラベルと値の間は、ラベル側を固定幅にして値をすぐ隣に詰めて置く
+// （space-betweenで箱の端まで離すと、横幅が広い時に間延びして見づらい）
 function StatRow({ label, value }: { label: string; value: string }) {
   return (
     <div style={{ display: 'flex', gap: '10px', fontSize: '13px', padding: '3px 0' }}>
@@ -31,11 +31,10 @@ function StatRow({ label, value }: { label: string; value: string }) {
 }
 
 // セッション別分析の1行。件数＋損益（正負で色分けした横棒）を横並びで見せる
-// 4セッション（東京/ロンドン/NY/セッション外）が件数の取り分を奪い合う1本の横棒。
-// 個別に4本の棒を並べると「何と比べて長い/短いのか」が分かりにくいという指摘を受け、
-// SplitBar（2値）と同じ考え方を4値に拡張した。損益は符号があり幅の奪い合いに使えない
-// （マイナスをどう扱うか自明でない）ため、バーは件数の比率のみで表現し、損益は下の
-// 凡例にテキストで別途示す
+// 4セッション（東京/ロンドン/NY/セッション外）が件数の取り分を奪い合う1本の横棒
+// （個別に4本の棒を並べると「何と比べて長い/短いのか」が分かりにくい。SplitBar（2値）と
+// 同じ考え方を4値に拡張）。損益は符号があり幅の奪い合いに使えない（マイナスをどう扱うか
+// 自明でない）ため、バーは件数の比率のみで表現し、損益は下の凡例にテキストで別途示す
 function SessionSplitBar({
   buckets, sym,
 }: {
@@ -214,7 +213,7 @@ export function HistoryPanel() {
   const setMemoTradeId = useTraderStore(s => s.setMemoTradeId);
   // lightweight-charts標準の最終値価格ライン（priceLineVisible）はチャート全幅に横線を引く
   // 仕様で短くできないため無効化し、自前のDOMオーバーレイで「現在値〜価格軸のラベル」の
-  // 区間だけの短い線を描く（過去側には線を伸ばさない、という要望に対応）
+  // 区間だけの短い線を描く（過去側には線を伸ばさない）
   const lastValueLineRef = useRef<HTMLDivElement | null>(null);
   const lastValueLabelRef = useRef<HTMLDivElement | null>(null);
   const lastPointRef = useRef<{ time: number; value: number } | null>(null);
@@ -488,7 +487,7 @@ export function HistoryPanel() {
             <div style={{ ...sectionTitle, gridColumn: '1 / -1' }}>■パフォーマンス分析</div>
 
             {/* リスクとパフォーマンス指標のStatGroupと同じく、項目ごとに枠を付けて区切りを
-                はっきりさせる（枠が無く地続きになっていて見づらいという指摘への対応） */}
+                はっきりさせる */}
             <div style={{ border: '1px solid #1e1e1e', borderRadius: '4px', padding: '10px 12px' }}>
               <div style={{ color: '#666', fontSize: '12px', marginBottom: '8px' }}>総取引数 {stats.total}</div>
               <SplitBar

@@ -11,7 +11,7 @@ import type { Candle } from '../types';
 // 異なるためこのパネル自身の足の時刻と一致しない）ではなく、実際にマッチしたこのパネル
 // 自身の足の時刻を返すこと。setCrosshairPositionにtargetTimeをそのまま渡すと、
 // このパネルのシリーズには存在しない時刻のため内部の座標解決がnullになり例外を投げる
-// （"Value is null" at ensureNotNull として実際に踏んだ）
+// （"Value is null" at ensureNotNull の例外になる）
 export function priceAtTime(candles: Candle[], targetTime: number, timeframeSec: number): { price: number; time: number } | null {
   if (candles.length === 0) return null;
   const first = candles[0], last = candles[candles.length - 1];

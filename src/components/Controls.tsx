@@ -206,8 +206,8 @@ function ErrorLogSection() {
   };
 
   // ファイル保存先が選ばれていればその中身（全履歴）を、無ければlocalStorageの
-  // リングバッファ（直近分のみ）をフォールバックとして、新規タブで開く
-  // （ダウンロードだと毎回ファイルが増えて煩わしいという指摘を受けて変更）。
+  // リングバッファ（直近分のみ）をフォールバックとして、新規タブで開く（ダウンロードだと
+  // 毎回ファイルが増えるため）。
   // window.openはawaitの後だとユーザー操作の延長とみなされずポップアップブロックの
   // 対象になりうるため、先に空タブを同期的に開いてから中身を書き込む
   const handleOpen = async () => {
@@ -431,9 +431,7 @@ export function Controls() {
         </div>
 
         {/* 発注ボタン。パネル本体はパレット(PalettePanel)と同じ、チャート上に独立して浮かぶ
-            ドラッグ可能なパネル（OrderPanel.tsx）を開閉するだけのトグル。以前はこの場所に
-            ドロップダウンとして直接出していたが、項目が多くゴチャゴチャして見づらいという
-            指摘を受けて独立パネル化した */}
+            ドラッグ可能なパネル（OrderPanel.tsx）で、これはそれを開閉するだけのトグル */}
         <div style={{ padding: '0 8px', flexShrink: 0 }}>
           <button
             onClick={() => {
@@ -545,10 +543,8 @@ export function Controls() {
 
         <span style={{ width: '1px', height: '32px', backgroundColor: '#1e1e1e', flexShrink: 0 }} />
 
-        {/* 再生・1コマ戻る・1コマ進む。以前はチャート上に浮かぶ丸ボタン（FloatingControls）
-            だったが、他の操作ボタンと統一感が無く場所も覚えにくいという指摘を受けてここへ
-            移設した。左から再生・戻る・進むの順。よく使うボタンなので他のtfBtnより
-            一回り大きく、アクセントカラーで目立たせる（playBtn） */}
+        {/* 再生・1コマ戻る・1コマ進む。左から再生・戻る・進むの順。よく使うボタンなので
+            他のtfBtnより一回り大きく、アクセントカラーで目立たせる（playBtn） */}
         <div style={{ display: 'flex', gap: '4px', padding: '0 8px', flexShrink: 0 }}>
           <button
             onClick={togglePlay}

@@ -8,18 +8,16 @@ import { fmtVTime } from './Controls';
 // 続けてチャート上をクリック/ドラッグするだけで配置できる（配置後は自動的に解除される）。
 // 色・線種・太さの編集は右上のPalettePanel（パレットモード）が一手に担う。
 // 既存図形（水平線/垂直線/四角形/トレンドライン/矢印/ブラシ/テキスト）の一覧・選択・削除は
-// このツールバー下部の「一覧」ポップアップが担う（以前はControls.tsxの「描画」メニュー側に
-// あったが、図形数が増えると下部バーのインジケータ項目を押し出してしまうため移設した）。
+// このツールバー下部の「一覧」ポップアップが担う。
 // 4画面時も1画面時と同じく、常に操作可能なメインパネル（CandleChart）に対して働く。
 // 自身は絶対配置を持たず、App.tsx側でチャート領域の左に確保した専用列に配置される
-// （以前はチャート上への絶対配置オーバーレイでローソク足と重なっていた）
 
 const ICONS: Record<string, JSX.Element> = {
   hline: (
     <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2">
       <line x1="3" y1="12" x2="21" y2="12" />
       {/* ドットは線の端寄りではなく中央に置くこと。端寄りだと矢じりに見えて
-          矢印アイコンと誤認される（実際に指摘を受けて判明） */}
+          矢印アイコンと誤認される */}
       <circle cx="12" cy="12" r="2" fill="currentColor" stroke="none" />
     </svg>
   ),
@@ -220,8 +218,8 @@ function MagnetStrengthPopup({ disabled }: { disabled: boolean }) {
 }
 
 // 水平線の価格ラベル・垂直線の日付ラベルのON/OFFを選ぶ矢印つきポップアップ。
-// マグネットの強さ選択と同じ見た目・操作感に揃える。ボタン文言は「あり/なし」だけだと
-// 何のON/OFFか分かりづらいという指摘を受け、subject（例:「価格ラベル」）を含めて明示する
+// マグネットの強さ選択と同じ見た目・操作感に揃える。ボタン文言は何のON/OFFか分かるよう、
+// subject（例:「価格ラベル」）を含めて明示する
 function LabelTogglePopup({ title, subject, show, onToggle, disabled }: { title: string; subject: string; show: boolean; onToggle: () => void; disabled: boolean }) {
   return (
     <StyleArrow title={title} disabled={disabled}>
@@ -271,7 +269,7 @@ function DrawnObjectsPopup({ disabled }: { disabled: boolean }) {
   // ポップアップは位置決めの基準をposition:fixedにする。App.tsx側でこのツールバーを囲む
   // フレックス行がoverflow:hiddenのため、position:absoluteのままだと画面下寄りのボタンから
   // 開いた時にポップアップ自身の高さ制限（maxHeight+overflowY）より先にその祖先で見た目が
-  // 切り取られてしまい、スクロールバーごと消えてしまう（実際に四角形が多い時に踏んだ不具合）
+  // 切り取られてしまい、スクロールバーごと消える（図形が多い時に起きる）
   const [anchor, setAnchor] = useState<{ left: number; top: number; maxHeight: number } | null>(null);
 
   const lines = useTraderStore(s => s.lines);
@@ -496,19 +494,15 @@ export function DrawToolbar() {
       <ToolButton icon="brush" title="ブラシ" active={isDrawingBrush} disabled={!isLoaded} onClick={toggleDrawBrush} />
       <ToolButton icon="text" title="テキスト" active={isDrawingText} disabled={!isLoaded} onClick={toggleDrawText} />
       <DrawnObjectsPopup disabled={!isLoaded} />
-      {/* 以前はこの下の5アイコン（一覧/ジャンプ/連続描画/マグネット/表示切替）が1個ずつ
-          区切り線で仕切られていたが、低コントラストで実質見えないうえアイコン数の割に
-          線が多く、逆にノイズになっていた。「描画系ツール＋一覧」「動作モードの切替
-          （ジャンプ/連続描画/マグネット）」「全体の表示切替」の3グループにまとめ、
-          区切り線自体も2本だけに減らしてコントラストを上げた。幅はToolButton本体と同じ
-          40pxに固定する——デフォルトのstretchだと、矢印付きの行（水平線の価格ラベル
-          切替等、ToolButtonの右にさらに矢印ボタンが並ぶ行）の幅に合わせて伸びてしまい、
-          アイコン部分だけより右にはみ出してバランスが悪く見える（指摘を受けて判明）。
+      {/* 下の5アイコン（一覧/ジャンプ/連続描画/マグネット/表示切替）は、「描画系ツール＋一覧」
+          「動作モードの切替（ジャンプ/連続描画/マグネット）」「全体の表示切替」の3グループに
+          まとめ、区切り線は2本だけにしてコントラストを上げている。幅はToolButton本体と同じ
+          40pxに固定する——デフォルトのstretchだと、矢印付きの行（水平線の価格ラベル切替等、
+          ToolButtonの右にさらに矢印ボタンが並ぶ行）の幅に合わせて伸びてしまい、
+          アイコン部分だけより右にはみ出す。
           alignSelfはcenterではなくflex-startにすること——ToolButton自体は明示的な
           width指定によりstretchされず常にflex-start（左端＝アイコン本体の位置）に
-          揃うため、区切り線もcenterにすると数px右へズレてアイコンの真下から外れてしまう
-          （実際に指摘を受けて判明。center指定は見た目上わずかな差だが、揃えるなら
-          flex-startで統一すること） */}
+          揃うため、区切り線もcenterにすると数px右へズレてアイコンの真下から外れる */}
       <span style={{ height: '1px', width: '40px', alignSelf: 'flex-start', margin: '4px 0', backgroundColor: '#3a3a3a' }} />
       <ToolButton
         icon="jumpSync"
