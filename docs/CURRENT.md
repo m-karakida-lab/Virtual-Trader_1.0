@@ -58,7 +58,7 @@
 - 複数ポジション、個別/全決済。建玉のエントリー価格ライン、TP/SLラインにpips表示
 - トレードマーカー: 下部専用行の「#N」タグ（採番は取引履歴の#と同じcloseTime昇順）。クリックで取引履歴の該当行へ、右クリックでトレード日誌メモ窓を開く
 - 取引履歴パネル: エクイティカーブ・指標・方向別/セッション別/曜日別/保有期間帯別分析・取引一覧（行クリックでエントリー時点へ移動）。MAE/MFE・決済後12h/24hの値動き（`tradeExcursion.ts`）
-- トレード日誌: 取引一覧の行頭アイコン／チャート上のマーカー右クリック（📄/メモありは📝）でポップアップ窓（`TradeMemoWindow.tsx`、`fixed`・z110）を開き、自由テキストメモ（`ClosedTrade.memo`）を入力。ヘッダーでドラッグ移動、右下の角でリサイズ、位置・大きさは`vt:tradeMemoWin`に記憶。フォーカスを外す/閉じる/別取引へ切替で保存（打鍵ごとに書くと集計が再計算されるため）。ヘッダーの「テンプレ」で表示中パネルの時間足（大→小、1画面はメインのみ）の「■1D」等の見出しをカーソル位置に挿入。AIエクスポートには未反映
+- トレード日誌: 取引一覧の行頭アイコン／チャート上のマーカー右クリック（📄/メモありは📝）でポップアップ窓（`TradeMemoWindow.tsx`、`fixed`・z110）を開き、自由テキストメモ（`ClosedTrade.memo`）を入力。ヘッダーでドラッグ移動、右下の角でリサイズ、位置・大きさは`vt:tradeMemoWin`に記憶。フォーカスを外す/閉じる/別取引へ切替で保存（打鍵ごとに書くと集計が再計算されるため）。発注時にTP/SLを入れていれば、R:R表示中のチャート領域（`captureChartAreaDataUrl`、発注パネル除外・等倍WebP・100KB以内に品質を自動調整）を`rrImage`としてPosition/PendingOrder/ClosedTradeへ引き継ぎ、メモ窓上部にサムネイル（クリックで拡大）。.vtdにも含まれる。ヘッダーの「テンプレ」で表示中パネルの時間足（大→小、1画面はメインのみ）の「■1D」等の見出しをカーソル位置に挿入。AIエクスポートには未反映
 - 「📊 AI分析用エクスポート」（`aiExport.ts`）: 前提説明＋指標＋全取引をMarkdownで書き出し
 - 曜日別・保有期間帯別は試験的指標（`HOLD_BUCKETS`/`WEEKDAY_LABELS`、不要なら削除）
 
@@ -101,6 +101,7 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - `lib/indicators.ts` — EMA/SMA/BB/雲/ATRのフル計算と末尾だけの`computeTail`（非メインが使用）、`cloudDisplacedTime`
 - `lib/weekLines.ts`（`computeSeparatorBoundaries`/`computeDayBoundaries`）、`lib/sessions.ts`（`computeSessionBands`、取引分析用`sessionKeyAt`）
 - `lib/partialCandle.ts` — `buildPartialCandle`/`findBucketIndexContaining`（形成中足の部分集計、非メイン描画とメイン切替で共有）
+- `lib/tradeFormat.ts` — `fmtDuration`（保有期間の表示）/`tradePips`（符号付き獲得pips）。取引履歴とメモ窓ヘッダーで共用
 - `lib/crosshairSync.ts` — `priceAtTime`（範囲外null、戻り値`time`は自パネルの足の時刻）
 - `lib/tradeStats.ts`（`computeTradeStats`・`plannedRR`）、`tradeExcursion.ts`、`aiExport.ts`、`screenshot.ts`（`EXCLUDED_IDS`で操作パネル除外）、`orderPanelPos.ts`（`vt:orderPanelPos`）
 - `lib/errorLog.ts` — 例外を`vt:errorLog`（直近20件）へ。`window.onerror`/`unhandledrejection`/ErrorBoundaryから記録

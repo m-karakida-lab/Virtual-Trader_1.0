@@ -450,7 +450,7 @@ interface TraderState {
   pickPrice: (price: number) => void;
   toggleJumpSync: () => void;
   jumpSyncTo: (sourceId: string, time: number) => void;
-  submitOrder: (side: Side) => boolean; // 成立したらtrue（発注パネルを閉じる判断に使う）
+  submitOrder: (side: Side, rrImage?: string) => boolean; // 成立したらtrue（発注パネルを閉じる判断に使う）
   cancelOrder: (id: number) => void;
   updateOrderPrice: (id: number, price: number) => void;
   setOrderTP: (id: number, tp: number | undefined) => void;
@@ -577,7 +577,7 @@ function processOrderRange(
         if (c.low <= order.price && order.price <= c.high) {
           positions = [...positions, {
             id: nextId, side: order.side, openPrice: order.price,
-            lots: order.lots, openTime: c.time, tp: order.tp, sl: order.sl,
+            lots: order.lots, openTime: c.time, tp: order.tp, sl: order.sl, rrImage: order.rrImage,
           }];
           nextId += 1;
           changed = true;
@@ -607,7 +607,7 @@ function processOrderRange(
           closedTrades = [...closedTrades, {
             id: pos.id, side: pos.side, openPrice: pos.openPrice, closePrice: exitPrice,
             openTime: pos.openTime, closeTime: c.time, lots: pos.lots, pnl,
-            tp: pos.tp, sl: pos.sl,
+            tp: pos.tp, sl: pos.sl, rrImage: pos.rrImage,
           }];
           changed = true;
         } else {
@@ -1160,7 +1160,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
     isJumpSync: false, jumpSyncSourceId: sourceId, jumpSyncTarget: time, jumpSyncSignal: s.jumpSyncSignal + 1,
   })),
 
-  submitOrder: (side: Side) => {
+  submitOrder: (side: Side, rrImage?: string) => {
     const { orderType, lots, lotMode, riskPercent, draftPrice, draftTP, draftSL, candles, cursor, positions, nextId, pendingOrders, nextOrderId, balance } = get();
     const c = candles[cursor];
     if (!c) return false;
@@ -1225,7 +1225,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
         return false;
       }
       set({
-        positions: [...positions, { id: nextId, side, openPrice: c.close, lots: useLots, openTime: c.time, tp, sl }],
+        positions: [...positions, { id: nextId, side, openPrice: c.close, lots: useLots, openTime: c.time, tp, sl, rrImage }],
         nextId: nextId + 1,
         draftTP: null, draftSL: null,
         lastOrderRatiosByKey, error: null,
@@ -1245,7 +1245,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       }
 
       set({
-        pendingOrders: [...pendingOrders, { id: nextOrderId, side, type: orderType, price: draftPrice, lots: useLots, tp, sl }],
+        pendingOrders: [...pendingOrders, { id: nextOrderId, side, type: orderType, price: draftPrice, lots: useLots, tp, sl, rrImage }],
         nextOrderId: nextOrderId + 1,
         lastOrderRatiosByKey,
         draftPrice: null, draftTP: null, draftSL: null, error: null,
@@ -1287,7 +1287,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       closedTrades: [...closedTrades, {
         id: pos.id, side: pos.side, openPrice: pos.openPrice, closePrice: c.close,
         openTime: pos.openTime, closeTime: c.time, lots: pos.lots, pnl,
-        tp: pos.tp, sl: pos.sl,
+        tp: pos.tp, sl: pos.sl, rrImage: pos.rrImage,
       }],
     });
   },
@@ -1302,7 +1302,7 @@ export const useTraderStore = create<TraderState>((set, get) => ({
       return {
         id: pos.id, side: pos.side, openPrice: pos.openPrice, closePrice: c.close,
         openTime: pos.openTime, closeTime: c.time, lots: pos.lots, pnl,
-        tp: pos.tp, sl: pos.sl,
+        tp: pos.tp, sl: pos.sl, rrImage: pos.rrImage,
       };
     });
     const totalPnl = newTrades.reduce((sum, t) => sum + t.pnl, 0);

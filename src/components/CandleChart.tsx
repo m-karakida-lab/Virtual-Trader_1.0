@@ -849,7 +849,9 @@ export function CandleChart({
     // 売買マーカー行（実装は./chart/tradeMarkersOverlay.ts）
     const syncTradeMarkers = createSyncTradeMarkers({
       chartRef, seriesRef, overlayRef: tradeMarkerOverlayRef,
-      elsRef: tradeMarkerElsRef, lineElsRef: tradeMarkerLineElsRef, timeframeSecRef, timeToX,
+      elsRef: tradeMarkerElsRef, lineElsRef: tradeMarkerLineElsRef, timeframeSecRef,
+      // 足と足の間へ補間せず、その時刻を含む足の位置に出す（上位足で足の無い所を指さないように）
+      timeToX: timeToXSnapped,
     });
     syncTradeMarkersRef.current = syncTradeMarkers;
     syncTradeMarkers();
@@ -1968,8 +1970,8 @@ export function CandleChart({
         }} />
       </div>
       <div ref={rrOverlayRef} style={{ position: 'absolute', inset: 0, pointerEvents: 'none', overflow: 'hidden', zIndex: 13, display: 'none' }}>
-        <div ref={rrTpBoxRef} style={{ position: 'absolute', backgroundColor: 'rgba(38,166,154,0.15)', border: '1px solid #26a69a', display: 'none' }} />
-        <div ref={rrSlBoxRef} style={{ position: 'absolute', backgroundColor: 'rgba(239,83,80,0.15)', border: '1px solid #ef5350', display: 'none' }} />
+        <div ref={rrTpBoxRef} style={{ position: 'absolute', backgroundColor: 'rgba(38,166,154,0.15)', display: 'none' }} />
+        <div ref={rrSlBoxRef} style={{ position: 'absolute', backgroundColor: 'rgba(239,83,80,0.15)', display: 'none' }} />
         <div ref={rrLabelRef} style={{
           position: 'absolute', color: '#ccc', fontSize: '13px', fontWeight: 700,
           backgroundColor: '#1a1a1a', border: '1px solid #333', borderRadius: '4px',

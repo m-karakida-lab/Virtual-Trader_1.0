@@ -17,6 +17,7 @@ export interface Position {
   openTime: number;
   tp?: number; // テイクプロフィット価格
   sl?: number; // ストップロス価格
+  rrImage?: string; // 発注時のR:R表示のキャプチャ（JPEG data URL）。決済後もClosedTradeへ引き継ぐ
 }
 
 // 指値・逆指値の未約定注文（価格がローソク足の範囲に入ったら Position に変換される）
@@ -28,6 +29,7 @@ export interface PendingOrder {
   lots: number;
   tp?: number;
   sl?: number;
+  rrImage?: string;
 }
 
 // 決済済みトレードの履歴（チャート上のエントリー・決済マーカー表示用）
@@ -46,6 +48,8 @@ export interface ClosedTrade {
   sl?: number;
   // トレード日誌用の自由メモ（取引履歴パネルで編集、vtdに保存される）。未入力ならundefined
   memo?: string;
+  // 発注時のR:R表示のキャプチャ（JPEG data URL、TP/SLを入れて発注した取引のみ）。vtdにも保存される
+  rrImage?: string;
 }
 
 // 表示時間軸（秒）。月足は暦月ごとに日数が違うため厳密な秒数ではなく、

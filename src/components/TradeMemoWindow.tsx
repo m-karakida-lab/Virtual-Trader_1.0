@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
 import { TIMEFRAMES } from '../types';
+import { fmtDuration, tradePips } from '../lib/tradeFormat';
 import { loadMemoWin, saveMemoWin, type MemoWinRect } from '../lib/tradeMemoWin';
 
 const MIN_W = 240;
@@ -29,6 +30,8 @@ export function TradeMemoWindow() {
   const mainTimeframeSec = useTraderStore(s => s.timeframeSec);
   const quad3Timeframes = useTraderStore(s => s.quad3Timeframes);
   const quad4Timeframes = useTraderStore(s => s.quad4Timeframes);
+  const [zoomed, setZoomed] = useState(false);
+  useEffect(() => setZoomed(false), [memoTradeId]);
   const insertRef = useRef<((text: string) => void) | null>(null);
   const trade = memoTradeId === null ? undefined : closedTrades.find(t => t.id === memoTradeId);
 
@@ -115,7 +118,8 @@ export function TradeMemoWindow() {
         <span>
           <span style={{ color: '#e0e0e0', fontWeight: 700 }}>トレード #{no}</span>
           <span style={{ marginLeft: '8px', color: trade.side === 'BUY' ? '#26a69a' : '#ef5350', fontWeight: 700 }}>{trade.side}</span>
-          <span style={{ marginLeft: '8px' }}>{trade.pnl >= 0 ? '+' : ''}{Math.round(trade.pnl).toLocaleString()}</span>
+          <span style={{ marginLeft: '8px' }}>{tradePips(trade) >= 0 ? '+' : ''}{tradePips(trade).toFixed(1)}pips</span>
+          <span style={{ marginLeft: '8px' }}>{fmtDuration(trade.closeTime - trade.openTime)}</span>
         </span>
         <span style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
         <button
@@ -132,6 +136,23 @@ export function TradeMemoWindow() {
         >×</button>
         </span>
       </div>
+      {trade.rrImage && (
+        <img
+          src={trade.rrImage}
+          alt="発注時のR:R"
+          title="クリックで拡大（発注時のR:R表示）"
+          onClick={() => setZoomed(true)}
+          style={{ flexShrink: 0, width: '100%', maxHeight: '35%', objectFit: 'contain', backgroundColor: '#0d0d0d', borderBottom: '1px solid #2a2a2a', cursor: 'zoom-in' }}
+        />
+      )}
+      {zoomed && trade.rrImage && (
+        <div
+          onClick={() => setZoomed(false)}
+          style={{ position: 'fixed', inset: 0, zIndex: 120, backgroundColor: 'rgba(0,0,0,0.85)', display: 'flex', alignItems: 'center', justifyContent: 'center', cursor: 'zoom-out' }}
+        >
+          <img src={trade.rrImage} alt="発注時のR:R" style={{ maxWidth: '95vw', maxHeight: '95vh', objectFit: 'contain' }} />
+        </div>
+      )}
       <MemoEditor key={trade.id} value={trade.memo ?? ''} onCommit={v => setTradeMemo(trade.id, v)} insertRef={insertRef} />
     </div>
   );

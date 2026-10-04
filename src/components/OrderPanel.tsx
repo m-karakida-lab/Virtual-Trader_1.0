@@ -2,6 +2,7 @@ import { useRef, useState, useEffect } from 'react';
 import { useTraderStore } from '../store/useTraderStore';
 import type { OrderType, Side } from '../types';
 import { pricePrecision } from '../lib/pips';
+import { captureChartAreaDataUrl } from '../lib/screenshot';
 import { loadOrderPanelPos, saveOrderPanelPos, type PanelPos } from '../lib/orderPanelPos';
 import { tfBtn } from './Controls';
 
@@ -167,14 +168,17 @@ export function OrderPanel() {
     dragRef.current = { startX: e.clientX, startY: e.clientY, origX, origY, el: panel };
   };
 
-  const handleExecute = () => {
+  const handleExecute = async () => {
+    // TP/SLを入れている時だけ、発注前（R:R表示が出ている間）の画面をトレード日誌用に撮る。
+    // submitOrderが下書きTP/SLを消すため、必ずその前に撮る
+    const rrImage = draftTP !== null || draftSL !== null ? await captureChartAreaDataUrl() : null;
     // 失敗時（残高不足・TP/SLの向きが矛盾等）はパネルを閉じない。閉じてしまうと
     // エラー内容を見ながら入力を直せないため（成功時のみ閉じる）
-    if (submitOrder(selectedSide)) setOrderPanelOpen(false);
+    if (submitOrder(selectedSide, rrImage ?? undefined)) setOrderPanelOpen(false);
   };
 
   return (
-    <div style={{
+    <div id="vt-order-panel" style={{
       position: 'absolute',
       // 初期位置は左下（PalettePanelは右上で埋まっているため空いている場所）
       ...(pos
