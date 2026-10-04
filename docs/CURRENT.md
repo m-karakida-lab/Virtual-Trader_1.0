@@ -221,6 +221,8 @@ npm run dev        # http://localhost:5173/
 npm run typecheck
 npm test           # vitest。純粋ロジックのみ（`src/lib/*.test.ts`）。UI・操作系のテストは書かない
 ```
+- 検証コマンド: コミット前に `npm run typecheck` と `npm test`。開発サーバーは `127.0.0.1:5173` をユーザーが起動して使っているので、`preview_start` はポート使用中で失敗する（`navigate` で開く）
+- 大きな合成データの検証: 10年分1分足（約375万行）をブラウザ内で生成し `loadFiles([File])` に渡すと実運用規模の確認ができる。ストアは `performance.getEntriesByType('resource')` の `store/useTraderStore.ts` のURLから import して取得する
 
 ## TODO / 既知の不具合
 
