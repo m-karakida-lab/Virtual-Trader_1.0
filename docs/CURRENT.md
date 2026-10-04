@@ -25,18 +25,18 @@
 ### チャート表示
 - 1画面/3画面/4画面。4画面は2x2（既定15m/1H/4H/1D）、3画面は大枠+2枠（既定15m/1H/4H、配置`left`/`top`は3画面ボタンを3画面中にもう一度押して切替）。3画面と4画面の時間軸・メイン枠は別管理。枠間の`gap`（2px）に背景色`#3a3a3a`を敷いて境界を1本の線として見せる（`App.tsx`）
 - パネルクリックでメイン昇格（`promoteSlotToMain`）。昇格しても「今」の時刻は変わらず、戻せば元通り。メインは青枠
-- パネルヘッダー: シンボル+時間足（ドロップダウンで切替、切替先時間足の前回ズームを復元）、🏷トレードマーカー表示切替（時間足単位）、全画面ボタン、「この時間足のみ表示」ボタン（このパネルで表示中の描画種類が対象。まだ限定されていないもの→選ぶとこの時間足限定、他の時間足で非表示に制限されているもの→選ぶと全時間足表示に戻す、の2セクション。制限をかけた時間足のパネルで戻せる。種類は1項目にまとめる、対象外の図形には触らない）、ATR(14)バッジ（pips）、現在時刻「YYYY/MM/DD(曜) HH:mm」
+- パネルヘッダー: シンボル+時間足（ドロップダウンで切替、前回ズーム復元）、🏷トレードマーカー表示切替（時間足単位）、全画面、「この時間足のみ表示」（表示中の描画種類のうち、まだ限定されていないものは「この時間足限定」に、他の時間足で制限されているものは「全時間足表示」に戻す。種類は1項目にまとめる）、ATR(14)バッジ（pips）、現在時刻「YYYY/MM/DD(曜) HH:mm」
 - インジケーター: EMA200・SMA14・BB(20)・一目雲（先行スパンA/Bのみ）・区間区切り線（5m〜1H=日、4H=週、1D/1W=月、MN=年）・東京/ロンドン/NYセッション帯（JST 9-16/16-22/22-7、日足以上は非表示）。全パネル連動
 - 目アイコン（`overlaysHidden`）でインジ・描画物を一括非表示
 - 3/4画面で十字カーソル同期（各パネル自身の足の時刻・直前終値）。十字は`CrosshairMode.Normal`
-- 全期間スクラバー（メインのみ）、📅日付ジャンプ（「移動」/「巻き戻し」、年/月/日を別欄でテキスト入力、全角数字は自動で半角化、年は空欄可で省略時はリプレイ中の足の年を補う、実行後は入力欄を空欄にしポップアップも自動で閉じる）、表示リセット、最新足に固定（`followLatest`）、📷キャプチャ（`#vt-chart-capture-area`をJPEG）
+- 全期間スクラバー（メインのみ）、📅日付ジャンプ（「移動」/「巻き戻し」。年/月/日は別欄のテキスト入力で全角→半角自動、年は空欄可＝リプレイ中の足の年、実行後は欄を空にしてポップアップを閉じる。解釈は`lib/jumpDate.ts`）、表示リセット、最新足に固定（`followLatest`）、📷キャプチャ（`#vt-chart-capture-area`をWebP保存、R:R画像と同じ生成処理）
 - ジャンプモード（3/4画面、`isJumpSync`）: 足をクリックすると他パネルがその時刻へ移動、使用後自動OFF。垂直線の右クリックでもその線の時刻へ同じジャンプ同期
 - チャート本体（プロット領域）をつかんでパンしている間はカーソルを`grabbing`（つかんだ手）にする（`CandleChart.tsx`の`panGrabbing`、価格軸・日付軸のスケール操作は対象外）
 - ズームは時間軸ごとにlocalStorage記憶（`vt:chartView:<sec>`）。パン位置は復元せず最新足基準
 
 ### 描画
 - ツール: 水平線・垂直線・ものさし・四角形・トレンドライン・平行チャネル・矢印・ブラシ・テキスト（`DrawToolbar.tsx`）。配置後は自動解除し選択状態へ。鍵アイコン（`continuousDrawing`）で連続配置
-- パレット（`paletteMode`）: 選択中の図形の色（`LINE_COLORS`8色）・線種・太さを変更。変更値は次回配置のDraft既定にもなり、種類ごと（水平線=垂直線は共有、四角形・トレンドライン・平行チャネル・矢印・ブラシ・テキストは個別）にlocalStorage（`vt:drawDrafts`）へ記憶、次回起動時も引き継ぐ。表示時間足（`hiddenTimeframes`、1H/4H/1D/1W/MN個別、1H OFFで5m/15mも非表示）もここで設定
+- パレット（`paletteMode`）: 選択中の図形の色（`LINE_COLORS`8色）・線種・太さ・表示時間足（`hiddenTimeframes`、1H/4H/1D/1W/MN個別、1H OFFで5m/15mも非表示）を変更。変更値は次回配置の既定にもなり、種類ごと（水平線=垂直線は共有、他は個別）に`vt:drawDrafts`へ記憶して次回起動に引き継ぐ
 - マグネット（`magnetMode`、毎起動ON、強さのみ`vt:magnetStrength`）: 水平線配置/移動、四角形・2点図形の描画/リサイズに効く
 - 水平線/垂直線ラベルのON/OFFは全線一括（`vt:lineLabels`）
 - 四角形は枠線でのみ選択（内側クリックは無反応）、4隅/4辺でリサイズ。2点図形は端点リサイズ・本体移動
@@ -58,7 +58,8 @@
 - 複数ポジション、個別/全決済。建玉のエントリー価格ライン、TP/SLラインにpips表示
 - トレードマーカー: 下部専用行の「#N」タグ（採番は取引履歴の#と同じcloseTime昇順）。クリックで取引履歴の該当行へ、右クリックでトレード日誌メモ窓を開く
 - 取引履歴パネル: エクイティカーブ・指標・方向別/セッション別/曜日別/保有期間帯別分析・取引一覧（行クリックでエントリー時点へ移動）。MAE/MFE・決済後12h/24hの値動き（`tradeExcursion.ts`）
-- トレード日誌: 取引一覧の行頭アイコン／チャート上のマーカー右クリック（📄/メモありは📝）でポップアップ窓（`TradeMemoWindow.tsx`、`fixed`・z110）を開き、自由テキストメモ（`ClosedTrade.memo`）を入力。ヘッダーでドラッグ移動、右下の角でリサイズ、位置・大きさは`vt:tradeMemoWin`に記憶。フォーカスを外す/閉じる/別取引へ切替で保存（打鍵ごとに書くと集計が再計算されるため）。発注時にTP/SLを入れていれば、R:R表示中のチャート領域（`captureChartAreaDataUrl`、「キャプチャ」ボタンの保存と共用、発注パネル除外・等倍WebP・100KB以内に品質を自動調整。取り込みは`<canvas>`を`drawImage`で直接重ね、DOM（canvas除く）だけhtml-to-imageで描いて上に重ねる。画像の符号化は発注後に裏で行い、できたら`attachRrImage`で取引へ付ける）を`rrImage`としてPosition/PendingOrder/ClosedTradeへ引き継ぎ、メモ窓上部に添付風の文字リンク「📎 発注時のR:R画像（NNKB）」（クリックで拡大表示）。.vtdにも含まれる。ヘッダーの「テンプレ」で表示中パネルの時間足（大→小、1画面はメインのみ）の「■1D」等の見出しをカーソル位置に挿入。AIエクスポートには未反映
+- トレード日誌: 取引一覧の行頭アイコン／チャートの#Nタグ右クリックでメモ窓（`TradeMemoWindow.tsx`、`fixed`・z110）。自由テキスト（`ClosedTrade.memo`、.vtd保存）。ヘッダーのドラッグで移動・右下でリサイズ、位置は`vt:tradeMemoWin`。保存はblur/閉じる/別取引切替時（打鍵ごとだと集計が再計算される）。ヘッダーはpips・保有期間、「テンプレ」で表示中パネルの時間足見出し（■1D等）を挿入。AIエクスポートには未反映
+- R:R画像: TP/SL付きで発注すると、その時のチャート領域を`rrImage`としてPosition/PendingOrder/ClosedTradeへ引き継ぐ（.vtd保存）。メモ窓上部の「📎 発注時のR:R画像（NNKB）」クリックで拡大。生成は`lib/screenshot.ts`: `captureChartAreaCanvas`（canvasを直接重ね、DOMだけhtml-to-image）→`encodeCanvasFitted`（WebP・100KB以内に品質を二分探索）。符号化は発注後に裏で行い`attachRrImage`で付与
 - 「📊 AI分析用エクスポート」（`aiExport.ts`）: 前提説明＋指標＋全取引をMarkdownで書き出し
 - 曜日別・保有期間帯別は試験的指標（`HOLD_BUCKETS`/`WEEKDAY_LABELS`、不要なら削除）
 
@@ -69,9 +70,9 @@
 
 ```ts
 Candle       { time(Unix秒,UTC), open, high, low, close }
-Position     { id, side:'BUY'|'SELL', openPrice, lots, openTime, tp?, sl? }
-PendingOrder { id, side, type:'limit'|'stop', price, lots, tp?, sl? }
-ClosedTrade  { id, side, openPrice, closePrice, openTime, closeTime, lots, pnl, tp?, sl?, memo? }  // tp/slは旧データに無い。memoはトレード日誌（vtdに保存）
+Position     { id, side:'BUY'|'SELL', openPrice, lots, openTime, tp?, sl?, rrImage? }
+PendingOrder { id, side, type:'limit'|'stop', price, lots, tp?, sl?, rrImage? }
+ClosedTrade  { id, side, openPrice, closePrice, openTime, closeTime, lots, pnl, tp?, sl?, memo?, rrImage? }  // tp/slは旧データに無い。memo=トレード日誌、rrImage=発注時R:R画像(data URL)。どちらもvtdに保存
 DrawnLine    { id, price, color, dash:LineDash, width:1|2|3|4 }
 DrawnVLine   { id, time, color, dash, width }
 DrawnRect / DrawnTrendLine / DrawnArrow { id, time1, price1, time2, price2, color, dash, width }
@@ -104,16 +105,16 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - `lib/orderMatching.ts` — `processOrderRange`（指値の約定・TP/SL判定。同一足でTP/SL両方ならSL優先、ADR 002）/`lib/jumpDate.ts` — 日付移動の入力解釈。どちらもテストあり
 - `lib/tradeFormat.ts` — `fmtDuration`（保有期間の表示）/`tradePips`（符号付き獲得pips）。取引履歴とメモ窓ヘッダーで共用
 - `lib/crosshairSync.ts` — `priceAtTime`（範囲外null、戻り値`time`は自パネルの足の時刻）
-- `lib/tradeStats.ts`（`computeTradeStats`・`plannedRR`）、`tradeExcursion.ts`、`aiExport.ts`、`screenshot.ts`（`EXCLUDED_IDS`で操作パネル除外）、`orderPanelPos.ts`（`vt:orderPanelPos`）
+- `lib/tradeStats.ts`（`computeTradeStats`・`plannedRR`）、`tradeExcursion.ts`、`aiExport.ts`、`screenshot.ts`（チャート領域の画像化。`EXCLUDED_IDS`で操作パネル除外）、`orderPanelPos.ts`（`vt:orderPanelPos`）
 - `lib/errorLog.ts` — 例外を`vt:errorLog`（直近20件）へ。`window.onerror`/`unhandledrejection`/ErrorBoundaryから記録
 - `lib/errorLogFile.ts` — ログの実ファイル追記（Chrome/Edge、DB`virtual-trader-errorlog`、2MB超で後半のみ残す）。UIは「🪲 ログ」メニュー
-- `store/useTraderStore.ts` — 全状態＋アクション。約定判定`processOrderRange`。チャート操作はシグナル（`fitSignal`/`centerSignal`/`scrollToLatestSignal`をincrement→effectが検知）。パレット同期は`syncPaletteStyleFrom`/`applyPaletteStyleTo`
-- `components/CandleChart.tsx` — lightweight-chartsラッパー（props`{slot, isMain, timeframeSec}`）。isMain=trueはグローバル`candles`/`cursor`、falseは`queryCandles`で自前集計（`nonMainCandles`→`nonMainVisible`、末尾に形成中足を追加）。remountせずprops切替するため初期化effect内は`isMainRef`/`slotRef`/`mySourceIdRef`を読む。巨大初期化effectが`createSyncXxx`で描画モジュールを組み立て、プレビュー/ドラフト状態は`let`で持ちgetter/setterで渡す
+- `store/useTraderStore.ts` — 全状態＋アクション。チャート操作はシグナル（`fitSignal`/`centerSignal`/`scrollToLatestSignal`をincrement→effectが検知）。パレット同期は`syncPaletteStyleFrom`/`applyPaletteStyleTo`
+- `components/CandleChart.tsx` — lightweight-chartsラッパー（props`{slot, isMain, timeframeSec}`）。isMain=trueはグローバル`candles`/`cursor`、falseは`queryCandles`で自前集計（`nonMainCandles`→`nonMainVisible`、末尾に形成中足）。remountせずprops切替なので、初期化effect内は`isMainRef`/`slotRef`/`mySourceIdRef`を読む。初期化effectが`createSyncXxx`で描画モジュールを組み立て、プレビュー状態は`let`で持ちgetter/setterで渡す
 - `components/chart/` — CandleChartから切り出したモジュール（読むだけのrefは`refs.ts`の`ReadRef<T>`）
   - 描画: `linesOverlay`・`rectsOverlay`・`trendLinesOverlay`（`drawTrendLineShape`）・`channelsOverlay`・`arrowsOverlay`・`brushesOverlay`・`textsOverlay`・`cloudOverlay`・`rrPreviewOverlay`・`measureOverlay`・`weekLinesOverlay`・`sessionsOverlay`・`tradeMarkersOverlay`・`scrubber`（`{sync, dispose}`）
-  - マウス: `drag`（`DragSession`/`EditTool`/`combineTools`、1フレーム間引き、`lockChartForDrag`）。ツール`vlineTool`/`twoPointTool`（トレンド・矢印）/`channelTool`/`rectTool`/`brushTool`/`priceLineTool`（下書き・注文/TP/SL・水平線）/`textMoveTool`/`measureTool`
-  - 部品: `hitTest`（全`findXxxNear`・許容px）、`coordinates`（`pixelToTime`/`pixelToContinuousTime`/`magnetSnap`）、`candleIndex`（`candleIndexAt`）、`canvas`（`DASH_TO_CANVAS`/`beginCanvasFrame`）、`keyboard`（Delete/Undo/コピペ）、`textEditing`（直接編集、`getEditingTextId`）
-  - フック: `useIndicatorSeries`（メインの増分計算・表示切替）、`useViewRange`（`useViewRangeCommands`=リサイズ/リセット/最新足ボタン、`useViewRangeSync`=追従/十字同期/時間足切替/日付・ジャンプ同期）、`usePriceLines`（注文・建玉・下書きの価格ライン、`pipsBetween`）
+  - マウス: `drag`（`DragSession`/`EditTool`/`combineTools`/`lockChartForDrag`）。ツール: `vlineTool`/`twoPointTool`（トレンド・矢印）/`channelTool`/`rectTool`/`brushTool`/`priceLineTool`/`textMoveTool`/`measureTool`
+  - 部品: `hitTest`（`findXxxNear`）、`coordinates`（`pixelToTime`/`pixelToContinuousTime`/`magnetSnap`）、`candleIndex`、`canvas`（`DASH_TO_CANVAS`/`beginCanvasFrame`）、`keyboard`、`textEditing`
+  - フック: `useIndicatorSeries`（メインの増分計算）、`useViewRange`（`useViewRangeCommands`=リサイズ/リセット/最新足、`useViewRangeSync`=追従/十字同期/時間足切替/日付・ジャンプ同期）、`usePriceLines`
 - `components/ChartHeader.tsx` / `Controls.tsx`（下部バー・`MenuButton`ポップアップ・再生ボタン）/ `OrderPanel.tsx` / `PalettePanel.tsx`（位置はマウント中のみ記憶）/ `DrawToolbar.tsx`（ツール起動と`DrawnObjectsPopup`一覧）/ `HistoryPanel.tsx` / `FileLoader.tsx` / `ErrorBoundary.tsx`（`main.tsx`でApp全体を包む）
 - `OrderPanel`: 開いた時・注文種別/方向切替時に`lastOrderRatiosByKey`（`${orderType}:${side}`）の前回比率を価格/TP/SLへ仮入力
 
@@ -124,26 +125,24 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - z順: 雲canvas 5 < 区切り線/セッション/マーカー 8 < 描画canvas 9 < 矢印 10 < `overlayRef` 11 < ものさし 12 < RR 13 < スクラバー 14
 - グリッド・最終値ラインはSeries Primitivesで前後制御できない。描画物はPrimitivesでなく自前canvas/DOMで描く
 - ローソク足・背景・グリッドは同一canvas。負のz-indexで「足の下」に置くと背景ごと隠れる
-- 描画物と重なる足を抜くのは`cutCandlesFromCanvas`（`CandleChart.tsx`、ヒゲ幅`WICK_CUTOUT_PX`は近似）に一本化。対象はメインでも`effectiveCursorRef`までの開示済み足のみ（`displayCandlesRef`はメインだと未開示の未来足まで含むため、絞らないと四角形・雲が将来足の分まで見越して抜ける）
+- 描画物と重なる足を抜くのは`cutCandlesFromCanvas`（`CandleChart.tsx`、ヒゲ幅`WICK_CUTOUT_PX`は近似）に一本化。対象は開示済み足（`effectiveCursorRef`まで）のみ。`displayCandlesRef`はメインだと未来足を含む
 - ロウソク足Series（`addCandlestickSeries`）はEMA/SMA/BB/雲の線Seriesより後に追加する（後から追加したものが上）
 - 自前canvasは`devicePixelRatio`倍で確保し`setTransform`で描く
-- 価格軸スケール変更は購読できない。再描画は`syncDrawingOverlays`に一本化し全経路（`onRangeChange`・`onWindowMouseMoveForPriceScale`・リサイズ等）から呼ぶ。新しい描画要素はここへ足す
-- 描画・当たり判定・ハンドルは`getVisibleDrawings()`経由で取得（生配列だと非表示図形が反応）。例外: 水平線の価格ラベル同期、ドラッグ中のID引き、テキスト（`display:none`で隠し編集中は表示継続）
+- 価格軸スケール変更は購読できない。再描画は`syncDrawingOverlays`に一本化し全経路から呼ぶ。新しい描画要素はここへ足す
+- 描画・当たり判定・ハンドルは`getVisibleDrawings()`経由（生配列だと非表示図形が反応）。例外: 水平線の価格ラベル同期、ドラッグ中のID引き、テキスト
 - 描画種を増やす時は`pushDrawHistory`/`undo`/`DrawSnapshot`/`loadFiles`/`saveChartFile`/`vtd.ts`の6箇所に配列とnextIdを追加
 - 巨大effectで`syncXxx`が参照する`let`は`syncXxx`定義より前に置く（TDZ）。共有定数はモジュールレベル（`chart/canvas.ts`）
 - 既存図形を掴む判定順は`editTools`の並び1か所（mousedownとホバー共通）。矢印は先頭寄り、水平線は全幅ヒットのため最後
 - 2点図形の当たり判定は`projectSegment`/`hitSegmentEndpoint`/`hitSegmentBody`を使う
 - ドラッグ中は`lockChartForDrag`で`handleScroll`/`handleScale`を切り、終了時に必ず戻す
 - 水平線・垂直線・TP/SL・draft価格は丸めない（表示のみ`toFixed`）
-- `LINE_COLORS`の並びを変えたら既定色`LINE_COLORS[3]`（青）参照も直す
 - 水平線本体はcanvas描画、`createPriceLine`は`lineVisible:false`で価格軸ラベル専用
 - `DrawToolbar`のポップアップは祖先`overflow:hidden`で切れるため`position:fixed`＋`getBoundingClientRect`
-- Delete/Backspace両方拾う（Macの削除キーはBackspace）
-- テキスト空判定は`.vt-text-editable:empty::before`。input時にtextContentが空ならinnerHTMLも空にする
 
 **座標変換**
 - `timeToCoordinate`は実在・setData済みの足と完全一致しないとnull（雲の先行範囲と画面外は例外）。図形は`timeToX`（線形補間）経由
-- 垂直線は描画・ハンドル・当たり判定（`findVLineNear`）すべて`timeToXSnapped`（含む足へスナップ）。1箇所だけ変えるとズレる
+- 垂直線・トレードマーカーは、描画・ハンドル・当たり判定（`findVLineNear`）すべて`timeToXSnapped`（含む足へスナップ）。1箇所だけ変えるとズレる
+- 開示済み最後の足より先（未来）の時刻は、`timeToX`が全期間の足の並び上の位置を`logicalToCoordinate`の整数2点補間で外挿する（最後の足へのクランプは角度が変わる。小数indexを渡すと0が返る）
 - `pixelToTime`は`coordinateToTime`ベース。ブラシ等の連続サンプリングは`pixelToContinuousTime`
 - 平行移動・雲のずらしは秒でなく足インデックス（`candleIndexAt`/`cloudDisplacedTime`）。ブラシ移動のみ素の時間差
 - cursorより未来の時刻（セッション終了等）は開示済み最後の足の終わり（`time + timeframeSec`）へクランプしてから`timeToX`
@@ -156,9 +155,9 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - `resetTimeScale()`直後の`getVisibleLogicalRange()`は古い。rAFを挟む
 - 最新足固定は`scrollToRealTime()`でなく`applyLatestViewRef`。`fullTotal + offset`が0以下なら既定オフセットへフォールバック
 - `followAnchorRef`は`followLatest`がfalseになってもnullに戻さない（非nullなら戻る操作でも`applyLatestViewRef`で位置確定）
-- 非メインは`followLatest`に関わらず常時追従。ジャンプ同期後（発信元パネルも含む）と日付移動等の`centerSignal`移動後は`captureFollowAnchorRef`でアンカーを捕捉する。降格の瞬間は`effectiveCursorRef`上書き前の値で直接アンカーを作る（降格直後は自前集計が空で末尾index=-1になり、捕捉できず最新足へ飛ぶ）。アンカー未設定の非メインは`nonMainVisible`更新のたび最新足へ寄る
-- 追従・十字同期・`centerSignal`等は`useViewRangeSync`内。必ずsetData系effectより後で呼ぶ（先だと空範囲でアンカー捕捉→足が出ない、`scrollToRealTime()`に上書き）
-- メイン昇格直後の最新足強制ジャンプは1回スキップ（`wasMainForDataSyncRef`）、降格直後の非メイン初回フィットも1回スキップ（`skipNextNonMainFitRef`、空の`nonMainCandles`は「新データセット」に数えず、本物のデータが届くまで消費しない）
+- 非メインは`followLatest`に関わらず常時追従。ジャンプ同期後（発信元含む）・`centerSignal`移動後は`captureFollowAnchorRef`でアンカーを捕捉。降格の瞬間は`effectiveCursorRef`上書き前の値で直接アンカーを作る。アンカー未設定の非メインは`nonMainVisible`更新のたび最新足へ寄る
+- 追従・十字同期・`centerSignal`等は`useViewRangeSync`内。必ずsetData系effectより後で呼ぶ（先だと空範囲でアンカー捕捉）
+- メイン昇格直後の最新足強制ジャンプは1回スキップ（`wasMainForDataSyncRef`）、降格直後の非メイン初回フィットも1回スキップ（`skipNextNonMainFitRef`、空の`nonMainCandles`では消費しない）
 - 保存ビュー復元は`to`固定・`from`を0未満にしない（リプレイ序盤のはみ出し防止）。spanは全期間本数で頭打ち
 - 全期間スクラバーの全体は`cursor+1`（`candles.length`は未来を含むので使わない）
 
@@ -169,13 +168,11 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - `setTimeframe`のcursor復元は`mainRevealedUntil`基準、未確定なら`buildPartialCandle`の形成中足に置く
 - ヘッダーの現在時刻表示は`mainDisplayTime`（切替をまたいで据え置き）を表示
 - 非メインの`nonMainVisible`は空でも`setData([])`する（`length===0`で早期return禁止）
-- 非メインは、確定足が前回と同じ（先頭・末尾直前が同一参照、増分400本以内、200本以上）なら`computeTail`で末尾だけ`update()`。それ以外は全体`setData`（`nonMainPrevRef`。メイン中は必ず破棄）
-- 全期間を走査するオーバーレイ処理（`cutCandlesFromCanvas`/雲/セッション帯/区切り線）は表示範囲（`getVisibleLogicalRange`）だけ処理する。区切り線・セッション帯の元データは非メインでは`nonMainCandles`（毎tick再計算しない）
-- lightweight-charts 4.2.3はデータ更新のたび、その系列の全点を再構築する（描画コストが系列本数×総本数に比例）。10年分の1Hを表示するパネルの再生が重い主因
+- 非メインは、確定足が前回と同じ（先頭・末尾直前が同一参照、増分400本以内、200本以上）なら`computeTail`で末尾だけ`update()`、それ以外は全体`setData`（`nonMainPrevRef`、メイン中は破棄）
+- 全期間を走査するオーバーレイ（`cutCandlesFromCanvas`/雲/セッション帯/区切り線）は表示範囲（`getVisibleLogicalRange`）だけ処理。区切り線・セッション帯の元データは非メインでは`nonMainCandles`
+- lightweight-charts 4.2.3はデータ更新のたび系列の全点を再構築する（描画コストは系列本数×総本数）。長期間の細かい時間足パネルが再生の重さの主因
 - 起動時メイン時間軸は`vt:quad3`/`vt:quad4`の`timeframes[mainSlot]`から決まる（別に保存しない）
 - 1画面時の非メイン3枠・3画面時の枠3は`width/height:0`でマウントし続ける（remount回避）
-- `CandleChart`ルート`<div>`は`width/height:100%`必須
-- `priceLineMapRef`等のIPriceLineマップは初期化effectのクリーンアップで`.clear()`
 - chart/series APIを呼ぶeffectはtry/catch＋`errorLog`で継続（`window.onerror`に漏れても動作継続）
 
 **十字カーソル同期**
@@ -192,20 +189,18 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - 垂直系（区切り線・垂直線）は日付軸欄の手前で止め、日付ラベルを出す線だけ軸欄の帯の中央（ラベル位置）まで伸ばしてラベルと一体に見せる
 - 区切り線の日付ラベルはDOM自前描画。表示幅内・土曜以外で最新の1本のみ、cursorより未来の区切りは出さない
 - カーソル位置の日付と近い自前ラベル（区切り線・垂直線）は`hideLabelNearCursor`で隠す（しきい値28px）
-- `ChartHeader`のクリック領域はz-index:2帯を避ける
 
 **データ・約定**
 - `read_csv`は`all_varchar=true`/`ignore_errors=true`必須。末尾の0x1A等の制御バイトは`loadCSVFiles`で事前に切り落とす
 - DuckDB-wasmはSharedArrayBuffer使用のためCOOP/COEPヘッダ必須（`vite.config.ts`）
 - JST変換は集計結果に事後適用。バケット境界はブローカー時間のまま。区切り線は実在の足を境界にする（`computeSeparatorBoundaries`）
-- `processOrderRange`は1本ずつ、同一バーでTP/SL両ヒットはSL優先。`jumpToTime`は前進時のみ約定判定
+- `jumpToTime`は前進時のみ約定判定（判定は`processOrderRange`が1本ずつ）
 - `jumpToTime`は通常モードでcursorを戻さない（`Math.max`）。`{rewind:true}`のみ戻す（約定は取り消さない）
 - P&Lはクオート通貨のまま
 - `rawCsvText`は単一ファイル読込時のみ
 - CSV再読込で描画8種・`closedTrades`・`positions`・`pendingOrders`を全リセット。時間軸切替では保持
 - BBは`showBB`OFFでも計算継続し`visible:false`。`overlaysHidden`は`visible:false`でなく透明色（オートスケール維持）
 - OrderPanelのTP/SL再現は「再現したエントリー価格」基準（現在値基準だとRRが崩れる）
-- 開いた履歴の`FileSystemDirectoryHandle`は`startIn`用のみ（フルパスは取れない）
 
 **その他**
 - 自動再生は`requestAnimationFrame`（`setInterval`は描画ノイズ）。再生中は毎ステップ`autoScale`再有効化
