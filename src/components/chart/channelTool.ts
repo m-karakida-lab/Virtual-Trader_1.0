@@ -105,10 +105,7 @@ export function createChannelTool(deps: ChannelToolDeps) {
       const id = findOffsetLine(x, y);
       if (id === null) return null;
       if (!seriesRef.current) return CONSUMED;
-      const ch = channels().find(c => c.id === id);
-      const startPrice = seriesRef.current.coordinateToPrice(y);
-      if (!ch || startPrice === null) return CONSUMED;
-      const baseOffset = ch.offset;
+      if (!channels().some(c => c.id === id)) return CONSUMED;
       lockChartForDrag(chart);
       // オフセット線は上下（価格）方向の幅調整専用の操作なので、水平線と同じns-resizeカーソルにする
       container.style.cursor = 'ns-resize';
@@ -117,11 +114,14 @@ export function createChannelTool(deps: ChannelToolDeps) {
       let active = true;
       let pending: number | null = null;
       return {
-        move(_x, my) {
-          if (!seriesRef.current) return;
-          const p = seriesRef.current.coordinateToPrice(my);
-          if (p === null) return;
-          pending = baseOffset + (p - startPrice);
+        move(mx, my) {
+          // 新規描画の確定時と同じく、マグネット（足の四本値への吸着）を通した価格と、
+          // 基準線のその時刻での価格の差をオフセットにする
+          const cur = channels().find(c => c.id === id);
+          if (!cur) return;
+          const snap = magnetSnap(mx, my);
+          if (snap === null) return;
+          pending = offsetAt(cur, mx, snap.price);
           throttle(() => {
             if (!active || pending === null) return;
             const cur = channels().find(c => c.id === id);
