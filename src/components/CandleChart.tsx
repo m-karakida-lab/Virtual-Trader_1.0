@@ -1285,7 +1285,19 @@ export function CandleChart({
       beginEditExistingText(textId);
     };
 
+    // 垂直線を右クリックすると、その時刻へジャンプ同期（ジャンプモードの足クリックと同じ動作）
+    const onContextMenu = (e: MouseEvent) => {
+      const rect = container.getBoundingClientRect();
+      const id = findVLineNear(e.clientX - rect.left);
+      if (id === null) return;
+      const v = getVisibleDrawings().vlines.find(vl => vl.id === id);
+      if (!v) return;
+      e.preventDefault();
+      useTraderStore.getState().jumpSyncTo(mySourceIdRef.current, v.time);
+    };
+
     container.addEventListener('mousedown', onMouseDown);
+    container.addEventListener('contextmenu', onContextMenu);
     container.addEventListener('dblclick', onDblClick);
     window.addEventListener('mousemove', onMouseMove);
     window.addEventListener('mouseup', onMouseUp);
@@ -1371,6 +1383,7 @@ export function CandleChart({
       container.removeEventListener('mousedown', onMouseDown);
       container.removeEventListener('dblclick', onDblClick);
       window.removeEventListener('mousemove', onMouseMove);
+      container.removeEventListener('contextmenu', onContextMenu);
       window.removeEventListener('keydown', onShiftKey);
       window.removeEventListener('keyup', onShiftKey);
       window.removeEventListener('mouseup', onMouseUp);

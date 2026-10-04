@@ -326,8 +326,8 @@ export function OrderPanel() {
         >📍</button>
         {(draftPrice !== null || draftTP !== null || draftSL !== null || pickTarget !== null) && (
           <button
-            onClick={clearDraft}
-            title="価格・TP・SLの下書きをクリア"
+            onClick={() => { clearDraft(); setOrderPanelOpen(false); }}
+            title="価格・TP・SLの下書きをクリアして発注パネルを閉じる"
             style={{
               backgroundColor: '#1a1a1a', color: '#888', border: '1px solid #2a2a2a',
               borderRadius: '3px', padding: '6px 10px', fontSize: '13px', cursor: 'pointer',

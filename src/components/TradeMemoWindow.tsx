@@ -137,13 +137,14 @@ export function TradeMemoWindow() {
         </span>
       </div>
       {trade.rrImage && (
-        <img
-          src={trade.rrImage}
-          alt="発注時のR:R"
-          title="クリックで拡大（発注時のR:R表示）"
-          onClick={() => setZoomed(true)}
-          style={{ flexShrink: 0, width: '100%', maxHeight: '35%', objectFit: 'contain', backgroundColor: '#0d0d0d', borderBottom: '1px solid #2a2a2a', cursor: 'zoom-in' }}
-        />
+        // メールの添付ファイルのように、画像があることだけを文字で示す。クリックで拡大表示
+        <div style={{ flexShrink: 0, padding: '4px 10px', borderBottom: '1px solid #2a2a2a', backgroundColor: '#161616', fontSize: '12px' }}>
+          <span
+            onClick={() => setZoomed(true)}
+            title="クリックで画像を表示"
+            style={{ color: '#64b5f6', cursor: 'pointer', textDecoration: 'underline' }}
+          >📎 発注時のR:R画像（{Math.round(((trade.rrImage.length - trade.rrImage.indexOf(',') - 1) * 0.75) / 1024)}KB）</span>
+        </div>
       )}
       {zoomed && trade.rrImage && (
         <div
