@@ -58,7 +58,7 @@
 - 複数ポジション、個別/全決済。建玉のエントリー価格ライン、TP/SLラインにpips表示
 - トレードマーカー: 下部専用行の「#N」タグ（採番は取引履歴の#と同じcloseTime昇順）。クリックで取引履歴の該当行へ、右クリックでトレード日誌メモ窓を開く
 - 取引履歴パネル: エクイティカーブ・指標・方向別/セッション別/曜日別/保有期間帯別分析・取引一覧（行クリックでエントリー時点へ移動）。MAE/MFE・決済後12h/24hの値動き（`tradeExcursion.ts`）
-- トレード日誌: 取引一覧の行頭アイコン／チャートの#Nタグ右クリックでメモ窓（`TradeMemoWindow.tsx`、`fixed`・z110）。自由テキスト（`ClosedTrade.memo`、.vtd保存）。ヘッダーのドラッグで移動・右下でリサイズ、位置は`vt:tradeMemoWin`。保存はblur/閉じる/別取引切替時（打鍵ごとだと集計が再計算される）。ヘッダーはpips・保有期間、「テンプレ」で表示中パネルの時間足見出し（■1D等）を挿入。AIエクスポートには未反映
+- トレード日誌: 取引一覧の行頭アイコン／チャートの#Nタグ右クリックでメモ窓（`TradeMemoWindow.tsx`、`fixed`・z110）。自由テキスト（`ClosedTrade.memo`、.vtd保存）。ヘッダーのドラッグで移動、左・右・下の辺と下の角でリサイズ（自前ハンドル）、位置・大きさは`vt:tradeMemoWin`。保存はblur/閉じる/別取引切替時（打鍵ごとだと集計が再計算される）。ヘッダーはpips・保有期間、「テンプレ」で表示中パネルの時間足見出し（■1D等）を挿入。AIエクスポートには未反映
 - R:R画像: TP/SL付きで発注すると、その時のチャート領域を`rrImage`としてPosition/PendingOrder/ClosedTradeへ引き継ぐ（.vtd保存）。メモ窓上部の「📎 発注時のR:R画像（NNKB）」クリックで拡大。生成は`lib/screenshot.ts`（ADR 005）: `captureChartAreaCanvas`（canvasを直接重ね、DOMだけhtml-to-image）→`encodeCanvasFitted`（WebP・100KB以内に品質を二分探索）。符号化は発注後に裏で行い`attachRrImage`で付与
 - 「📊 AI分析用エクスポート」（`aiExport.ts`）: 前提説明＋指標＋全取引をMarkdownで書き出し
 - 曜日別・保有期間帯別は試験的指標（`HOLD_BUCKETS`/`WEEKDAY_LABELS`、不要なら削除）

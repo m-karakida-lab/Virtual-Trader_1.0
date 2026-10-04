@@ -40,16 +40,35 @@ export function TradeMemoWindow() {
   rectRef.current = rect;
   const elRef = useRef<HTMLDivElement>(null);
   const dragRef = useRef<{ sx: number; sy: number; ox: number; oy: number } | null>(null);
+  // 左・右・下の辺（と下の角）をつかんだ大きさ変更。l/r/bはつかんだ辺
+  const resizeRef = useRef<{ l: boolean; r: boolean; b: boolean; sx: number; sy: number; o: MemoWinRect } | null>(null);
 
   useEffect(() => {
     const onMove = (e: MouseEvent) => {
       const d = dragRef.current;
-      if (!d) return;
-      setRect(r => clampToViewport({ ...r, x: d.ox + e.clientX - d.sx, y: d.oy + e.clientY - d.sy }));
+      if (d) {
+        setRect(r => clampToViewport({ ...r, x: d.ox + e.clientX - d.sx, y: d.oy + e.clientY - d.sy }));
+        return;
+      }
+      const z = resizeRef.current;
+      if (!z) return;
+      const dx = e.clientX - z.sx, dy = e.clientY - z.sy;
+      let { x, w, h } = z.o;
+      if (z.r) w = Math.min(Math.max(MIN_W, z.o.w + dx), window.innerWidth - z.o.x);
+      if (z.l) {
+        // 右端は動かさず、左端だけを動かす（最小幅・画面の左端でとめる）
+        x = Math.min(Math.max(0, z.o.x + dx), z.o.x + z.o.w - MIN_W);
+        w = z.o.x + z.o.w - x;
+      }
+      if (z.b) h = Math.min(Math.max(MIN_H, z.o.h + dy), window.innerHeight - z.o.y);
+      const next = { ...rectRef.current, x, w, h };
+      rectRef.current = next; // 離した瞬間の保存が、再描画を待たずに最新の大きさを使えるようにする
+      setRect(next);
     };
     const onUp = () => {
-      if (dragRef.current) saveMemoWin(rectRef.current);
+      if (dragRef.current || resizeRef.current) saveMemoWin(rectRef.current);
       dragRef.current = null;
+      resizeRef.current = null;
     };
     const onWinResize = () => setRect(r => clampToViewport(r));
     window.addEventListener('mousemove', onMove);
@@ -61,26 +80,6 @@ export function TradeMemoWindow() {
       window.removeEventListener('resize', onWinResize);
     };
   }, []);
-
-  // 右下の角のドラッグによる大きさ変更はDOM側で起きるので、ResizeObserverで拾って記憶する
-  const open = trade !== undefined;
-  useEffect(() => {
-    const el = elRef.current;
-    if (!el) return;
-    let timer: number | undefined;
-    const ro = new ResizeObserver(() => {
-      const w = el.offsetWidth, h = el.offsetHeight;
-      if (w === rectRef.current.w && h === rectRef.current.h) return;
-      window.clearTimeout(timer);
-      timer = window.setTimeout(() => {
-        const next = { ...rectRef.current, w, h };
-        setRect(next);
-        saveMemoWin(next);
-      }, 200);
-    });
-    ro.observe(el);
-    return () => { ro.disconnect(); window.clearTimeout(timer); };
-  }, [open]);
 
   if (!trade) return null;
   // 表示中パネルの時間足を大きい順に並べた見出しテンプレート（1画面はメインの1つだけ）
@@ -96,7 +95,7 @@ export function TradeMemoWindow() {
       ref={elRef}
       style={{
         position: 'fixed', left: rect.x, top: rect.y, width: rect.w, height: rect.h,
-        minWidth: MIN_W, minHeight: MIN_H, resize: 'both', overflow: 'hidden',
+        minWidth: MIN_W, minHeight: MIN_H, overflow: 'hidden',
         zIndex: 110, display: 'flex', flexDirection: 'column',
         backgroundColor: '#141414', border: '1px solid #2a2a2a', borderRadius: '8px',
         boxShadow: '0 8px 24px rgba(0,0,0,0.6)',
@@ -155,6 +154,23 @@ export function TradeMemoWindow() {
         </div>
       )}
       <MemoEditor key={trade.id} value={trade.memo ?? ''} onCommit={v => setTradeMemo(trade.id, v)} insertRef={insertRef} />
+      {/* 左・右・下の辺と下の角でリサイズ（上の辺はヘッダーの移動と区別するため無し） */}
+      {([
+        { k: 'r', s: { top: 0, bottom: 0, right: 0, width: 6, cursor: 'ew-resize' }, l: false, r: true, b: false },
+        { k: 'l', s: { top: 0, bottom: 0, left: 0, width: 6, cursor: 'ew-resize' }, l: true, r: false, b: false },
+        { k: 'b', s: { left: 0, right: 0, bottom: 0, height: 6, cursor: 'ns-resize' }, l: false, r: false, b: true },
+        { k: 'br', s: { right: 0, bottom: 0, width: 14, height: 14, cursor: 'nwse-resize' }, l: false, r: true, b: true },
+        { k: 'bl', s: { left: 0, bottom: 0, width: 14, height: 14, cursor: 'nesw-resize' }, l: true, r: false, b: true },
+      ] as const).map(hd => (
+        <div
+          key={hd.k}
+          onMouseDown={e => {
+            resizeRef.current = { l: hd.l, r: hd.r, b: hd.b, sx: e.clientX, sy: e.clientY, o: rect };
+            e.preventDefault();
+          }}
+          style={{ position: 'absolute', zIndex: 3, ...hd.s }}
+        />
+      ))}
     </div>
   );
 }
