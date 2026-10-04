@@ -101,6 +101,7 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 - `lib/indicators.ts` — EMA/SMA/BB/雲/ATRのフル計算と末尾だけの`computeTail`（非メインが使用）、`cloudDisplacedTime`
 - `lib/weekLines.ts`（`computeSeparatorBoundaries`/`computeDayBoundaries`）、`lib/sessions.ts`（`computeSessionBands`、取引分析用`sessionKeyAt`）
 - `lib/partialCandle.ts` — `buildPartialCandle`/`findBucketIndexContaining`（形成中足の部分集計、非メイン描画とメイン切替で共有）
+- `lib/orderMatching.ts` — `processOrderRange`（指値の約定・TP/SL判定。同一足でTP/SL両方ならSL優先、ADR 002）/`lib/jumpDate.ts` — 日付移動の入力解釈。どちらもテストあり
 - `lib/tradeFormat.ts` — `fmtDuration`（保有期間の表示）/`tradePips`（符号付き獲得pips）。取引履歴とメモ窓ヘッダーで共用
 - `lib/crosshairSync.ts` — `priceAtTime`（範囲外null、戻り値`time`は自パネルの足の時刻）
 - `lib/tradeStats.ts`（`computeTradeStats`・`plannedRR`）、`tradeExcursion.ts`、`aiExport.ts`、`screenshot.ts`（`EXCLUDED_IDS`で操作パネル除外）、`orderPanelPos.ts`（`vt:orderPanelPos`）
@@ -218,6 +219,7 @@ DuckDB: `candles_1m`（ts BIGINT, open/high/low/close DOUBLE, volume BIGINT）�
 npm install
 npm run dev        # http://localhost:5173/
 npm run typecheck
+npm test           # vitest。純粋ロジックのみ（`src/lib/*.test.ts`）。UI・操作系のテストは書かない
 ```
 
 ## TODO / 既知の不具合
