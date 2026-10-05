@@ -330,6 +330,28 @@ export function CandleChart({
     return atr / inferPipSize(displayCandles[idx].close);
   }, [displayCandles, isMain, cursor]);
 
+  // 右クリックメニュー（ブラウザ標準の代わりに出す独自メニュー）。nullなら非表示。
+  // clientX/Yはメニューの表示位置、timeはクリックした位置の時刻
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; time: number } | null>(null);
+  const ctxMenuElRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!ctxMenu) return;
+    const close = () => setCtxMenu(null);
+    // メニュー自身の上のmousedownでは閉じない（閉じるとclickが届かない）
+    const closeOutside = (e: MouseEvent) => { if (!ctxMenuElRef.current?.contains(e.target as Node)) close(); };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') close(); };
+    window.addEventListener('mousedown', closeOutside);
+    window.addEventListener('keydown', onKey);
+    window.addEventListener('blur', close);
+    window.addEventListener('wheel', close);
+    return () => {
+      window.removeEventListener('mousedown', closeOutside);
+      window.removeEventListener('keydown', onKey);
+      window.removeEventListener('blur', close);
+      window.removeEventListener('wheel', close);
+    };
+  }, [ctxMenu]);
+
   // ヘッダーの「この時間足のみ表示」／「全時間足で表示に戻す」ドロップダウン用。どちらも
   // このパネルで表示中の描画が対象。前者は「この時間足限定」にまだなっていないもの、後者は
   // 他の時間足で非表示に制限されているもの（＝制限をかけたこの時間足のパネルで戻せる）。
@@ -1273,15 +1295,27 @@ export function CandleChart({
       beginEditExistingText(textId);
     };
 
-    // 垂直線を右クリックすると、その時刻へジャンプ同期（ジャンプモードの足クリックと同じ動作）
+    // 右クリック。垂直線の上なら、その時刻へジャンプ同期（ジャンプモードの足クリックと同じ動作）。
+    // それ以外のプロット領域ではブラウザ標準のメニューの代わりに独自メニュー（ここにジャンプ）を出す
     const onContextMenu = (e: MouseEvent) => {
       const rect = container.getBoundingClientRect();
-      const id = findVLineNear(e.clientX - rect.left);
-      if (id === null) return;
-      const v = getVisibleDrawings().vlines.find(vl => vl.id === id);
-      if (!v) return;
+      const x = e.clientX - rect.left, y = e.clientY - rect.top;
+      const id = findVLineNear(x);
+      if (id !== null) {
+        const v = getVisibleDrawings().vlines.find(vl => vl.id === id);
+        if (v) {
+          e.preventDefault();
+          useTraderStore.getState().jumpSyncTo(mySourceIdRef.current, v.time);
+          return;
+        }
+      }
+      // 価格軸・日付軸の上では何もしない（標準のメニューのまま）
+      const ts = chart.timeScale();
+      if (x >= ts.width() || y >= rect.height - ts.height()) return;
+      const time = pixelToTime(x);
+      if (time === null) return;
       e.preventDefault();
-      useTraderStore.getState().jumpSyncTo(mySourceIdRef.current, v.time);
+      setCtxMenu({ x: e.clientX, y: e.clientY, time });
     };
 
     container.addEventListener('mousedown', onMouseDown);
@@ -1887,6 +1921,32 @@ export function CandleChart({
         if (s.crosshairSourceId === mySourceId) s.setCrosshair(null, null);
       }}
     >
+      {ctxMenu && (
+        <div
+          ref={ctxMenuElRef}
+          // 画面の右端・下端にはみ出さない位置へ寄せる（メニューは約160×36px）
+          style={{
+            position: 'fixed', zIndex: 120,
+            left: Math.min(ctxMenu.x, window.innerWidth - 170), top: Math.min(ctxMenu.y, window.innerHeight - 46),
+            backgroundColor: '#1a1a1a', border: '1px solid #2a2a2a', borderRadius: '6px',
+            padding: '4px', boxShadow: '0 4px 16px rgba(0,0,0,0.6)',
+          }}
+          onContextMenu={e => e.preventDefault()}
+        >
+          <div
+            onClick={() => {
+              // その場所に垂直線を引いてから、その時刻へジャンプ同期する
+              const st = useTraderStore.getState();
+              st.addVLine(ctxMenu.time);
+              st.jumpSyncTo(mySourceId, ctxMenu.time);
+              setCtxMenu(null);
+            }}
+            onMouseEnter={e => { e.currentTarget.style.backgroundColor = '#2a2a2a'; }}
+            onMouseLeave={e => { e.currentTarget.style.backgroundColor = 'transparent'; }}
+            style={{ padding: '6px 14px', fontSize: '13px', color: '#e0e0e0', cursor: 'pointer', borderRadius: '4px', whiteSpace: 'nowrap' }}
+          >ここにジャンプ</div>
+        </div>
+      )}
       <ChartHeader
         symbol={symbol}
         timeframeLabel={timeframeLabel}
